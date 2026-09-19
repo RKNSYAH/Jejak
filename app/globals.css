@@ -1,26 +1,83 @@
 @import "tailwindcss";
+@plugin "daisyui";
+@plugin "daisyui/theme" {
+  name: "jejak";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-base-100: #FFF9F9;
+  --color-base-200: oklch(96% 0.005 10);
+  --color-base-300: oklch(92% 0.008 10);
+  --color-base-content: #080935;
+
+  --color-primary: #098DEC;
+  --color-primary-content: #ffffff;
+
+  --color-secondary: #080935;
+  --color-secondary-content: #FFF9F9;
+
+  --color-accent: oklch(65% 0.25 160);
+  --color-accent-content: #ffffff;
+
+  --color-neutral: #080935;
+  --color-neutral-content: #FFF9F9;
+
+  --color-info: oklch(70% 0.2 220);
+  --color-info-content: #ffffff;
+
+  --color-success: oklch(65% 0.25 140);
+  --color-success-content: #ffffff;
+
+  --color-warning: oklch(55% 0.195 38.402);
+  --color-warning-content: #080935;
+
+  --color-error: oklch(50% 0.213 27.518);
+  --color-error-content: #ffffff;
+
+  --radius-selector: 1rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-urbanist);
+  --font-body: var(--font-source-sans-3);
+
+  /* Semantic aliases for design tokens */
+  --color-ink: #080935;
+  --color-ink-muted: rgba(8, 9, 53, 0.64);
+  --color-rule: rgba(8, 9, 53, 0.14);
+  --color-panel-surface: rgba(255, 249, 249, 0.96);
+  --color-primary-tint: rgba(9, 141, 236, 0.10);
+  --color-primary-tint-strong: rgba(9, 141, 236, 0.20);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes footprintFade {
+  0% {
+    opacity: 0;
+  }
+
+  20% {
+    opacity: 0.5;
+  }
+
+  70% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 0;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.animate-footprint {
+  animation: footprintFade 1.5s ease-in-out forwards;
 }
