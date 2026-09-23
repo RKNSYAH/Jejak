@@ -1,16 +1,7 @@
 import type { Metadata } from "next";
-import { Urbanist, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
-
-const urbanist = Urbanist({
-  variable: "--font-urbanist",
-  subsets: ["latin"],
-});
-
-const sourceSans3 = Source_Sans_3({
-  variable: "--font-source-sans-3",
-  subsets: ["latin"],
-});
+import Header from "./components/Header";
+import { urbanist, sourceSans3 } from "./fonts";
 
 export const metadata: Metadata = {
   title: "Jejak",
@@ -33,9 +24,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-theme="jejak"
-      className={`${urbanist.variable} ${sourceSans3.variable} h-full antialiased`}
+      className={`${urbanist.variable} ${sourceSans3.variable} h-dvh antialiased`}
     >
-      <body className="bg-base-100 text-base-content min-h-full flex flex-col">{children}</body>
+      <body className="bg-base-100 text-base-content h-full flex flex-col">
+        <Header />
+        {children}
+      </body>
     </html>
   );
 }

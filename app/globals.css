@@ -12,7 +12,7 @@
   --color-base-content: #080935;
 
   --color-primary: #098DEC;
-  --color-primary-content: #ffffff;
+  --color-primary-content: #080935;
 
   --color-secondary: #080935;
   --color-secondary-content: #FFF9F9;
@@ -80,4 +80,69 @@
 
 .animate-footprint {
   animation: footprintFade 1.5s ease-in-out forwards;
+}
+
+.zone-hover-popup .maplibregl-popup-content {
+  pointer-events: none;
+  border: 1px solid rgba(8, 9, 53, 0.14);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 249, 249, 0.96);
+  box-shadow: 0 2px 8px rgba(8, 9, 53, 0.08);
+}
+
+.zone-hover-popup .maplibregl-popup-tip {
+  border-top-color: rgba(255, 249, 249, 0.96);
+  border-bottom-color: rgba(255, 249, 249, 0.96);
+}
+
+@media (max-width: 767px) {
+  .zone-intelligence-sheet {
+    transform: translateY(100%);
+    transition: transform 280ms ease-out;
+  }
+
+  .zone-intelligence-sheet[open] {
+    display: flex;
+    flex-direction: column;
+    transform: translateY(var(--sheet-drag, 0px));
+
+    @starting-style {
+      transform: translateY(100%);
+    }
+  }
+
+  .zone-intelligence-sheet[open][data-closing] {
+    transform: translateY(100%);
+  }
+
+  .zone-intelligence-sheet[data-dragging] {
+    transition: none;
+  }
+
+  .zone-intelligence-sheet::backdrop {
+    opacity: 0;
+    transition: opacity 280ms ease-out;
+  }
+
+  .zone-intelligence-sheet[open]::backdrop {
+    opacity: 1;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  .zone-intelligence-sheet[open][data-closing]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
