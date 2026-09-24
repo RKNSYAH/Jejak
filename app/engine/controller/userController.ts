@@ -23,3 +23,14 @@ export async function getAuthenticatedUser() {
 
     return user;
 }
+
+export async function logoutUser() {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+        throw new Error(`Logout failed: ${error.message}`);
+    }
+
+    return true
+}

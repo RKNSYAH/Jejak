@@ -1,9 +1,24 @@
 import type { LayerProps } from "react-map-gl/maplibre";
+import type { ZoneMetric } from "@/app/engine/types";
 
 type FillLayerProps = Extract<LayerProps, { type: "fill" }>;
 type LineLayerProps = Extract<LayerProps, { type: "line" }>;
 
-export const ZONE_FILL_LAYER: FillLayerProps = {
+export function getZoneFillLayer(metric: ZoneMetric): FillLayerProps {
+  return {
+    ...ZONE_FILL_LAYER,
+    paint: {
+      "fill-color": [
+        "case", ["==", ["get", metric], null], "#B6B6C4",
+        ["interpolate", ["linear"], ["coalesce", ["get", metric], 0],
+          0, "#DCEEFF", 50, "#71B9EF", 100, "#098DEC"],
+      ],
+      "fill-opacity": 0.4,
+    },
+  };
+}
+
+export const ZONE_FILL_LAYER: FillLayerProps & { id: string } = {
   id: "zone-sector-presence",
   type: "fill",
   paint: {
@@ -63,6 +78,6 @@ export const ZONE_SELECTED_OUTLINE_LAYER: LineLayerProps = {
   type: "line",
   paint: {
     "line-color": "#098DEC",
-    "line-width": 1,
+    "line-width": 2.5,
   },
 };

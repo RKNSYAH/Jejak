@@ -1,6 +1,7 @@
-import { create } from 'zustand';
 
-type ZoneSectorSnapshot = {
+import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
+
+export type ZoneSectorSnapshot = {
   zone_id: string;
   sector_id: string;
   snapshot_at: string;
@@ -32,10 +33,39 @@ export type ZoneIntelligenceResponse = {
   freshness: "fresh" | "stale";
   coverage: "complete" | "partial";
   refresh: {
-    status: "queued" | "running" | "partial" | "completed" | "failed";
-    run_id: string;
+    status: "unavailable" | "queued" | "running" | "partial" | "completed" | "failed";
+    run_id: string | null;
   };
 };
+
+export type Zone = {
+  zone_id: string;
+  zone_name: string;
+  city_id: string;
+  city_name: string;
+};
+
+export type ZoneGeometry = FeatureCollection<Polygon | MultiPolygon, {
+  zone_id: string;
+  zone_name: string;
+  source_region_code?: string;
+}>;
+
+export type ZoneSummary = Zone & {
+  intelligence: ZoneIntelligenceResponse | null;
+};
+
+export type ZoneListResponse = {
+  is_sample: boolean;
+  zones: ZoneSummary[];
+};
+
+export type ZoneIntelligenceResult = {
+  is_sample: boolean;
+  intelligence: ZoneIntelligenceResponse | null;
+};
+
+export type ZoneMetric = "sector_presence" | "hiring_activity";
 
 export type CityName =
   | "Jakarta Selatan"
@@ -45,12 +75,8 @@ export type CityName =
   | "Jakarta Utara";
 
 export type MissingEvidence =
-  | "active_opening"
-  | "office_presence"
-  | "local_employment"
-  | "kos_listing"
-  | "apartment_listing"
-  | "house_listing";
+  | "company_presence" | "active_openings" | "salary" | "headcount"
+  | "news" | "kos" | "apartment" | "house" | "housing";
 
 export type TargetSector =
   | "software_and_it_services"
@@ -63,16 +89,21 @@ export type TargetSector =
 
 export interface LF01Input {
   run_id: string;
+  zone_id: string;
+  requested_at: string;
 
   zone_name: string;
-  city_name: CityName;
+  city_name: string;
 
   missing_evidence: MissingEvidence[];
-  target_sectors: TargetSector[];
+  target_sectors?: string[];
 
-  needed_count: number;
+  maximum_sources: number;
 
-  query?: string;
+  search_query?: string;
+  bounding_box?: [number, number, number, number];
+  target_occupations?: string[];
+  existing_entity_ids?: string[];
 }
 
 export type UserProfile = {

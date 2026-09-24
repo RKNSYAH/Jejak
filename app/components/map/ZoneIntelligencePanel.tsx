@@ -1,14 +1,30 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 import type { ZoneIntelligenceResponse } from "@/app/engine/types";
 
 type ZoneIntelligencePanelProps = {
   zoneName: string;
-  intelligence: ZoneIntelligenceResponse;
+  intelligence: ZoneIntelligenceResponse | null;
+  loading: boolean;
+  error: string | null;
+  isSample: boolean;
+  geometryMissing: boolean;
+  onRetry: () => void;
   onClose: () => void;
 };
+
+const MIN_PANEL_WIDTH = 320;
+const MAX_PANEL_WIDTH = 720;
+const DEFAULT_PANEL_WIDTH = 420;
+
+function getMaxPanelWidth() {
+  return Math.max(
+    MIN_PANEL_WIDTH,
+    Math.min(MAX_PANEL_WIDTH, Math.floor(window.innerWidth * 0.45)),
+  );
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", {
@@ -25,13 +41,33 @@ function PanelContent({
   intelligence,
   onClose,
   idPrefix,
+  loading,
+  error,
+  isSample,
+  geometryMissing,
+  onRetry,
 }: ZoneIntelligencePanelProps & { idPrefix: string }) {
+  if (!intelligence) {
+    return <div className="flex h-full flex-col p-5 font-body" aria-busy={loading}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 id={`${idPrefix}-title`} className="font-sans text-2xl font-bold">{zoneName}</h2>
+        <button className="btn btn-ghost min-h-11 min-w-11" onClick={onClose} aria-label={`Close ${zoneName} intelligence`}>×</button>
+      </div>
+      {isSample && <p className="mt-3 text-sm">Sample data · illustrative values</p>}
+      <div role="status" className="mt-5 text-sm">
+        {loading ? "Loading zone evidence…" : error ?? "No intelligence snapshot is available for this zone."}
+      </div>
+      {loading && <div className="skeleton mt-4 h-24 w-full" aria-label="Loading zone intelligence" />}
+      {geometryMissing && <p className="mt-3 text-sm">A boundary is not available for this zone.</p>}
+      {!loading && <button className="btn mt-4 self-start" onClick={onRetry}>Retry</button>}
+    </div>;
+  }
   const { snapshot } = intelligence;
   const confidence = Math.round(snapshot.evidence.confidence * 100);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-4 border-b border-rule px-5 py-5">
+      <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
         <div>
           <p className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">
             Zone intelligence
@@ -59,6 +95,13 @@ function PanelContent({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 font-body">
+        {isSample && <p className="mb-3 text-sm font-semibold">Sample data · illustrative values, not verified observations</p>}
+        <div role="status" aria-live="polite">
+          {loading && <p className="mb-3 text-sm">Refreshing zone evidence…</p>}
+          {error && <p className="mb-3 text-sm">{error} The latest available snapshot is shown.</p>}
+          {geometryMissing && <p className="mb-3 text-sm">A boundary is not available for this zone.</p>}
+        </div>
+        <button className="btn btn-sm mb-3 min-h-11" onClick={onRetry} disabled={loading}>{error ? "Retry" : "Refresh snapshot"}</button>
         <div className="flex flex-wrap gap-2">
           <StatusBadge>{intelligence.coverage} coverage</StatusBadge>
           <StatusBadge>{intelligence.freshness}</StatusBadge>
@@ -202,12 +245,66 @@ function PanelContent({
 export default function ZoneIntelligencePanel(
   props: ZoneIntelligencePanelProps,
 ) {
+  const panelRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const ignoreProgrammaticClose = useRef(false);
   const closingRef = useRef(false);
   const closeTimer = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; startY: number; startTime: number } | null>(null);
+  const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [maxPanelWidth, setMaxPanelWidth] = useState(MAX_PANEL_WIDTH);
   const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    function syncWidth() {
+      if (window.innerWidth < 768) return;
+      const maximum = getMaxPanelWidth();
+      setMaxPanelWidth(maximum);
+      setPanelWidth((width) => Math.min(width, maximum));
+    }
+
+    syncWidth();
+    window.addEventListener("resize", syncWidth);
+    return () => window.removeEventListener("resize", syncWidth);
+  }, []);
+
+  function handleResizePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: panelRef.current?.getBoundingClientRect().width ?? panelWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleResizePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = resizeRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPanelWidth(Math.max(
+      MIN_PANEL_WIDTH,
+      Math.min(getMaxPanelWidth(), Math.round(drag.startWidth + drag.startX - event.clientX)),
+    ));
+  }
+
+  function handleResizePointerEnd(event: PointerEvent<HTMLDivElement>) {
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handleResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const maximum = getMaxPanelWidth();
+    if (event.key === "ArrowLeft") setPanelWidth((width) => Math.min(maximum, width + 20));
+    else if (event.key === "ArrowRight") setPanelWidth((width) => Math.max(MIN_PANEL_WIDTH, width - 20));
+    else if (event.key === "Home") setPanelWidth(MIN_PANEL_WIDTH);
+    else if (event.key === "End") setPanelWidth(maximum);
+    else return;
+    event.preventDefault();
+  }
 
   function finishClose() {
     if (!closingRef.current) return;
@@ -316,15 +413,37 @@ export default function ZoneIntelligencePanel(
   return (
     <>
       <aside
-        className="absolute inset-y-0 right-0 z-200 hidden w-[min(420px,30vw)] min-w-[360px] border-l border-t border-rule bg-panel-surface shadow-[0_2px_8px_rgba(8,9,53,0.08)] md:block"
+        ref={panelRef}
+        id="zone-intelligence-desktop"
+        className="absolute inset-y-0 right-0 z-200 hidden min-w-[320px] max-w-[min(45vw,720px)] border-l border-t border-rule bg-panel-surface shadow-[0_2px_8px_rgba(8,9,53,0.08)] md:block"
         aria-labelledby="zone-intelligence-desktop-title"
+        style={{ width: panelWidth }}
       >
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-label="Resize panel"
+          aria-orientation="vertical"
+          aria-controls="zone-intelligence-desktop"
+          aria-valuemin={MIN_PANEL_WIDTH}
+          aria-valuemax={maxPanelWidth}
+          aria-valuenow={panelWidth}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+          onLostPointerCapture={() => { resizeRef.current = null; }}
+          onKeyDown={handleResizeKeyDown}
+          className="absolute top-1/2 left-0 z-10 flex h-16 w-5 -translate-y-1/2 touch-none cursor-col-resize items-center justify-center gap-1 rounded-md bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <span className="h-6 w-0.75 mr-2 rounded-full bg-ink-muted" aria-hidden="true" />
+        </div>
         <PanelContent {...props} idPrefix="zone-intelligence-desktop" />
       </aside>
 
       <dialog
         ref={dialogRef}
-        className="zone-intelligence-sheet fixed top-auto inset-x-0 bottom-0 m-0 max-h-[60dvh] w-full max-w-none rounded-t-2xl border border-rule bg-panel-surface p-0 text-ink shadow-[0_2px_8px_rgba(8,9,53,0.08)] backdrop:bg-ink/30 md:hidden"
+        className="zone-intelligence-sheet fixed top-auto inset-x-0 bottom-0 m-0 h-[60dvh] w-full max-w-none overflow-hidden rounded-t-2xl border border-rule bg-panel-surface p-0 text-ink shadow-[0_2px_8px_rgba(8,9,53,0.08)] backdrop:bg-ink/30 md:hidden"
         aria-labelledby="zone-intelligence-mobile-title"
         data-closing={isClosing || undefined}
         onClose={handleDialogClose}

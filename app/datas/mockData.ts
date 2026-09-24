@@ -1,5 +1,10 @@
-import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import { ZoneIntelligenceResponse } from "../engine/types";
+import type { ZoneIntelligenceResponse, Zone } from "../engine/types";
+
+export const SUPPORTED_ZONES: Zone[] = [
+  { zone_id: "pancoran", zone_name: "Pancoran", city_id: "jakarta-selatan", city_name: "Jakarta Selatan" },
+  { zone_id: "setiabudi", zone_name: "Setiabudi", city_id: "jakarta-selatan", city_name: "Jakarta Selatan" },
+  { zone_id: "mampang-prapatan", zone_name: "Mampang Prapatan", city_id: "jakarta-selatan", city_name: "Jakarta Selatan" },
+];
 
 export const MOCK_ZONE_INTELLIGENCE: ZoneIntelligenceResponse = {
   snapshot: {
@@ -31,8 +36,8 @@ export const MOCK_ZONE_INTELLIGENCE: ZoneIntelligenceResponse = {
   freshness: "stale",
   coverage: "partial",
   refresh: {
-    status: "running",
-    run_id: "run_pancoran_it_20260915",
+    status: "unavailable",
+    run_id: null,
   },
 };
 
@@ -41,53 +46,16 @@ export const MOCK_ZONE_INTELLIGENCE_BY_ZONE: Record<
   ZoneIntelligenceResponse
 > = {
   [MOCK_ZONE_INTELLIGENCE.snapshot.zone_id]: MOCK_ZONE_INTELLIGENCE,
+  setiabudi: {
+    ...MOCK_ZONE_INTELLIGENCE,
+    freshness: "fresh",
+    coverage: "complete",
+    snapshot: {
+      ...MOCK_ZONE_INTELLIGENCE.snapshot,
+      zone_id: "setiabudi",
+      active_openings: 0,
+      local_headcount: undefined,
+      indices: { sector_presence: 85, hiring_activity: 0, employer_diversity: 70 },
+    },
+  },
 };
-
-export function getZoneIntelligence(
-  zoneId: string,
-): ZoneIntelligenceResponse | undefined {
-  return MOCK_ZONE_INTELLIGENCE_BY_ZONE[zoneId];
-}
-
-
-export type ZoneGeometryProperties = {
-  zone_id: string;
-  zone_name: string;
-};
-
-export type ZoneGeometry = FeatureCollection<
-  Polygon | MultiPolygon,
-  ZoneGeometryProperties
->;
-
-export async function getZoneGeometry(
-  zoneName: string
-): Promise<ZoneGeometry> {
-  const params = new URLSearchParams({
-    zone_name: zoneName,
-  });
-
-  const res = await fetch(`/api/geometry?${params}`);
-
-  if (!res.ok) {
-    throw new Error(
-      `Failed to fetch geometry for ${zoneName}`
-    );
-  }
-
-  const raw = await res.json()
-  
-  return {
-    type: "FeatureCollection",
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    features: raw.features.map((feature: any) => ({
-      type: "Feature",
-      id: zoneName.toLowerCase(),
-      properties: {
-        zone_id: zoneName.toLowerCase(),
-        zone_name: feature.properties.WADMKC,
-      },
-      geometry: feature.geometry,
-    }))
-  }
-}

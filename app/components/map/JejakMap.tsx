@@ -1,297 +1,126 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect } from "react";
-import MapView, {
-    Layer,
-    Popup,
-    Source,
-    type MapMouseEvent,
-    type MapRef,
-} from "react-map-gl/maplibre";
+import { useEffect, useMemo, useRef, useState } from "react";
+import MapView, { AttributionControl, Layer, Popup, Source, type MapMouseEvent, type MapRef } from "react-map-gl/maplibre";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { FilterSpecification, StyleSpecification } from "maplibre-gl";
+import type { StyleSpecification } from "maplibre-gl";
 
 import jejakStyle from "@/public/jejak_light_openfreemap.json";
 import { urbanist, sourceSans3 } from "@/app/fonts";
-import {
-    getZoneGeometry,
-    getZoneIntelligence,
-    MOCK_ZONE_INTELLIGENCE,
-} from "@/app/datas/mockData";
+import type { ZoneGeometry, ZoneMetric } from "@/app/engine/types";
+import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
 import { createZoneLayerData } from "./zoneLayerData";
-import {
-    ZONE_FILL_LAYER,
-    ZONE_HOVER_LAYER,
-    ZONE_HOVER_OUTLINE_LAYER,
-    ZONE_OUTLINE_LAYER,
-    ZONE_SELECTED_LAYER,
-    ZONE_SELECTED_OUTLINE_LAYER,
-} from "./zoneLayers";
-import type { ZoneGeometry } from "@/app/datas/mockData";
-import type { ZoneIntelligenceResponse } from "@/app/engine/types";
+import { getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { useZoneIntelligence } from "./useZoneIntelligence";
+import MapControls from "./MapControls";
+import MapLegend from "./MapLegend";
 import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
+
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
-const DISPLAY_LAYERS = new Set([
-    "place_city",
-    "place_town",
-    "state",
-    "country_1",
-    "country_2",
-    "country_3",
-]);
-
-type ZoneSelection = {
-    id: string;
-    name: string;
-    intelligence: ZoneIntelligenceResponse;
-};
-
-type HoveredZone = ZoneSelection & {
-    longitude: number;
-    latitude: number;
-};
-
-function zoneFilter(zoneId: string): FilterSpecification {
-    return ["==", ["get", "zone_id"], zoneId];
-}
+const DISPLAY_LAYERS = new Set(["place_city", "place_town", "state", "country_1", "country_2", "country_3"]);
 
 export default function JejakMap() {
     const mapRef = useRef<MapRef>(null);
-    const [zoneGeometry, setZoneGeometry] = useState<ZoneGeometry>({
-        type: "FeatureCollection",
-        features: [],
-    });
-    const [hoveredZone, setHoveredZone] = useState<HoveredZone | null>(null);
-    const [selectedZone, setSelectedZone] = useState<ZoneSelection | null>(
-        null,
-    );
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [metric, setMetric] = useState<ZoneMetric>("sector_presence");
+    const [hoveredZone, setHoveredZone] = useState<{ id: string; longitude: number; latitude: number } | null>(null);
+    const state = useZoneIntelligence();
+    const selectedId = state.selectedZone?.zone_id;
+    const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
+    const selectedResult = selectedId ? state.results[selectedId] : undefined;
+
+    const intelligenceByZone = useMemo(() => Object.fromEntries(state.catalog.zones.map((zone) => [
+        zone.zone_id, state.results[zone.zone_id] ? state.results[zone.zone_id].intelligence : zone.intelligence,
+    ])), [state.catalog.zones, state.results]);
+
+    const layerData = useMemo(() => {
+        const geometry: ZoneGeometry = {
+            type: "FeatureCollection",
+            features: Object.values(state.geometryByZone).flatMap((value) => value.features),
+        };
+        return createZoneLayerData(geometry, intelligenceByZone);
+    }, [state.geometryByZone, intelligenceByZone]);
+
     useEffect(() => {
-        async function fetchZoneGeometry() {
-            try {
-                const geometry = await getZoneGeometry("Pancoran");
-                setZoneGeometry(geometry);
-            } catch (error) {
-                console.error("Error fetching zone geometry:", error);
-            }
-        }
-
-        fetchZoneGeometry();
-    }, []);
-
-    const zoneLayerData = useMemo(
-        () =>
-            createZoneLayerData(
-                zoneGeometry,
-                MOCK_ZONE_INTELLIGENCE,
-            ),
-        [zoneGeometry],
-    );
-
-    function getZoneSelection(event: MapMouseEvent): ZoneSelection | null {
-        // event.features can be empty on mobile tap if touch precision misses
-        // the layer slightly — fall back to a manual point query with a touch
-        // radius so nearby features are still found.
-        const feature =
-            event.features?.[0] ??
-            mapRef.current
-                ?.queryRenderedFeatures(event.point, {
-                    layers: [ZONE_FILL_LAYER.id as string],
-                })
-                ?.find(Boolean);
-
-        const id = String(feature?.properties?.zone_id ?? "");
-        const name = String(feature?.properties?.zone_name ?? id);
-        const intelligence = getZoneIntelligence(id);
-
-        if (!id || !intelligence) {
-            return null;
-        }
-
-        return { id, name, intelligence };
-    }
-
-    function handleZoneClick(event: MapMouseEvent) {
-        const zone = getZoneSelection(event);
-        if (!zone) {
-            return;
-        }
-
-        setSelectedZone(zone);
-        console.log("Selected zone:", zone);
-        setHoveredZone(null);
-    }
-
-    function handleZoneMouseMove(event: MapMouseEvent) {
-        const zone = getZoneSelection(event);
-        if (!zone) {
-            return;
-        }
-
-        setHoveredZone({
-            ...zone,
-            longitude: event.lngLat.lng,
-            latitude: event.lngLat.lat,
+        if (!mapLoaded || !selectedGeometry) return;
+        const bounds = getGeometryBounds(selectedGeometry);
+        if (!bounds) return;
+        const desktop = window.matchMedia("(min-width: 768px)").matches;
+        const panelWidth = mapContainerRef.current?.querySelector<HTMLElement>("#zone-intelligence-desktop")?.getBoundingClientRect().width ?? 420;
+        mapRef.current?.fitBounds(bounds, {
+            padding: desktop ? { top: 180, right: Math.ceil(panelWidth) + 16, bottom: 70, left: 40 } : 40,
+            maxZoom: 14,
+            animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
         });
-    }
-
-    function handleZoneMouseLeave() {
-        mapRef.current?.getCanvas().style.removeProperty("cursor");
-        setHoveredZone(null);
-    }
-
-    function handleZoneMouseEnter() {
-        mapRef.current?.getCanvas().style.setProperty("cursor", "pointer");
-    }
-
-    function handleAlternativeSelection(zone: ZoneSelection) {
-        setHoveredZone(null);
-        setSelectedZone(zone);
-    }
+    }, [selectedGeometry, mapLoaded]);
 
     const mapStyle = useMemo(() => {
         const style = structuredClone(jejakStyle) as StyleSpecification;
-
         for (const layer of style.layers) {
-            if (
-                layer.type !== "symbol" ||
-                !layer.layout ||
-                !("text-font" in layer.layout)
-            ) {
-                continue;
-            }
-
-            layer.layout["text-font"] = [
-                DISPLAY_LAYERS.has(layer.id)
-                    ? urbanist.style.fontFamily
-                    : sourceSans3.style.fontFamily,
-            ];
+            if (layer.type !== "symbol" || !layer.layout || !("text-font" in layer.layout)) continue;
+            layer.layout["text-font"] = [DISPLAY_LAYERS.has(layer.id) ? urbanist.style.fontFamily : sourceSans3.style.fontFamily];
         }
-
         return style;
     }, []);
 
+    function getEventZone(event: MapMouseEvent) {
+        const feature = event.features?.[0] ?? mapRef.current?.queryRenderedFeatures([
+            [event.point.x - 6, event.point.y - 6], [event.point.x + 6, event.point.y + 6],
+        ], { layers: [ZONE_FILL_LAYER.id] })[0];
+        return state.catalog.zones.find((zone) => zone.zone_id === feature?.properties?.zone_id);
+    }
+
+    const hoveredMetadata = state.catalog.zones.find((zone) => zone.zone_id === hoveredZone?.id);
+    const hoveredSnapshot = hoveredZone ? intelligenceByZone[hoveredZone.id]?.snapshot : undefined;
+
     return (
-        <div className="relative h-full min-h-0 overflow-hidden">
-            <MapView
-                ref={mapRef}
-                initialViewState={{
-                    longitude: 106.8456,
-                    latitude: -6.2088,
-                    zoom: 11,
+        <div ref={mapContainerRef} className="relative h-full min-h-0 overflow-hidden">
+            <MapView ref={mapRef} initialViewState={{ longitude: 106.8456, latitude: -6.2088, zoom: 11 }}
+                rotateSpeed={0.4} aroundCenter={false} style={{ width: "100%", height: "100%" }}
+                mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={[ZONE_FILL_LAYER.id]} cursor={hoveredZone ? "pointer" : "grab"}
+                onLoad={() => setMapLoaded(true)}
+                onClick={(event) => {
+                    const zone = getEventZone(event);
+                    if (zone) { setHoveredZone(null); void state.selectZone(zone); }
                 }}
-                rotateSpeed={0.4}
-                aroundCenter={false}
-                style={{
-                    width: "100%",
-                    height: "100%",
+                onMouseMove={(event) => {
+                    const zone = getEventZone(event);
+                    setHoveredZone(zone ? { id: zone.zone_id, longitude: event.lngLat.lng, latitude: event.lngLat.lat } : null);
                 }}
-                mapStyle={mapStyle}
-                interactiveLayerIds={[ZONE_FILL_LAYER.id as string]}
-                onClick={handleZoneClick}
-                onMouseEnter={handleZoneMouseEnter}
-                onMouseMove={handleZoneMouseMove}
-                onMouseLeave={handleZoneMouseLeave}
-            >
-                <Source id="zone-intelligence" type="geojson" data={zoneLayerData}>
-                    <Layer {...ZONE_FILL_LAYER} />
+                onMouseLeave={() => setHoveredZone(null)}>
+                <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI" />
+                <Source id="zone-intelligence" type="geojson" data={layerData}>
+                    <Layer {...getZoneFillLayer(metric)} />
                     <Layer {...ZONE_OUTLINE_LAYER} />
-
-                    {/* Hover Layers */}
-                    {hoveredZone && hoveredZone.id !== selectedZone?.id && (
-                        <Layer
-                            {...ZONE_HOVER_LAYER}
-                            filter={zoneFilter(hoveredZone.id)}
-                        />
-                    )}
-                    {hoveredZone && hoveredZone.id !== selectedZone?.id && (
-                        <Layer
-                            {...ZONE_HOVER_OUTLINE_LAYER}
-                            filter={zoneFilter(hoveredZone.id)}
-                        />
-                    )}
-
-                    {/* Selected Layers */}
-                    {selectedZone && (
-                        <Layer
-                            {...ZONE_SELECTED_LAYER}
-                            filter={zoneFilter(selectedZone.id)}
-                        />
-                    )}
-                    {selectedZone && (
-                        <Layer
-                            {...ZONE_SELECTED_OUTLINE_LAYER}
-                            filter={zoneFilter(selectedZone.id)}
-                        />
-                    )}
+                    {hoveredZone && hoveredZone.id !== selectedId && <Layer {...ZONE_HOVER_OUTLINE_LAYER} filter={["==", ["get", "zone_id"], hoveredZone.id]} />}
+                    {selectedId && <Layer {...ZONE_SELECTED_OUTLINE_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
                 </Source>
-
-
-                {hoveredZone && hoveredZone.id !== selectedZone?.id && (
-                    <Popup
-                        longitude={hoveredZone.longitude}
-                        latitude={hoveredZone.latitude}
-                        anchor="bottom"
-                        offset={12}
-                        closeButton={false}
-                        closeOnClick={false}
-                        className="zone-hover-popup"
-                    >
-                        <div
-                            role="tooltip"
-                            className="min-w-44 cursor-pointer font-body"
-                            onClick={() => handleAlternativeSelection(hoveredZone)}
-                        >
-                            <p className="font-sans text-base font-bold text-ink">
-                                {hoveredZone.name}
-                            </p>
-                            <p className="mt-0.5 text-xs text-ink-muted">
-                                Software and IT services
-                            </p>
-                            <dl className="mt-3 space-y-1 text-xs">
-                                <div className="flex justify-between gap-3">
-                                    <dt className="text-ink-muted">
-                                        Sector presence
-                                    </dt>
-                                    <dd className="font-semibold text-ink">
-                                        {hoveredZone.intelligence.snapshot.indices.sector_presence}/100
-                                    </dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                    <dt className="text-ink-muted">
-                                        Active openings
-                                    </dt>
-                                    <dd className="font-semibold text-ink">
-                                        {hoveredZone.intelligence.snapshot.active_openings}
-                                    </dd>
-                                </div>
-                            </dl>
-                            <p className="mt-3 border-t border-rule pt-2 text-[0.6875rem] text-ink-muted">
-                                Click for details
-                            </p>
-                        </div>
-                    </Popup>
-                )}
+                {hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
+                    anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
+                    <div role="tooltip" className="min-w-44 font-body">
+                        <p className="font-sans text-base font-bold text-ink">{hoveredMetadata.zone_name}</p>
+                        <p className="mt-1 text-xs text-ink-muted">Software and IT services · Sample data</p>
+                        <p className="mt-3 text-sm">{metric === "sector_presence" ? "Sector presence" : "Hiring activity"}: {hoveredSnapshot ? `${hoveredSnapshot.indices[metric]}/100` : "Unavailable"}</p>
+                        <p className="mt-1 text-sm">Active openings: {hoveredSnapshot?.active_openings ?? "Unavailable"}</p>
+                        <p className="mt-2 text-xs">Select the zone for details</p>
+                    </div>
+                </Popup>}
             </MapView>
-            <div className="absolute bottom-4 left-4 max-w-64 rounded-lg bg-white/80 p-3 shadow-md backdrop-blur-sm">
-                <p className="font-body text-xs font-semibold text-ink-muted">
-                    Sector presence based on available data and other sources.
-                </p>
-                <div className="mt-3 h-2 rounded-full bg-[linear-gradient(to_right,#DCEEFF,#71B9EF,#098DEC)]" aria-hidden="true" />
-                <div className="mt-1 flex justify-between font-body text-xs text-ink-muted">
-                    <span>0</span>
-                    <span>100</span>
-                </div>
-            </div>
 
-            {selectedZone && (
-                <ZoneIntelligencePanel
-                    zoneName={selectedZone.name}
-                    intelligence={selectedZone.intelligence}
-                    onClose={() => setSelectedZone(null)}
-                />
-            )}
+            <MapControls zones={state.catalog.zones} loading={state.catalogLoading} error={state.catalogError}
+                metric={metric} onMetricChange={setMetric} onRetry={state.retryCatalog}
+                onSelect={(zone) => { setHoveredZone(null); void state.selectZone(zone); }}
+                onReset={() => { setHoveredZone(null); state.resetMap(); }} />
+            {layerData.features.length > 0 && <MapLegend metric={metric} />}
+            {state.selectedZone && <ZoneIntelligencePanel zoneName={state.selectedZone.zone_name}
+                intelligence={selectedResult?.intelligence ?? null} isSample={selectedResult?.is_sample ?? state.catalog.is_sample}
+                loading={state.loading} error={state.error}
+                geometryMissing={selectedGeometry?.features.length === 0}
+                onRetry={() => { if (state.selectedZone) void state.selectZone(state.selectedZone); }}
+                onClose={state.closeSelection} />}
         </div>
     );
 }
