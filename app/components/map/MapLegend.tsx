@@ -2,8 +2,8 @@ import type { ZoneMetric } from "@/app/engine/types";
 
 export default function MapLegend({ metric }: { metric: ZoneMetric; }) {
     return (
-        <div className="absolute bottom-8 left-4 z-100 font-body">
-            <button type="button" className="btn min-h-11 bg-panel-surface" popoverTarget="map-legend">Legenda</button>
+        <div className="font-body">
+            <button type="button" className="btn min-h-11 border-ink bg-panel-surface text-ink hover:bg-ink hover:text-on-ink" popoverTarget="map-legend">Legenda</button>
             <div id="map-legend" popover="auto" className="fixed inset-auto bottom-24 left-4 m-0 max-w-72 rounded-lg border border-rule bg-panel-surface p-4 text-sm text-ink">
                 <h2 className="font-semibold">{metric === "sector_presence" ? "Sector presence" : "Hiring activity"} index</h2>
                 <p className="mt-1 text-xs text-ink-muted">Period and monitored-source coverage are shown in each zone’s detail panel.</p>

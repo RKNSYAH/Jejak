@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { BriefcaseBusiness, GraduationCap, House, Search, TrainFront } from "lucide-react";
-import type { Zone, ZoneMetric } from "@/app/engine/types";
+import { BriefcaseBusiness, ClipboardList, GraduationCap, House, RotateCcw, Search, TrainFront } from "lucide-react";
+import type { Zone } from "@/app/engine/types";
 
 const categories = [
+    { label: "Ringkasan", Icon: ClipboardList, available: true },
     { label: "Pekerjaan", Icon: BriefcaseBusiness, available: true },
     { label: "Kampus", Icon: GraduationCap, available: true },
     { label: "Transportasi", Icon: TrainFront, available: true },
@@ -15,8 +16,7 @@ type MapControlsProps = {
     zones: Zone[];
     loading: boolean;
     error: string | null;
-    metric: ZoneMetric;
-    onMetricChange: (metric: ZoneMetric) => void;
+    hasActiveRegionLayers: boolean;
     onSelect: (zone: Zone) => void;
     onRetry: () => void;
     onReset: () => void;
@@ -43,13 +43,20 @@ export default function MapControls(props: MapControlsProps) {
         }
     }
 
+    function handleReset() {
+        setQuery("");
+        setSearchOpen(false);
+        setSelectedCategory(null);
+        props.onReset();
+    }
+
     return (
         <div className="pointer-events-none absolute inset-x-3 top-4 z-100 flex flex-col gap-3 md:items-start">
-            <div className="flex w-full flex-col gap-3 md:flex-row md:items-start">
-                <div className="pointer-events-auto relative w-full md:w-80 md:shrink-0"
+            <div className="flex w-full min-w-0 flex-col items-start gap-2 md:flex-row md:items-center md:gap-3">
+                <div className="pointer-events-auto relative z-10 w-full md:w-80 md:shrink-0"
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) selectZone(matches[0]); }}>
-                        <label className="input flex min-h-11 w-full gap-3 rounded-lg border-rule bg-panel-surface">
+                        <label className="input flex h-10 min-h-10 w-full gap-2 rounded-2xl border-rule bg-panel-surface md:h-11 md:min-h-11 md:gap-3">
                             <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                             <span className="sr-only">Cari zona yang didukung</span>
                             <input type="search" placeholder="Cari zona..." value={query}
@@ -62,7 +69,7 @@ export default function MapControls(props: MapControlsProps) {
                     </form>
                     {searchOpen && <div id="zone-search-results" className="absolute top-full mt-2 max-h-64 w-full overflow-y-auto rounded-lg border border-rule bg-panel-surface p-2 font-body">
                         {props.loading && <p role="status" className="p-2 text-sm">Loading supported zones…</p>}
-                        {props.error && <div role="status" className="p-2 text-sm">{props.error}<button className="btn btn-sm mt-2" onClick={props.onRetry}>Retry</button></div>}
+                        {props.error && <div role="status" className="p-2 text-sm">{props.error}<button className="btn btn-sm mt-2 border-ink bg-transparent text-ink hover:bg-ink hover:text-on-ink" onClick={props.onRetry}>Retry</button></div>}
                         {!props.loading && !props.error && matches.length === 0 && <p className="p-2 text-sm">No supported zones match. Try Pancoran or Setiabudi.</p>}
                         <ul aria-label="Supported zones">
                             {matches.map((zone) => <li key={zone.zone_id}>
@@ -73,23 +80,18 @@ export default function MapControls(props: MapControlsProps) {
                         </ul>
                     </div>}
                 </div>
-                <div className="pointer-events-auto flex max-w-full gap-2 overflow-x-auto pb-1" role="group" aria-label="Kategori peta">
+                <div className="map-category-scroll pointer-events-auto -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
                     {categories.map(({ label, Icon, available }) => <button key={label} onClick={() => handleCategoryChange(label)} type="button"
                         disabled={!available} aria-pressed={selectedCategory === label} title={available ? label : `${label}: data belum tersedia`}
-                        className={`btn min-h-11 shrink-0 gap-2 rounded-lg px-3 font-body text-sm font-normal ${selectedCategory === label ? "border-primary bg-primary text-primary-content" : "border-rule bg-panel-surface text-ink-muted"}`}>
-                        <Icon aria-hidden="true" className="size-4" />{label}{!available && <span className="sr-only"> — data belum tersedia</span>}
+                        className={`btn btn-sm h-9 min-h-9 shrink-0 gap-1.5 whitespace-nowrap rounded-2xl px-2.5 font-body text-sm font-normal focus-visible:outline-offset-[-2px] ${selectedCategory === label ? "border-primary bg-primary text-base-100" : "border-rule bg-panel-surface text-ink-muted"}`}>
+                        <Icon aria-hidden="true" className="size-3.5" />{label}{!available && <span className="sr-only"> — data belum tersedia</span>}
                     </button>)}
                 </div>
+                {props.hasActiveRegionLayers && <button type="button" onClick={handleReset} aria-label="Reset semua lapisan peta"
+                    className="map-reset-button btn btn-sm pointer-events-auto h-9 min-h-9 shrink-0 self-start gap-1.5 rounded-2xl border-ink bg-base-100 px-2.5 font-body text-sm font-semibold text-ink hover:bg-ink hover:text-on-ink shadow-[0_2px_8px_rgba(8,9,53,0.08)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:self-center">
+                    <RotateCcw aria-hidden="true" className="size-3.5" />Reset
+                </button>}
             </div>
-            {/* <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-lg border border-rule bg-panel-surface p-2 font-body">
-                <label className="text-sm" htmlFor="zone-metric">Pekerjaan</label>
-                <select id="zone-metric" className="min-h-11 rounded border border-rule bg-base-100 px-2 text-sm"
-                    value={props.metric} onChange={(event) => props.onMetricChange(event.target.value === "hiring_activity" ? "hiring_activity" : "sector_presence")}>
-                    <option value="sector_presence">Sector presence</option>
-                    <option value="hiring_activity">Hiring activity</option>
-                </select>
-                <button type="button" className="btn btn-ghost min-h-11" onClick={props.onReset}>Reset</button>
-            </div> */}
         </div>
     );
 }

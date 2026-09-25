@@ -73,6 +73,18 @@ export const ZONE_SELECTED_LAYER: FillLayerProps = {
   },
 };
 
+export const ZONE_SELECTED_CASING_LAYER: LineLayerProps = {
+  id: "zone-sector-presence-selected-casing",
+  type: "line",
+  layout: {
+    "line-join": "round",
+  },
+  paint: {
+    "line-color": "#080935",
+    "line-width": 5,
+  },
+};
+
 export const ZONE_SELECTED_OUTLINE_LAYER: LineLayerProps = {
   id: "zone-sector-presence-selected-outline",
   type: "line",

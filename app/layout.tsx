@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Header from "./components/Header";
 import { urbanist, sourceSans3 } from "./fonts";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Jejak",
@@ -27,8 +28,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${urbanist.variable} ${sourceSans3.variable} h-dvh antialiased`}
     >
       <body className="bg-base-100 text-base-content h-full flex flex-col">
-        <Header />
+        {/* <Header /> */}
         {children}
+        <Analytics />
       </body>
     </html>
   );

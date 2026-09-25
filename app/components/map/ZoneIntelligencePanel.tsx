@@ -13,6 +13,7 @@ type ZoneIntelligencePanelProps = {
   geometryMissing: boolean;
   onRetry: () => void;
   onClose: () => void;
+  mobileOpen: boolean;
 };
 
 const MIN_PANEL_WIDTH = 320;
@@ -33,7 +34,14 @@ function formatDate(value: string) {
 }
 
 function StatusBadge({ children }: { children: ReactNode }) {
-  return <span className="badge badge-outline badge-sm">{children}</span>;
+  return <span className="badge badge-outline badge-sm border-ink text-ink">{children}</span>;
+}
+
+function SampleDataNotice({ className, children }: { className?: string; children: ReactNode }) {
+  return <p className={`flex flex-wrap items-center gap-2 text-sm text-ink ${className ?? ""}`}>
+    <span className="badge badge-neutral badge-sm font-semibold">Sample data</span>
+    {children}
+  </p>;
 }
 
 function PanelContent({
@@ -53,13 +61,13 @@ function PanelContent({
         <h2 id={`${idPrefix}-title`} className="font-sans text-2xl font-bold">{zoneName}</h2>
         <button className="btn btn-ghost min-h-11 min-w-11" onClick={onClose} aria-label={`Close ${zoneName} intelligence`}>×</button>
       </div>
-      {isSample && <p className="mt-3 text-sm">Sample data · illustrative values</p>}
+      {isSample && <SampleDataNotice className="mt-3">Illustrative values</SampleDataNotice>}
       <div role="status" className="mt-5 text-sm">
         {loading ? "Loading zone evidence…" : error ?? "No intelligence snapshot is available for this zone."}
       </div>
       {loading && <div className="skeleton mt-4 h-24 w-full" aria-label="Loading zone intelligence" />}
       {geometryMissing && <p className="mt-3 text-sm">A boundary is not available for this zone.</p>}
-      {!loading && <button className="btn mt-4 self-start" onClick={onRetry}>Retry</button>}
+      {!loading && <button className="btn mt-4 self-start border-ink bg-transparent text-ink hover:bg-ink hover:text-on-ink" onClick={onRetry}>Retry</button>}
     </div>;
   }
   const { snapshot } = intelligence;
@@ -95,20 +103,20 @@ function PanelContent({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 font-body">
-        {isSample && <p className="mb-3 text-sm font-semibold">Sample data · illustrative values, not verified observations</p>}
+        {isSample && <SampleDataNotice className="mb-3">Illustrative values, not verified observations</SampleDataNotice>}
         <div role="status" aria-live="polite">
           {loading && <p className="mb-3 text-sm">Refreshing zone evidence…</p>}
           {error && <p className="mb-3 text-sm">{error} The latest available snapshot is shown.</p>}
           {geometryMissing && <p className="mb-3 text-sm">A boundary is not available for this zone.</p>}
         </div>
-        <button className="btn btn-sm mb-3 min-h-11" onClick={onRetry} disabled={loading}>{error ? "Retry" : "Refresh snapshot"}</button>
+        <button className="btn btn-sm mb-3 min-h-11 border-ink bg-transparent text-ink hover:bg-ink hover:text-on-ink" onClick={onRetry} disabled={loading}>{error ? "Retry" : "Refresh snapshot"}</button>
         <div className="flex flex-wrap gap-2">
           <StatusBadge>{intelligence.coverage} coverage</StatusBadge>
           <StatusBadge>{intelligence.freshness}</StatusBadge>
           <StatusBadge>{intelligence.refresh.status}</StatusBadge>
         </div>
 
-        <section className="mt-6" aria-labelledby={`${idPrefix}-activity-heading`}>
+        <section className="mt-6 border-t-2 border-ink pt-3" aria-labelledby={`${idPrefix}-activity-heading`}>
           <h3
             id={`${idPrefix}-activity-heading`}
             className="font-sans text-lg font-bold text-ink"
@@ -143,7 +151,7 @@ function PanelContent({
           </dl>
         </section>
 
-        <section className="mt-6" aria-labelledby={`${idPrefix}-indices-heading`}>
+        <section className="mt-6 border-t-2 border-ink pt-3" aria-labelledby={`${idPrefix}-indices-heading`}>
           <h3
             id={`${idPrefix}-indices-heading`}
             className="font-sans text-lg font-bold text-ink"
@@ -174,7 +182,7 @@ function PanelContent({
           </dl>
         </section>
 
-        <section className="mt-6" aria-labelledby={`${idPrefix}-evidence-heading`}>
+        <section className="mt-6 border-t-2 border-ink pt-3" aria-labelledby={`${idPrefix}-evidence-heading`}>
           <h3
             id={`${idPrefix}-evidence-heading`}
             className="font-sans text-lg font-bold text-ink"
@@ -211,7 +219,7 @@ function PanelContent({
 
         {snapshot.local_headcount && (
           <section
-            className="mt-6 border-l-2 border-primary pl-3"
+            className="mt-6 border-t-2 border-ink pt-3"
             aria-labelledby={`${idPrefix}-estimate-heading`}
           >
             <div className="flex items-center gap-2">
@@ -221,7 +229,7 @@ function PanelContent({
               >
                 Local headcount
               </h3>
-              <span className="badge badge-info badge-sm">Estimated</span>
+              <span className="badge badge-outline badge-sm border-ink text-ink">Estimated</span>
             </div>
             <p className="mt-1 text-sm text-ink-muted">
               {snapshot.local_headcount.minimum.toLocaleString()}–
@@ -374,15 +382,26 @@ export default function ZoneIntelligencePanel(
 
     const mobileViewport = window.matchMedia("(max-width: 767px)");
     const syncDialog = () => {
-      if (mobileViewport.matches && !dialog.open) {
+      const shouldOpen = mobileViewport.matches && props.mobileOpen;
+      if (shouldOpen && !dialog.open) {
+        closingRef.current = false;
+        setIsClosing(false);
+        dialog.style.removeProperty("--sheet-drag");
+        dialog.removeAttribute("data-dragging");
         dialog.showModal();
-      } else if (!mobileViewport.matches && dialog.open) {
-        if (closeTimer.current) window.clearTimeout(closeTimer.current);
+        return;
+      }
+      if (!shouldOpen && dialog.open) {
+        if (closeTimer.current) {
+          window.clearTimeout(closeTimer.current);
+        }
+
         closeTimer.current = null;
         closingRef.current = false;
         setIsClosing(false);
         dialog.style.removeProperty("--sheet-drag");
         dialog.removeAttribute("data-dragging");
+
         ignoreProgrammaticClose.current = true;
         dialog.close();
       }
@@ -399,7 +418,7 @@ export default function ZoneIntelligencePanel(
         dialog.close();
       }
     };
-  }, []);
+  }, [props.mobileOpen]);
 
   function handleDialogClose() {
     if (ignoreProgrammaticClose.current) {

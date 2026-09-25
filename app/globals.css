@@ -55,6 +55,8 @@
   --color-ink: #080935;
   --color-ink-muted: rgba(8, 9, 53, 0.64);
   --color-rule: rgba(8, 9, 53, 0.14);
+  --color-on-ink: #FFF9F9;
+  --color-on-ink-muted: rgba(255, 249, 249, 0.72);
   --color-panel-surface: rgba(255, 249, 249, 0.96);
   --color-primary-tint: rgba(9, 141, 236, 0.10);
   --color-primary-tint-strong: rgba(9, 141, 236, 0.20);
@@ -82,18 +84,27 @@
   animation: footprintFade 1.5s ease-in-out forwards;
 }
 
+.map-category-scroll {
+  scrollbar-width: none;
+}
+
+.map-category-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .zone-hover-popup .maplibregl-popup-content {
   pointer-events: none;
-  border: 1px solid rgba(8, 9, 53, 0.14);
+  border: 0;
   border-radius: 12px;
   padding: 14px 16px;
-  background: rgba(255, 249, 249, 0.96);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
   box-shadow: 0 2px 8px rgba(8, 9, 53, 0.08);
 }
 
 .zone-hover-popup .maplibregl-popup-tip {
-  border-top-color: rgba(255, 249, 249, 0.96);
-  border-bottom-color: rgba(255, 249, 249, 0.96);
+  border-top-color: var(--color-ink);
+  border-bottom-color: var(--color-ink);
 }
 
 @media (max-width: 767px) {
