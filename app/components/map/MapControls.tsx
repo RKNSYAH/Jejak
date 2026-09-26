@@ -50,7 +50,7 @@ export default function MapControls(props: MapControlsProps) {
                 <search data-hci-region="search" className={`dropdown pointer-events-auto z-10 w-full md:w-80 md:shrink-0 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) selectZone(matches[0]); }}>
-                        <label className="input w-full md:h-11 md:gap-3">
+                        <label className="input w-full shadow-sm rounded-2xl md:h-11 md:gap-3">
                             <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                             <span className="sr-only">Cari zona yang didukung</span>
                             <input type="search" placeholder="Cari zona..." value={query}
@@ -61,7 +61,7 @@ export default function MapControls(props: MapControlsProps) {
                                 className="min-w-0 flex-1 text-sm" />
                         </label>
                     </form>
-                    <div id="zone-search-results" className="dropdown-content mt-2 max-h-64 w-full overflow-y-auto rounded-box border border-rule bg-base-100 p-2 font-body shadow-overlay">
+                    <div id="zone-search-results" className="dropdown-content mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-rule bg-base-100 p-2 font-body shadow-overlay">
                         {props.loading && <p role="status" className="p-2 text-sm">Loading supported regions…</p>}
                         {props.error && <div role="status" className="p-2 text-sm">{props.error}<button className="btn btn-sm btn-outline btn-neutral mt-2" onClick={props.onRetry}>Retry</button></div>}
                         {!props.loading && !props.error && matches.length === 0 && <p className="p-2 text-sm">No regions match this search.</p>}
@@ -77,12 +77,12 @@ export default function MapControls(props: MapControlsProps) {
                 <div data-hci-region="categories" className="map-category-scroll pointer-events-auto -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
                     {categories.map(({ id, label, Icon }) => <button key={id} onClick={() => props.onCategoryChange(id as MapCategory)} type="button"
                         aria-pressed={props.category === id} title={label}
-                        className={`btn btn-sm h-9 whitespace-nowrap px-2.5 text-sm font-normal focus-visible:-outline-offset-2 ${props.category === id ? "btn-primary" : "border-rule bg-panel-surface text-ink-muted"}`}>
+                        className={`btn btn-sm shadow-sm rounded-2xl h-9 whitespace-nowrap px-2.5 text-sm font-normal focus-visible:-outline-offset-2 ${props.category === id ? "btn-primary font-semibold" : "border-rule bg-panel-surface font-semibold text-ink-muted"}`}>
                         <Icon aria-hidden="true" className="size-3.5" />{label}
                     </button>)}
                 </div>
                 {props.hasActiveRegionLayers && <button type="button" onClick={handleReset} aria-label="Reset semua lapisan peta"
-                    className="btn btn-sm btn-outline btn-neutral pointer-events-auto h-9 self-start bg-base-100 px-2.5 text-sm shadow-overlay hover:bg-neutral md:self-center">
+                    className="btn btn-sm btn-outline rounded-2xl btn-neutral pointer-events-auto h-9 self-start bg-base-100 px-2.5 text-sm shadow-sm hover:bg-neutral md:self-center">
                     <RotateCcw aria-hidden="true" className="size-3.5" />Reset
                 </button>}
             </div>

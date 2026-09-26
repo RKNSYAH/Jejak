@@ -3,10 +3,12 @@ version: "alpha"
 name: "JEJAK Map-First Relocation Interface"
 description: "A structured, asymmetric, map-first interface for comparing cities and exploring the local zones that fit a user's study, career, housing, and commute needs."
 colors:
-  primary: "#098DEC"
-  secondary: "#080935"
+  primary: "#006AD8"
+  secondary: "#5F84B1"
   tertiary: "#FFF9F9"
-  neutral: "rgba(8, 9, 53, 0.64)"
+  ink: "#21297C"
+  accent: "#9ED9EB"
+  neutral: "rgba(33, 41, 124, 0.72)"
   surface: "rgba(255, 249, 249, 0.96)"
 typography:
   h1:
@@ -32,7 +34,7 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.secondary}"
+    textColor: "{colors.tertiary}"
     rounded: "{rounded.md}"
     padding: "12px 16px"
 ---
@@ -63,25 +65,27 @@ JEJAK applies Swiss-style grid discipline to a contemporary geospatial product. 
 
 ## Colors
 
-- **Base** (`#FFF9F9`) - Page background, panels, sheets, cards, and neutral map surroundings. Keep this color dominant.
-- **Primary** (`#098DEC`) - Main actions, selected zones, active layers, links, focus indicators, and current state.
-- **Secondary / Ink** (`#080935`) - Headings, body text, navigation, icons, strong borders, and labels. Ink also carries structure and inverse emphasis:
-  - **Section rules:** a `2px` ink top rule starts each section in a detail panel; `rule` dividers separate rows within it.
+- **Base / Snow** (`#FFF9F9`) - Page background, panels, sheets, cards, and neutral map surroundings. Keep this color dominant.
+- **Primary / Sapphire Sky** (`#006AD8`) - Main actions, selected zones, active layers, links, focus indicators, current state, and the top of sequential map scales. Sapphire on Snow is about 5:1, so it also works as link or inline-emphasis text.
+- **Secondary / Glaucous** (`#5F84B1`) - Non-text structure only: quiet zone outlines, decorative marks, and secondary map features. At about 3.7:1 on Snow it is too weak for body-size text, text buttons, or muted copy.
+- **Accent / Frosted Blue** (`#9ED9EB`) - Highlighted values on ink surfaces, the low end of sequential map scales, and light zone fills. Never use it for text on Snow (about 1.5:1).
+- **Ink / True Cobalt** (`#21297C`) - Headings, body text, navigation, icons, strong borders, and labels (about 12:1 on Snow). Ink also carries structure and inverse emphasis:
+  - **Section rules:** a `2px` ink top rule starts each section in a detail panel; `rule` dividers separate rows within it, except metric rows, which use metric cards (see Components).
   - **Secondary / ghost buttons:** `1px` ink border on the base or panel surface (Legenda, Reset, Retry). Hover inverts to an ink fill with On Ink text. Do not hover to a translucent tint (over the map it replaces the opaque surface and the map shows through) or to a primary fill (it clashes with the ink border and reads as an active state).
   - **Qualifier badges:** `Sample data` uses an ink fill; evidence states use ink fill or outline (see Evidence States).
   - **Inverse surfaces:** short-lived overlays that must stand out from the light map (map hover tooltips, toasts, AI activity status) use an ink background with On Ink text.
   - **Map casing:** the selected zone gets an ink casing beneath its primary outline.
   - Ink never marks selected or active state; that remains primary blue.
-- **On Ink** (`#FFF9F9`) and **On Ink Muted** (`rgba(255, 249, 249, 0.72)`) - Text on ink surfaces. Primary blue may be used for a highlighted value on ink (about 5.5:1).
-- **Muted Ink** (`rgba(8, 9, 53, 0.64)`) - Supporting copy, metadata, and secondary labels.
-- **Rule** (`rgba(8, 9, 53, 0.14)`) - Dividers, quiet borders, and inactive controls.
+- **On Ink** (`#FFF9F9`) and **On Ink Muted** (`rgba(255, 249, 249, 0.72)`) - Text on ink surfaces. Use Frosted Blue for a highlighted value on ink (about 8:1); Sapphire on Cobalt is only about 2.4:1.
+- **Muted Ink** (`rgba(33, 41, 124, 0.72)`) - Supporting copy, metadata, and secondary labels (about 5.3:1 on Snow; lower opacities fall below 4.5:1).
+- **Rule** (`rgba(33, 41, 124, 0.14)`) - Dividers, quiet borders, and inactive controls.
 - **Panel Surface** (`rgba(255, 249, 249, 0.96)`) - Map overlays that need slight separation without glassmorphism. Do not apply `backdrop-filter: blur()` to any surface that overlays the map — it forces GPU compositing of all content behind the element, which causes frame-rate degradation while MapLibre is actively rendering vector tiles.
-- **Primary Tint** (`rgba(9, 141, 236, 0.10)`) - Selected rows, light active states, and low-intensity map areas.
-- **Primary Tint Strong** (`rgba(9, 141, 236, 0.20)`) - Hovered zones and stronger selected-state backgrounds.
+- **Primary Tint** (`rgba(0, 106, 216, 0.10)`) - Selected rows, light active states, and low-intensity map areas.
+- **Primary Tint Strong** (`rgba(0, 106, 216, 0.20)`) - Hovered zones and stronger selected-state backgrounds.
 
-Use `#080935` text on `#098DEC` buttons. White text on the primary blue does not provide enough contrast for normal interface text. Do not use opacity alone to communicate disabled, estimated, or unavailable states.
+Use Snow (`#FFF9F9`) text on Sapphire (`#006AD8`) buttons, which gives about 5:1. Cobalt text on Sapphire is only about 2.4:1. Do not use opacity alone to communicate disabled, estimated, or unavailable states.
 
-The brand palette and data-visualization palette have different roles. For quantitative map layers, use a sequential scale derived from the primary blue, with clear lightness steps and a visible legend. If several categories must appear together, define a separate accessible data palette rather than inventing colors inside components.
+The brand palette and data-visualization palette have different roles. For quantitative map layers, use a sequential scale from Frosted Blue (`#9ED9EB`) to Sapphire (`#006AD8`), with clear lightness steps and a visible legend. If several categories must appear together, define a separate accessible data palette rather than inventing colors inside components.
 
 ## Typography
 
@@ -142,9 +146,9 @@ Use CSS Grid for page-level composition and Flexbox for compact controls. The im
 
 Depth should separate map controls and information panels without making every element float. Prefer subtle borders and surface contrast before shadows.
 
-- **Panels:** `1px solid rgba(8, 9, 53, 0.14)` with a short, soft shadow when map contrast requires it.
-- **Cards:** Mostly flat within panels. Use spacing, dividers, or tint before adding another shadow layer.
-- **Shadow limit:** Do not exceed `0 2px 8px rgba(8, 9, 53, 0.08)` on standard interface surfaces.
+- **Panels:** `1px solid rgba(33, 41, 124, 0.14)` with a short, soft shadow when map contrast requires it.
+- **Cards:** Mostly flat within panels. Metric cards may carry one light shadow within the shadow limit; elsewhere use spacing, dividers, or tint before adding another shadow layer.
+- **Shadow limit:** Do not exceed `0 2px 8px rgba(33, 41, 124, 0.08)` on standard interface surfaces.
 - **Selected state:** Primary-blue border, tint, or indicator. Never rely on shadow alone.
 - **Motion:** Ease-out curves with `150ms` to `250ms` duration. Keep movement calm and predictable.
 - **Entry animations:** Fade plus a small translate of `8px` to `12px`. Avoid large slides over the map.
@@ -167,9 +171,10 @@ Avoid excessive pill-shaped controls and avoid fully rounded content cards. Shap
 
 ## Components
 
-- **Primary Button:** Primary-blue fill, navy text, `12px` radius, and weight 600. Hover uses a modest darkening or border change. Active state uses a subtle `translateY(1px)`. No glow.
+- **Primary Button:** Sapphire fill, Snow text, `12px` radius, and weight 600. Hover uses a modest darkening or border change. Active state uses a subtle `translateY(1px)`. No glow.
 - **Secondary / Ghost Button:** Base surface with a navy or muted border. Hover with a navy border inverts to an ink fill with On Ink text. Maintain a visible keyboard focus ring.
 - **Cards and Panels:** Base or panel surface, clear heading hierarchy, `1px` rule, and restrained shadow. Group information through alignment, whitespace, and dividers before introducing another card. A panel explains the map; it should not become a second dashboard.
+- **Metric Cards:** In a zone detail panel, each metric sits in its own card, with the label, value, evidence state, source, freshness, confidence, source link, and limitations together. Use a `1px` rule border, `16px` padding, a `12px` gap between cards, and no dividers between them. Cards are stacked in a single column. Keep them flat inside, with no nested cards and no separate containers for the evidence lines. Headings, campus lists, and explanatory copy stay outside cards.
 - **Inputs:** Label above the field, visible border, primary-blue focus ring, and error text below. Do not use floating labels. Onboarding questions should explain how each answer changes recommendations.
 - **Navigation:** Compact and visually quiet. Active destinations use a primary indicator and weight 600. Keep the header free of the destination search field so the map command area remains spatially connected to the map.
 - **Search and Layer Controls:** Place the floating destination search below the header at the upper left. Put Peta, Pekerjaan, Kampus, Transportasi, Kos, Commute, and Legenda in one horizontal toolbar to its right. Both surfaces use a warm off-white translucent background, a quiet border, and the same baseline.
@@ -210,7 +215,7 @@ Avoid excessive pill-shaped controls and avoid fully rounded content cards. Shap
 - Don't add a permanent chat window, robot mascot, AI glow, or generic “AI-powered insight” label.
 - Don't use glassmorphism, decorative gradients, excessive shadows, or too many floating cards.
 - Don't center explanatory text or metric groups inside information panels.
-- Don't place cards inside cards or give every evidence item its own rounded container.
+- Don't place cards inside cards. In detail panels, only a metric and its evidence qualifiers get a card; don't give sources, limitations, or other evidence lines their own rounded container.
 - Don't use color as the only signal for selection, status, or confidence.
 - Don't add a third font or restore deprecated prototype fonts.
 - Don't use generic AI copy such as “revolutionize,” “unlock,” “seamless,” or “perfect place.”

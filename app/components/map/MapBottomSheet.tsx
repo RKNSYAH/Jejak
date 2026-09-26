@@ -115,7 +115,7 @@ export default function MapBottomSheet({
                 aria-label="Resize exploration panel"
                 aria-orientation="horizontal"
                 aria-valuemin={MIN_HEIGHT}
-                aria-valuemax={Math.round(getMaxHeight())}
+                aria-valuemax={600}
                 aria-valuenow={Math.round(height)}
                 tabIndex={0}
                 className="
@@ -143,9 +143,9 @@ export default function MapBottomSheet({
                 <p className="font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} area tersedia</p>
                 </div>
             </div>
-            <div inert={height === MIN_HEIGHT} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] ${isExpanded ? "overflow-y-auto overscroll-contain md:overflow-x-auto md:overflow-y-hidden" : "overflow-x-auto overscroll-x-contain"}`}>
+            <div inert={height === MIN_HEIGHT} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain md:overflow-x-auto md:overflow-y-hidden" : "overflow-x-auto overscroll-x-contain"}`}>
                 <div className={isExpanded
-                    ? "flex flex-wrap gap-2 md:flex-nowrap md:gap-8 md:[&>*]:shrink-0"
+                    ? "flex flex-wrap gap-2 md:flex-nowrap md:gap-8 md:*:shrink-0"
                     : "flex gap-2 snap-x snap-mandatory md:gap-8"}>
                     {zones.map((zone) => (
                         <RegionCard
@@ -173,7 +173,7 @@ function RegionCard({ name, cityName, isSample, compact, onClick }: { name: stri
             className={`card card-border min-h-24 min-w-0 w-[min(10rem,calc((100cqi-0.5rem)/2))] cursor-pointer bg-base-100 text-left shadow-overlay hover:border-primary focus-visible:outline-primary md:min-h-28 md:w-[min(16rem,calc((100cqi-3rem)/5))] ${compact ? "shrink-0 snap-start" : ""}`}
         >
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
-                <span className="break-words font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{name}</span>
+                <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
                 <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data area"}</span>
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">

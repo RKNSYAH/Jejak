@@ -674,30 +674,35 @@ Region borders are data, not model output. Zone and administrative boundaries co
 
 ## Color Palette
 
-Jejak uses a simple three-color visual system.
+Jejak uses a five-color blue visual system.
 
 | Role | Color | Usage |
 |---|---|---|
-| Base | `#FFF9F9` | Application background, map surroundings, panels, and spacious neutral surfaces |
-| Primary | `#098DEC` | Primary buttons, calls to action, selected zones, active map metrics, links, and interactive highlights |
-| Secondary | `#080935` | Headings, body text, navigation, icons, borders, and button labels |
+| Base (Snow) | `#FFF9F9` | Application background, map surroundings, panels, and spacious neutral surfaces |
+| Primary (Sapphire Sky) | `#006AD8` | Primary buttons, calls to action, selected zones, active map metrics, links, and interactive highlights |
+| Ink (True Cobalt) | `#21297C` | Headings, body text, navigation, icons, borders, and dark overlay surfaces |
+| Secondary (Glaucous) | `#5F84B1` | Quiet zone outlines, decorative marks, and secondary map features (not text) |
+| Accent (Frosted Blue) | `#9ED9EB` | Highlighted values on ink surfaces, light zone fills, and the low end of map scales |
 
 ### Usage rules
 
 - Use `#FFF9F9` as the dominant background so the map and information layers remain easy to scan.
-- Reserve `#098DEC` for interactive emphasis. It should identify actions and active selections rather than decorate every element.
-- Use `#080935` for primary text and interface structure.
-- Use `#080935` for text placed on `#098DEC` buttons. White text on the primary blue does not provide enough contrast for normal-sized interface text.
+- Reserve `#006AD8` for interactive emphasis. It should identify actions and active selections rather than decorate every element.
+- Use `#21297C` for primary text and interface structure.
+- Use `#FFF9F9` for text placed on `#006AD8` buttons. Cobalt text on Sapphire does not provide enough contrast (about 2.4:1).
+- Do not use Glaucous or Frosted Blue for text on the Snow background.
 - Create hierarchy through spacing, typography, border weight, and opacity before introducing additional colors.
-- Map heatmaps may use opacity variations of the primary blue when a single-scale visualization is sufficient. Every heatmap must include a legend.
+- Map heatmaps use a sequential scale from Frosted Blue to Sapphire. Every heatmap must include a legend.
 
 Example design tokens:
 
 ```css
 :root {
   --atlas-base: #fff9f9;
-  --atlas-primary: #098dec;
-  --atlas-secondary: #080935;
+  --atlas-primary: #006ad8;
+  --atlas-ink: #21297c;
+  --atlas-secondary: #5f84b1;
+  --atlas-accent: #9ed9eb;
 }
 ```
 

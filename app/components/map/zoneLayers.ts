@@ -16,9 +16,9 @@ export function getZoneFillLayer(category: MapCategory, range: MetricRange): Fil
   return {
     ...ZONE_FILL_LAYER,
     paint: {
-      "fill-color": !thematic ? "#DCEEFF" : range && range.min < range.max
-        ? ["interpolate", ["linear"], ["to-number", ["get", "value"]], range.min, "#B5E1FB", range.max, "#098DEC"]
-        : "#098DEC",
+      "fill-color": !thematic ? "#9ED9EB" : range && range.min < range.max
+        ? ["interpolate", ["linear"], ["to-number", ["get", "value"]], range.min, "#9ED9EB", range.max, "#006AD8"]
+        : "#006AD8",
       "fill-opacity": thematic ? ["case", ["==", ["get", "value"], null], 0, 0.6] : 0.16,
     },
   };
@@ -27,14 +27,14 @@ export function getZoneFillLayer(category: MapCategory, range: MetricRange): Fil
 export const ZONE_FILL_LAYER: FillLayerProps & { id: string } = {
   id: "region-fill",
   type: "fill",
-  paint: { "fill-color": "#DCEEFF", "fill-opacity": 0.16 },
+  paint: { "fill-color": "#9ED9EB", "fill-opacity": 0.16 },
 };
 
 export const ZONE_OUTLINE_LAYER: LineLayerProps = {
   id: "region-outline",
   type: "line",
   paint: {
-    "line-color": "#080935",
+    "line-color": "#5F84B1",
     "line-opacity": 0.4,
     "line-width": 1,
   },
@@ -44,7 +44,7 @@ export const ZONE_HOVER_OUTLINE_LAYER: LineLayerProps = {
   id: "region-hover-outline",
   type: "line",
   paint: {
-    "line-color": "#098DEC",
+    "line-color": "#006AD8",
     "line-width": 2,
   },
 };
@@ -56,7 +56,7 @@ export const ZONE_SELECTED_CASING_LAYER: LineLayerProps = {
     "line-join": "round",
   },
   paint: {
-    "line-color": "#080935",
+    "line-color": "#21297C",
     "line-width": 5,
   },
 };
@@ -65,7 +65,7 @@ export const ZONE_SELECTED_OUTLINE_LAYER: LineLayerProps = {
   id: "region-selected-outline",
   type: "line",
   paint: {
-    "line-color": "#098DEC",
+    "line-color": "#006AD8",
     "line-width": 2.5,
   },
 };

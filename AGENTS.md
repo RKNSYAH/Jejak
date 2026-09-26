@@ -19,6 +19,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Alpha click telemetry runs from `instrumentation-client.ts` through `/api/hci` into `hci_click_events` (off with `NEXT_PUBLIC_HCI_TELEMETRY=false`; `?study=P01` tags a participant). Give new UI surfaces a `data-hci-region`. `bun run test:e2e` builds, serves on port 3100, mocks `/api/*`, and enforces click latency budgets with Playwright.
 - Read `docs/Jejak_Project_Summary.md` before product or architecture changes and `docs/DESIGN.md` before UI/design changes.
 
+## HCI user flow
+
+- Read `docs/Jejak_HCI_User_Flow_Summary.md` before changing navigation, onboarding, discovery, map interactions, comparison, or saved plans. Its route tree describes the **proposed** experience; the current app still redirects `/` to `/map`. Do not assume the proposed routes are implemented.
+- Intended journey: landing CTA **Mulai Jejakmu** → state-aware `/start` (register, resume, begin, or return to the last map state) → choose study/work goal and decision-changing context → choose open discovery or a fixed destination → set budget, housing, mobility, and priorities → review hard constraints versus soft preferences → city shortlist or fixed-destination result → city overview → explore zones on map or equivalent list → inspect evidence and trade-offs → compare → save a shortlist or plan. Refining assumptions should recalculate results and explain what changed.
+- Branches: a fixed destination skips broad city discovery and focuses on nearby zones/commute; no results explains the limiting constraint and lets the user relax it one step at a time; an unfinished user can resume without losing inputs. Guest exploration can precede an account, with sign-in requested when saving or syncing is useful.
+- HCI expectations: one main decision/action per step, visible progress and reversible navigation, persistent profile/map context, four top-level dimensions (Opportunity, Affordability, Access, Daily Life) with details disclosed on demand. Show why a result fits, its trade-offs, source/date/geographic level and missing or stale evidence. Keep map and list access equivalent; define loading, partial/no data, error, and success states with a clear next action. The user confirms AI-inferred changes that affect ranking.
+
 ## Implementation and review
 
 - Implement the smallest clear solution. Avoid unnecessary files, functions, and abstractions; reuse existing dependencies or a suitable package when it simplifies the work.

@@ -73,11 +73,11 @@ test("thematic fills encode the available range and leave missing values unfille
     assert.deepEqual(getMetricRange([null, 0, 1400]), { min: 0, max: 1400 });
     assert.equal(getMetricRange([null]), null);
     const fill = getZoneFillLayer("employment", { min: 0, max: 1400 });
-    assert.deepEqual(fill.paint?.["fill-color"], ["interpolate", ["linear"], ["to-number", ["get", "value"]], 0, "#B5E1FB", 1400, "#098DEC"]);
+    assert.deepEqual(fill.paint?.["fill-color"], ["interpolate", ["linear"], ["to-number", ["get", "value"]], 0, "#9ED9EB", 1400, "#006AD8"]);
     assert.deepEqual(fill.paint?.["fill-opacity"], ["case", ["==", ["get", "value"], null], 0, 0.6]);
-    assert.equal(ZONE_OUTLINE_LAYER.paint?.["line-color"], "#080935");
+    assert.equal(ZONE_OUTLINE_LAYER.paint?.["line-color"], "#5F84B1");
     assert.equal(getZoneFillLayer("summary", null).paint?.["fill-opacity"], 0.16);
-    assert.equal(getZoneFillLayer("housing", { min: 42, max: 42 }).paint?.["fill-color"], "#098DEC");
+    assert.equal(getZoneFillLayer("housing", { min: 42, max: 42 }).paint?.["fill-color"], "#006AD8");
 });
 
 test("basemap labels use local web fonts without requesting unavailable glyph stacks", () => {

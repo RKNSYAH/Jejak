@@ -43,7 +43,8 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
   const campuses = category === "education" ? details?.places.filter((place) => place.category === "campus") ?? [] : [];
   const available = facts.some(Boolean) || campuses.length > 0;
 
-  return <div className="flex h-full min-h-0 flex-col font-body" aria-busy={loading}>
+  return (
+  <div className="flex h-full min-h-0 flex-col font-body" aria-busy={loading}>
     <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
@@ -62,18 +63,20 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
       </div>
       {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Retry</button>}
       {!loading && !available && <p className="text-sm text-ink-muted">No {mapCategories[category].panelLabel.toLowerCase()} data is available for this region yet.</p>}
-      {available && <dl className="divide-y divide-rule border-y border-rule">
+      {available && <dl className="grid gap-3">
         {categoryMetrics[category].map((metric, index) => {
           const fact = facts[index];
           if (!fact) return null;
           const value = formatFactValue(fact);
-          return <div key={metric} className="py-3">
-            <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
-            <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
-            <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Sample · " : ""}{fact.evidence_type} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · period unavailable"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% confidence` : ""}</dd>
-            {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">View source</a></dd>}
-            {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
-          </div>;
+          return (
+            <div key={metric} className="card border border-rule shadow-sm p-4">
+              <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
+              <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
+              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Sample · " : ""}{fact.evidence_type} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · period unavailable"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% confidence` : ""}</dd>
+              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">View source</a></dd>}
+              {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
+            </div>
+          );
         })}
       </dl>}
       {campuses.length > 0 && <section className="mt-6" aria-label="Campuses">
@@ -85,7 +88,8 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
       </section>}
       <p className="mt-6 text-xs text-ink-muted">Missing figures are unavailable, not zero. Regional totals do not imply a precise location or a personal fit score.</p>
     </div>
-  </div>;
+  </div>
+  );
 }
 export default function ZoneIntelligencePanel(
   props: ZoneIntelligencePanelProps,

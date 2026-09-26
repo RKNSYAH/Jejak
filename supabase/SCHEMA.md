@@ -1,8 +1,8 @@
 # Jejak database schema
 
-The schema has **13 active tables**. Prepared facts, private enrichment evidence,
-public aggregates, user decisions, and anonymous interaction telemetry have
-separate responsibilities.
+The schema has **15 active tables**. Prepared facts, private enrichment evidence,
+public aggregates, user decisions, subscriptions, and anonymous interaction
+telemetry have separate responsibilities.
 
 Migrations `0001`–`0009` have been applied to the linked Supabase project.
 Subsequent changes are additive migrations; do not edit previously applied SQL.
@@ -25,6 +25,8 @@ institution_data                          |
 auth.users -> relocation_profiles -> recommendation_runs
      |                                      |
      +--------------> shortlist_items <-----+
+     |
+     +--> subscriptions <-- subscription_plans
 ```
 
 - **Prepared data:** official statistics, institution identities, campus locations,
@@ -286,6 +288,34 @@ clicks, share, clicks per active minute, and p50/p90 paint and response times
 per region. The existing `response_timeouts` count includes all null responses,
 including cancelled interactions.
 
+### 14. `subscription_plans`
+
+Fields: integer identity `id`, unique `code`, `name`, `billing_interval`
+(`month`/`year`), `price_amount` in major units, `currency` (default `IDR`),
+`features` JSON object of entitlements, `is_active`, `created_at`, `updated_at`.
+
+Anyone can read the catalog, including retired plans that existing subscribers
+still reference; a pricing page filters on `is_active`. Only the backend writes.
+
+### 15. `subscriptions`
+
+Fields: identity `id`, `user_id`, `plan_id`, `status`, `current_period_start`,
+optional `current_period_end` (null means no end), `cancel_at_period_end`,
+`canceled_at`, optional `provider`, `provider_customer_id`,
+`provider_subscription_id`, `created_at`, `updated_at`.
+
+Provider-neutral: the backend maps provider webhook states to `incomplete`,
+`trialing`, `active`, `past_due`, `canceled`, or `expired` and upserts on the
+unique `(provider, provider_subscription_id)`. Manual grants leave the provider
+fields null. A partial unique index allows one `trialing`/`active`/`past_due`
+row per user; ended rows remain as history. Users can read their own rows;
+only the backend writes. Account deletion cascades.
+
+`get_my_subscription()` returns the caller's current subscription with its plan
+code, name, and features, or no rows for the free tier. `past_due` keeps access
+while the provider retries. A lapsed `current_period_end` ends access even if a
+renewal webhook was missed.
+
 ## Dynamic request lifecycle
 
 1. The backend resolves the region and canonicalizes evidence type and filters.
@@ -339,6 +369,8 @@ these schema files and adapter do not implement or deploy them.
 | Snapshots | Public read RPC only | Tables and publication RPC |
 | Profiles and recommendations | Own rows, read-only | CRUD |
 | Shortlists | Own rows, CRUD | CRUD |
+| Subscription plans | Read | CRUD |
+| Subscriptions | Own rows, read-only | CRUD |
 | Click telemetry | Insert only | Dashboard reads |
 | Legacy prototype tables/RPCs | None | Compatibility only |
 
@@ -360,6 +392,10 @@ New function defaults are private for the migration role.
 - `get_region_data(integer, varchar)`
 - `get_public_places(integer, varchar)`
 - `get_institution_data(integer, bigint)`
+
+**Authenticated RPC** (invoker rights, limited by RLS to the caller):
+
+- `get_my_subscription()`
 
 **Backend-only RPCs:**
 
@@ -389,6 +425,7 @@ they are not the new write/read path.
 | `20260925194332` | Batch heatmap read, repeatable regional imports, aggregate fields for the map |
 | `20260925194645` | Correct aggregate date validation after remote deployment |
 | `20260926112145` | Anonymous click telemetry table and region summary view |
+| `20260926225056` | Subscription plans, user subscriptions, and `get_my_subscription()` |
 
 Each draft migration is transactional and takes the same schema advisory lock.
 Cache operations lock the exact enrichment scope; publication locks its snapshot
@@ -410,7 +447,8 @@ Tests cover migration validity, browser/backend permissions, RLS, default IDs,
 confirmed revisions, ownership, duplicate claims, sample exclusion, locality
 ranking, refresh work, expired-worker rejection/cooldowns, campus integrity,
 snapshot validation, a batch of 85 grid cells with scoped aggregates and
-idempotent fact imports, and account deletion.
+idempotent fact imports, subscription ownership and current-subscription rules,
+and account deletion.
 The Python tests also check the prepared-request adapter and ensure its saved
 flow export matches the source, without importing Langflow or making network calls.
 

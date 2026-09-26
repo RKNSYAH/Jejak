@@ -251,15 +251,15 @@ export default function JejakMap() {
                     {selectedId && <Layer {...ZONE_SELECTED_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
                 </Source>
                 {category === "education" && <Source id="region-campuses" type="geojson" data={campusData}>
-                    <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#098DEC", "circle-stroke-width": 2, "circle-stroke-color": "#080935" }} />
+                    <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#006AD8", "circle-stroke-width": 2, "circle-stroke-color": "#21297C" }} />
                 </Source>}
                 {hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
                     anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
                     <div role="tooltip" className="min-w-44 font-body">
                         <p className="font-sans text-base font-bold text-on-ink">{hoveredMetadata.zone_name}</p>
                         <p className="mt-1 text-xs text-on-ink-muted">{hoveredMetadata.is_sample ? "Sample data" : "Region data"}</p>
-                        {category === "summary" && <p className="mt-3 text-sm">{mapCategories.summary.popupLabel}: <span className="font-semibold tabular-nums text-primary">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : mapCategories.summary.format(hoveredMetadata.wage_to_rent_ratio)}</span></p>}
-                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel}: <span className="font-semibold tabular-nums text-primary">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
+                        {category === "summary" && <p className="mt-3 text-sm">{mapCategories.summary.popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : mapCategories.summary.format(hoveredMetadata.wage_to_rent_ratio)}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
                         <p className="mt-2 text-xs text-on-ink-muted">Select the zone for details</p>
                     </div>
                 </Popup>}

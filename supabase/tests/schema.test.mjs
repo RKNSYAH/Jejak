@@ -317,10 +317,56 @@ test('migration chain and database contracts', async (t) => {
     assert.equal((await getLayer(null, null)).length, 85);
   });
 
+  await t.test('subscriptions are backend-written, owner-read, and one current per user', async () => {
+    await db.exec('set role service_role');
+    try {
+      const plan = await one(`insert into public.subscription_plans (code, name, billing_interval, price_amount, features)
+        values ('pro_monthly', 'Pro', 'month', 49000, '{"max_profiles": 5}') returning id`);
+      await db.query(`insert into public.subscriptions (user_id, plan_id, status, current_period_start, current_period_end)
+        values ($1, $2, 'expired', now() - interval '2 months', now() - interval '1 month'),
+               ($1, $2, 'active', now(), now() + interval '1 month')`, [userA, plan.id]);
+      await assert.rejects(db.query(`insert into public.subscriptions (user_id, plan_id, status)
+        values ($1, $2, 'trialing')`, [userA, plan.id]), /subscriptions_one_current_uq/);
+      // A missed renewal webhook leaves userB "active" after the period lapsed.
+      const lapsed = `insert into public.subscriptions (user_id, plan_id, status, current_period_start,
+        current_period_end, provider, provider_subscription_id)
+        values ($1, $2, $3, now() - interval '2 months', now() - interval '1 month', 'provider_x', 'sub_1')`;
+      await db.query(lapsed, [userB, plan.id, 'active']);
+      await assert.rejects(db.query(lapsed, [userB, plan.id, 'expired']), /subscriptions_provider_uq/);
+    } finally {
+      await db.exec('reset role');
+    }
+
+    await db.exec('set role anon');
+    try {
+      assert.deepEqual(await rows('select code from public.subscription_plans'), [{ code: 'pro_monthly' }]);
+      await assert.rejects(rows('select * from public.subscriptions'), /permission denied/);
+      await assert.rejects(rows('select * from public.get_my_subscription()'), /permission denied/);
+    } finally {
+      await db.exec('reset role');
+    }
+
+    await db.exec('set role authenticated');
+    try {
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      assert.equal((await rows('select * from public.subscriptions')).length, 2);
+      assert.deepEqual(await rows('select plan_code, status, features from public.get_my_subscription()'),
+        [{ plan_code: 'pro_monthly', status: 'active', features: { max_profiles: 5 } }]);
+      await assert.rejects(db.query(`update public.subscriptions set status = 'canceled'`), /permission denied/);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      assert.deepEqual(await rows('select provider_subscription_id from public.subscriptions'),
+        [{ provider_subscription_id: 'sub_1' }]);
+      assert.deepEqual(await rows('select * from public.get_my_subscription()'), []);
+    } finally {
+      await db.exec('reset role');
+    }
+  });
+
   await t.test('account deletion cascades through confirmed profiles and recommendations', async () => {
     await db.query('delete from auth.users where id = $1', [userA]);
     assert.deepEqual(await rows('select * from public.relocation_profiles where user_id = $1', [userA]), []);
     assert.deepEqual(await rows('select * from public.recommendation_runs where user_id = $1', [userA]), []);
+    assert.deepEqual(await rows('select * from public.subscriptions where user_id = $1', [userA]), []);
   });
 
   await t.test('click telemetry is insert-only for browsers and constrained like the API', async () => {

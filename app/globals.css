@@ -11,18 +11,18 @@
   --color-base-100: #FFF9F9;
   --color-base-200: oklch(96% 0.005 10);
   --color-base-300: oklch(92% 0.008 10);
-  --color-base-content: #080935;
+  --color-base-content: #21297C;
 
-  --color-primary: #098DEC;
-  --color-primary-content: #080935;
+  --color-primary: #006AD8;
+  --color-primary-content: #FFF9F9;
 
-  --color-secondary: #080935;
+  --color-secondary: #5F84B1;
   --color-secondary-content: #FFF9F9;
 
-  --color-accent: oklch(65% 0.25 160);
-  --color-accent-content: #ffffff;
+  --color-accent: #9ED9EB;
+  --color-accent-content: #21297C;
 
-  --color-neutral: #080935;
+  --color-neutral: #21297C;
   --color-neutral-content: #FFF9F9;
 
   --color-info: oklch(70% 0.2 220);
@@ -32,7 +32,7 @@
   --color-success-content: #ffffff;
 
   --color-warning: oklch(55% 0.195 38.402);
-  --color-warning-content: #080935;
+  --color-warning-content: #21297C;
 
   --color-error: oklch(50% 0.213 27.518);
   --color-error-content: #ffffff;
@@ -55,7 +55,7 @@
 
   /* DESIGN.md token names, derived from the daisyUI theme so they follow it */
   --color-ink: var(--color-base-content);
-  --color-ink-muted: color-mix(in oklab, var(--color-base-content) 64%, transparent);
+  --color-ink-muted: color-mix(in oklab, var(--color-base-content) 72%, transparent);
   --color-rule: color-mix(in oklab, var(--color-base-content) 14%, transparent);
   --color-on-ink: var(--color-base-100);
   --color-on-ink-muted: color-mix(in oklab, var(--color-base-100) 72%, transparent);

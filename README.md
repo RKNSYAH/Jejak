@@ -26,7 +26,7 @@ Use **Bun 1.4.2**, as specified in `package.json`, and **Node.js 20.9 or newer**
 | Data and authentication | Supabase JavaScript client 2, Supabase SSR, PostgreSQL with PostGIS |
 | Client state and analytics | Zustand 5, Vercel Analytics |
 | Checks | ESLint 9, Bun test runner, Playwright Test |
-| Database tests | PGlite and its PostGIS extension, installed through `supabase/package.json` |
+| Database tests | PGlite and its PostGIS extension |
 
 Check [`package.json`](package.json) for dependency ranges and `bun.lock` for resolved versions. The database test package has its own manifest and lockfile in `supabase/`.
 

@@ -16,7 +16,7 @@ function RangeKey({ range, format }: { range: NonNullable<MetricRange>; format: 
     }
 
     return <>
-        <div className="mt-3 h-3 rounded-field [background:linear-gradient(to_right,#B5E1FB,#098DEC)]" aria-hidden="true" />
+        <div className="mt-3 h-3 rounded-field bg-linear-to-r from-accent to-primary" aria-hidden="true" />
         <div className="mt-1 flex justify-between gap-2 tabular-nums">
             <span>{format(range.min)}</span><span>{format(range.max)}</span>
         </div>
