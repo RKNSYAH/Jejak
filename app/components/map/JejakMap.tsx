@@ -10,8 +10,9 @@ import jejakStyle from "@/public/jejak_light_openfreemap.json";
 import { urbanist, sourceSans3 } from "@/app/fonts";
 import type { MapCategory, Zone, ZoneGeometry } from "@/app/engine/types";
 import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
+import { mapCategories } from "./mapMetrics";
 import { createZoneLayerData } from "./zoneLayerData";
-import { getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
 import { useZoneIntelligence } from "./useZoneIntelligence";
 import Buildings3dToggle from "./Buildings3dToggle";
 import MapControls from "./MapControls";
@@ -35,7 +36,6 @@ export default function JejakMap() {
     const [is3dEnabled, setIs3dEnabled] = useState(true);
     const orbitFrameRef = useRef<number | null>(null);
     const orbitingRef = useRef(false);
-    const orbitPendingRef = useRef(false);
     const orbitMoveEndRef = useRef<(() => void) | null>(null);
     const state = useZoneIntelligence();
     const selectedId = state.selectedZone?.zone_id;
@@ -49,6 +49,16 @@ export default function JejakMap() {
         };
         return createZoneLayerData(geometry, state.results, category ?? "summary");
     }, [state.geometryByZone, state.results, category]);
+    const metricRange = useMemo(() => getMetricRange(layerData.features.map((feature) => feature.properties.value)), [layerData]);
+    const visibleZoneIds = useMemo(() => [...new Set(layerData.features.map((feature) => feature.properties.zone_id))], [layerData]);
+    const mapStyle = useMemo(() => {
+        const style = structuredClone(jejakStyle) as StyleSpecification;
+        for (const layer of style.layers) {
+            if (layer.type !== "symbol" || !layer.layout || !("text-font" in layer.layout)) continue;
+            layer.layout["text-font"] = [DISPLAY_LAYERS.has(layer.id) ? urbanist.style.fontFamily : sourceSans3.style.fontFamily];
+        }
+        return style;
+    }, []);
 
     const campusData = useMemo(() => ({
         type: "FeatureCollection" as const,
@@ -68,14 +78,14 @@ export default function JejakMap() {
     const panelOpenTimer = useRef<number | null>(null);
 
     function cancelPendingSearchFly() {
-        if (pendingSearchFlyRef.current) {
-            pendingSearchFlyRef.current = null;
-            if (panelOpenTimer.current) {
-                window.clearTimeout(panelOpenTimer.current);
-                panelOpenTimer.current = null;
-            }
-        }
+        pendingSearchFlyRef.current = null;
+        if (panelOpenTimer.current !== null) window.clearTimeout(panelOpenTimer.current);
+        panelOpenTimer.current = null;
     }
+
+    useEffect(() => () => {
+        if (panelOpenTimer.current !== null) window.clearTimeout(panelOpenTimer.current);
+    }, []);
 
     function selectZone(zone: Zone) {
         bottomSheetRef.current?.collapse();
@@ -98,7 +108,6 @@ export default function JejakMap() {
             orbitMoveEndRef.current = null;
         }
         orbitingRef.current = false;
-        orbitPendingRef.current = false;
 
         if (orbitFrameRef.current !== null) {
             cancelAnimationFrame(orbitFrameRef.current);
@@ -154,7 +163,6 @@ export default function JejakMap() {
                 }
             }, reducedMotion ? 0 : 2500)
         }
-        orbitPendingRef.current = !reducedMotion;
         mapRef.current?.fitBounds(bounds, {
             padding: desktop
                 ? {
@@ -182,15 +190,6 @@ export default function JejakMap() {
 
     useEffect(() => () => stopOrbit(), [stopOrbit]);
 
-    const mapStyle = useMemo(() => {
-        const style = structuredClone(jejakStyle) as StyleSpecification;
-        for (const layer of style.layers) {
-            if (layer.type !== "symbol" || !layer.layout || !("text-font" in layer.layout)) continue;
-            layer.layout["text-font"] = [DISPLAY_LAYERS.has(layer.id) ? urbanist.style.fontFamily : sourceSans3.style.fontFamily];
-        }
-        return style;
-    }, []);
-
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!mapLoaded || !map?.getLayer(BUILDINGS_3D_LAYER)) return;
@@ -208,7 +207,7 @@ export default function JejakMap() {
     const hoveredValue = hoveredZone ? layerData.features.find((feature) => feature.properties.zone_id === hoveredZone.id)?.properties.value : null;
 
     return (
-        <div ref={mapContainerRef} className="relative h-full min-h-0 overflow-hidden">
+        <div ref={mapContainerRef} data-hci-region="map" className="relative h-full min-h-0 overflow-hidden">
             <MapView ref={mapRef} initialViewState={{ longitude: 106.8456, latitude: -6.2088, zoom: 11 }}
                 rotateSpeed={0.4} aroundCenter={false} style={{ width: "100%", height: "100%" }}
                 mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={[ZONE_FILL_LAYER.id]} cursor={hoveredZone ? "pointer" : "grab"}
@@ -245,7 +244,7 @@ export default function JejakMap() {
                 onMouseLeave={() => setHoveredZone(null)}>
                 <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI" />
                 <Source id="region-data" type="geojson" data={layerData}>
-                    <Layer {...getZoneFillLayer(category ?? "summary")} beforeId={BUILDINGS_3D_LAYER} />
+                    <Layer {...getZoneFillLayer(category ?? "summary", metricRange)} beforeId={BUILDINGS_3D_LAYER} />
                     <Layer {...ZONE_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} />
                     {hoveredZone && hoveredZone.id !== selectedId && <Layer {...ZONE_HOVER_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], hoveredZone.id]} />}
                     {selectedId && <Layer {...ZONE_SELECTED_CASING_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
@@ -258,9 +257,9 @@ export default function JejakMap() {
                     anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
                     <div role="tooltip" className="min-w-44 font-body">
                         <p className="font-sans text-base font-bold text-on-ink">{hoveredMetadata.zone_name}</p>
-                        <p className="mt-1 text-xs text-on-ink-muted">{state.catalog.zones.find((zone) => zone.zone_id === hoveredZone.id)?.is_sample ? "Sample data" : "Region data"}</p>
-                        {category === "summary" && <p className="mt-3 text-sm">Wage-to-rent ratio: <span className="font-semibold tabular-nums text-primary">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : `${hoveredMetadata.wage_to_rent_ratio.toLocaleString("id-ID")}×`}</span></p>}
-                        {category && category !== "summary" && <p className="mt-3 text-sm">{category}: <span className="font-semibold tabular-nums text-primary">{hoveredValue ?? "Unavailable"}</span></p>}
+                        <p className="mt-1 text-xs text-on-ink-muted">{hoveredMetadata.is_sample ? "Sample data" : "Region data"}</p>
+                        {category === "summary" && <p className="mt-3 text-sm">{mapCategories.summary.popupLabel}: <span className="font-semibold tabular-nums text-primary">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : mapCategories.summary.format(hoveredMetadata.wage_to_rent_ratio)}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel}: <span className="font-semibold tabular-nums text-primary">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
                         <p className="mt-2 text-xs text-on-ink-muted">Select the zone for details</p>
                     </div>
                 </Popup>}
@@ -290,7 +289,7 @@ export default function JejakMap() {
                 }} />
             <div className="absolute bottom-8 left-4 z-100 flex items-center gap-2 font-body">
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
-                {(layerData.features.length > 0 || (category === "education" && campusData.features.length > 0)) && <MapLegend category={category ?? "summary"} isSample={state.catalog.is_sample} />}
+                {(layerData.features.length > 0 || (category === "education" && campusData.features.length > 0)) && <MapLegend category={category ?? "summary"} range={metricRange} detailsByZone={state.results} visibleZoneIds={visibleZoneIds} />}
             </div>
             {state.selectedZone && (
                 <ZoneIntelligencePanel
@@ -309,7 +308,7 @@ export default function JejakMap() {
                     }}
                     onClose={() => {
                         cancelPendingSearchFly();
-                        setMobilePanelOpen(true);
+                        setMobilePanelOpen(false);
                         state.closeSelection();
                     }} />
             )}

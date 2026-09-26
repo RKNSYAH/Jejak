@@ -1,16 +1,19 @@
-import { createClient } from "@/app/engine/lib/client";
+import { loginUser } from "@/app/engine/controller/userController";
 
 export async function POST(req: Request) {
     const body = await req.json();
 
     const { email, password } = body;
 
-    const supabase = await createClient();
+    // Validate the input
+    if (!email || !password) {
+        return new Response(
+            JSON.stringify({ error: "Please provide both email and password." }),
+            { status: 400 }
+        );
+    }
 
-    const {data, error} = await supabase.auth.signInWithPassword({
-        email,
-        password
-    });
+    const {data, error} = await loginUser(email, password);
 
     if (error) {
         return new Response(

@@ -1,4 +1,4 @@
-import { createClient } from "@/app/engine/lib/client";
+import { registerUser } from "@/app/engine/controller/userController";
 
 export async function POST(req: Request) {
     const body = await req.json();
@@ -12,19 +12,14 @@ export async function POST(req: Request) {
         );
     }
 
-    const supabase = createClient();
+    if (phone && typeof phone !== "number") {
+        return new Response(
+            JSON.stringify({ error: "Phone number must be a valid number." }),
+            { status: 400 }
+        );
+    }
 
-    // Create the new user
-    const { data, error } = await supabase.auth.signUp({
-        email,
-        phone,
-        password: password,
-        options: {
-            data: {
-                name
-            }
-        }
-    });
+    const {data, error} = await registerUser(email, password, name);
 
     if (error) {
         return new Response(

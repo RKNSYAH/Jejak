@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { UserProfile, TargetSector } from "../engine/types";
 
-type UserProfileStore = UserProfile & {
+type UserProfileStore = {
     profile: UserProfile | null;
     setProfile: (profile: UserProfile) => void;
     setTargetSectors: (sectors: TargetSector[]) => void;
@@ -23,19 +23,16 @@ const initialProfile: UserProfile = {
 };
 
 export const useUserProfileStore = create<UserProfileStore>((set) => ({
-    ...initialProfile,
     profile: null,
 
     setProfile: (profile) => set({ profile }),
 
     setTargetSectors: (sectors) =>
         set((state) => ({
-            profile: state.profile
-                ? {
-                    ...state.profile,
-                    target_sectors: sectors,
-                }
-                : null,
+            profile: {
+                ...(state.profile ?? initialProfile),
+                target_sectors: sectors,
+            },
         })),
 
     resetProfile: () => set({ profile: null }),

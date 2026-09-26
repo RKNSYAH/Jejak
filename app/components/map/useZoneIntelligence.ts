@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getZoneGeometry, getZoneIntelligence, getZones } from "@/app/engine/lib/zoneApi";
+import { beginHciResponse } from "@/app/engine/lib/hciTelemetry";
+import { getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "@/app/engine/lib/zoneApi";
 import type { Zone, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "@/app/engine/types";
 
 export function useZoneIntelligence() {
@@ -22,6 +23,32 @@ export function useZoneIntelligence() {
     const [recommendationRevision, setRecommendationRevision] = useState(0);
     const [recommendationsLoading, setRecommendationsLoading] = useState(false);
     const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
+
+    async function loadZone(zoneId: string, signal: AbortSignal, retry = false) {
+        const cachedGeometry = retry ? undefined : geometryCache.current[zoneId];
+        const cachedDetails = retry ? undefined : detailsCache.current[zoneId];
+        if (!cachedGeometry && !cachedDetails) {
+            try {
+                const result = await getZoneMapData(zoneId, signal);
+                return {
+                    geometry: result.geometry ? { status: "fulfilled" as const, value: result.geometry } :
+                        { status: "rejected" as const, reason: new Error(result.geometryError ?? "Boundary unavailable") },
+                    details: { status: "fulfilled" as const, value: result.details },
+                };
+            } catch (error) {
+                return {
+                    geometry: { status: "rejected" as const, reason: error },
+                    details: { status: "rejected" as const, reason: error },
+                };
+            }
+        }
+
+        const [geometry, details] = await Promise.allSettled([
+            cachedGeometry ? Promise.resolve(cachedGeometry) : getZoneGeometry(zoneId, signal),
+            cachedDetails ? Promise.resolve(cachedDetails) : getZoneIntelligence(zoneId, signal),
+        ] as const);
+        return { geometry, details };
+    }
 
     useEffect(() => {
         const controller = new AbortController();
@@ -50,30 +77,38 @@ export function useZoneIntelligence() {
         setRecommendationsLoading(true);
         setRecommendationsError(null);
 
-        void Promise.all(topFive.map(async (zone) => {
-            const [geometry, details] = await Promise.allSettled([
-                geometryCache.current[zone.zone_id]
-                    ? Promise.resolve(geometryCache.current[zone.zone_id])
-                    : getZoneGeometry(zone.zone_id, controller.signal),
-                detailsCache.current[zone.zone_id]
-                    ? Promise.resolve(detailsCache.current[zone.zone_id])
-                    : getZoneIntelligence(zone.zone_id, controller.signal),
-            ]);
-            if (controller.signal.aborted) return 0;
-            if (geometry.status === "fulfilled" && geometry.value.features.length > 0) {
-                geometryCache.current[zone.zone_id] = geometry.value;
-                setGeometryByZone((current) => ({ ...current, [zone.zone_id]: geometry.value }));
+        const requests = topFive.map(async (zone) => ({ zoneId: zone.zone_id, ...await loadZone(zone.zone_id, controller.signal) }));
+
+        function commit(batch: Awaited<(typeof requests)[number]>[]) {
+            const geometries: Record<string, ZoneGeometry> = {};
+            const detailsByZone: Record<string, ZoneDetailResult> = {};
+            for (const result of batch) {
+                if (result.geometry.status === "fulfilled" && result.geometry.value.features.length > 0) {
+                    geometries[result.zoneId] = result.geometry.value;
+                    geometryCache.current[result.zoneId] = result.geometry.value;
+                }
+                if (result.details.status === "fulfilled") {
+                    detailsByZone[result.zoneId] = result.details.value;
+                    detailsCache.current[result.zoneId] = result.details.value;
+                }
             }
-            if (details.status === "fulfilled") {
-                detailsCache.current[zone.zone_id] = details.value;
-                setResults((current) => ({ ...current, [zone.zone_id]: details.value }));
-            }
-            return Number(geometry.status === "rejected" || geometry.value.features.length === 0) + Number(details.status === "rejected");
-        })).then((failures) => {
+            if (Object.keys(geometries).length) setGeometryByZone((current) => ({ ...current, ...geometries }));
+            if (Object.keys(detailsByZone).length) setResults((current) => ({ ...current, ...detailsByZone }));
+        }
+
+        void (async () => {
+            // Paint the first ready region promptly, then commit the remaining results together.
+            const first = await Promise.race(requests);
             if (controller.signal.aborted) return;
-            if (failures.some(Boolean)) setRecommendationsError("Some ranked regions could not be loaded. Retry to load missing data.");
+            commit([first]);
+            const results = await Promise.all(requests);
+            if (controller.signal.aborted) return;
+            commit(results.filter((result) => result !== first));
+            if (results.some(({ geometry, details }) => geometry.status === "rejected" || geometry.value.features.length === 0 || details.status === "rejected")) {
+                setRecommendationsError("Some ranked regions could not be loaded. Retry to load missing data.");
+            }
             setRecommendationsLoading(false);
-        });
+        })();
 
         return () => controller.abort();
     }, [catalog, catalogLoading, catalogError, showRecommendations, recommendationRevision]);
@@ -86,41 +121,39 @@ export function useZoneIntelligence() {
         setError(null);
         const cachedGeometry = geometryByZone[zone.zone_id] ?? geometryCache.current[zone.zone_id];
         const cachedDetails = detailsCache.current[zone.zone_id];
-        if (cachedGeometry) setGeometryByZone((current) => ({ ...current, [zone.zone_id]: cachedGeometry }));
+        if (cachedGeometry && !geometryByZone[zone.zone_id]) setGeometryByZone((current) => ({ ...current, [zone.zone_id]: cachedGeometry }));
         if (cachedGeometry && cachedDetails && !retry) {
             setLoading(false);
             return;
         }
         setLoading(true);
 
-        // Each response joins the visible set independently; a detail failure cannot remove a boundary.
-        const [geometry, details] = await Promise.allSettled([
-            cachedGeometry && !retry ? Promise.resolve(cachedGeometry) : getZoneGeometry(zone.zone_id, controller.signal).then((result) => {
-                if (!controller.signal.aborted) {
-                    geometryCache.current[zone.zone_id] = result;
-                    setGeometryByZone((current) => ({ ...current, [zone.zone_id]: result }));
-                }
-                return result;
-            }),
-            cachedDetails && !retry ? Promise.resolve(cachedDetails) : getZoneIntelligence(zone.zone_id, controller.signal).then((result) => {
-                if (!controller.signal.aborted) {
-                    detailsCache.current[zone.zone_id] = result;
-                    setResults((current) => ({ ...current, [zone.zone_id]: result }));
-                }
-                return result;
-            }),
-        ]);
-        if (controller.signal.aborted) return;
+        const finishResponse = beginHciResponse(controller.signal);
+        try {
+            const { geometry, details } = await loadZone(zone.zone_id, controller.signal, retry);
+            if (controller.signal.aborted) return;
 
-        const errors: string[] = [];
-        if (geometry.status === "rejected") {
-            errors.push(geometry.reason instanceof Error ? geometry.reason.message : "Boundary request failed");
+            if (geometry.status === "fulfilled") {
+                geometryCache.current[zone.zone_id] = geometry.value;
+                setGeometryByZone((current) => ({ ...current, [zone.zone_id]: geometry.value }));
+            }
+            if (details.status === "fulfilled") {
+                detailsCache.current[zone.zone_id] = details.value;
+                setResults((current) => ({ ...current, [zone.zone_id]: details.value }));
+            }
+
+            const errors: string[] = [];
+            if (geometry.status === "rejected") {
+                errors.push(geometry.reason instanceof Error ? geometry.reason.message : "Boundary request failed");
+            }
+            if (details.status === "rejected") {
+                errors.push(details.reason instanceof Error ? details.reason.message : "Region data request failed");
+            }
+            setError(errors.length ? [...new Set(errors)].join(" ") : null);
+            setLoading(false);
+        } finally {
+            finishResponse();
         }
-        if (details.status === "rejected") {
-            errors.push(details.reason instanceof Error ? details.reason.message : "Region data request failed");
-        }
-        setError(errors.length ? errors.join(" ") : null);
-        setLoading(false);
     }
 
     function closeSelection() {

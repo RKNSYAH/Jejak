@@ -6,11 +6,24 @@ function isNullableNumber(value: unknown): value is number | null {
 }
 
 async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
-    const res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) });
-    const data: unknown = await res.json();
-    if (!res.ok) {
-        throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : "Unable to load zone data");
+    const timeout = AbortSignal.timeout(20000);
+    let res: Response;
+    try {
+        res = await fetch(url, { signal: AbortSignal.any([signal, timeout]) });
+    } catch (error) {
+        if (signal.aborted) throw error;
+        if (timeout.aborted || (error instanceof Error && error.name === "TimeoutError")) throw new Error("Zone request timed out. Please retry.");
+        throw new Error("Unable to connect to the zone service. Please retry.");
     }
+    const data: unknown = await res.json().catch((error: unknown) => {
+        if (signal.aborted) throw error;
+        if (timeout.aborted) throw new Error("Zone request timed out. Please retry.");
+        return null;
+    });
+    if (!res.ok) {
+        throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : `Unable to load zone data (HTTP ${res.status})`);
+    }
+    if (data === null) throw new Error("Invalid response from the zone service");
     return data;
 }
 
@@ -33,8 +46,7 @@ export async function getZones(signal: AbortSignal): Promise<ZoneListResponse> {
     return { is_sample: data.is_sample, zones };
 }
 
-export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Promise<ZoneGeometry> {
-    const data = await getJson(`/api/geometry?zone_id=${encodeURIComponent(zoneId)}`, signal);
+function parseGeometry(data: unknown, zoneId: string): ZoneGeometry {
     if (!isRecord(data) || data.type !== "FeatureCollection" || !Array.isArray(data.features)) throw new Error("Invalid geometry response");
     const features = data.features.map((feature) => {
         if (!isRecord(feature) || feature.type !== "Feature" || !isBoundary(feature.geometry) || !isRecord(feature.properties) ||
@@ -53,8 +65,7 @@ export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Prom
     return { type: "FeatureCollection", features };
 }
 
-export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneDetailResult> {
-    const data = await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services`, signal);
+function parseDetails(data: unknown): ZoneDetailResult {
     if (!isRecord(data) || typeof data.is_sample !== "boolean" || !Array.isArray(data.facts) || !Array.isArray(data.places) ||
         !data.facts.every((fact) => isRecord(fact) && typeof fact.metric === "string" &&
             typeof fact.value === "number" && Number.isFinite(fact.value) && typeof fact.source === "string" &&
@@ -73,4 +84,30 @@ export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): 
         throw new Error("Invalid region data");
     }
     return data as ZoneDetailResult;
+}
+
+export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Promise<ZoneGeometry> {
+    return parseGeometry(await getJson(`/api/geometry?zone_id=${encodeURIComponent(zoneId)}`, signal), zoneId);
+}
+
+export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneDetailResult> {
+    return parseDetails(await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services`, signal));
+}
+
+export async function getZoneMapData(zoneId: string, signal: AbortSignal): Promise<{
+    geometry: ZoneGeometry | null;
+    details: ZoneDetailResult;
+    geometryError: string | null;
+}> {
+    const data = await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services&include_geometry=1`, signal);
+    if (!isRecord(data) || !("geometry" in data) || (data.geometry_error !== null && typeof data.geometry_error !== "string")) {
+        throw new Error("Invalid region map response");
+    }
+    const details = parseDetails(data.details);
+    if (data.geometry === null) return { details, geometry: null, geometryError: data.geometry_error as string | null };
+    try {
+        return { details, geometry: parseGeometry(data.geometry, zoneId), geometryError: data.geometry_error as string | null };
+    } catch (error) {
+        return { details, geometry: null, geometryError: error instanceof Error ? error.message : "Invalid zone boundary" };
+    }
 }

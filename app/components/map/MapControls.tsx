@@ -45,9 +45,9 @@ export default function MapControls(props: MapControlsProps) {
     }
 
     return (
-        <div className="pointer-events-none absolute inset-x-3 top-4 z-100 flex flex-col gap-3 md:items-start">
+        <div data-hci-region="controls" className="pointer-events-none absolute inset-x-3 top-4 z-100 flex flex-col gap-3 md:items-start">
             <div className="flex w-full min-w-0 flex-col items-start gap-2 md:flex-row md:items-center md:gap-3">
-                <search className={`dropdown pointer-events-auto z-10 w-full md:w-80 md:shrink-0 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
+                <search data-hci-region="search" className={`dropdown pointer-events-auto z-10 w-full md:w-80 md:shrink-0 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) selectZone(matches[0]); }}>
                         <label className="input w-full md:h-11 md:gap-3">
@@ -74,7 +74,7 @@ export default function MapControls(props: MapControlsProps) {
                         </ul>
                     </div>
                 </search>
-                <div className="map-category-scroll pointer-events-auto -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
+                <div data-hci-region="categories" className="map-category-scroll pointer-events-auto -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
                     {categories.map(({ id, label, Icon }) => <button key={id} onClick={() => props.onCategoryChange(id as MapCategory)} type="button"
                         aria-pressed={props.category === id} title={label}
                         className={`btn btn-sm h-9 whitespace-nowrap px-2.5 text-sm font-normal focus-visible:-outline-offset-2 ${props.category === id ? "btn-primary" : "border-rule bg-panel-surface text-ink-muted"}`}>

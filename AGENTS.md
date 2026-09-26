@@ -16,6 +16,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Map data needs `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (typically in gitignored `.env.local`). The RPC definitions live in `supabase/migrations/`; `proxy.ts` refreshes auth claims/cookies for matched requests.
 - `JEJAK_INCLUDE_SAMPLE_DATA` defaults to enabled unless set to `false`. API responses carry `is_sample`; never present those rows as verified/live evidence. `/api/geometry` uses stored geometry first, then falls back to the external BIG boundary service.
 - `/api/lf01` currently validates requests but returns `503 ENRICHMENT_UNAVAILABLE`; it does not run enrichment.
+- Alpha click telemetry runs from `instrumentation-client.ts` through `/api/hci` into `hci_click_events` (off with `NEXT_PUBLIC_HCI_TELEMETRY=false`; `?study=P01` tags a participant). Give new UI surfaces a `data-hci-region`. `bun run test:e2e` builds, serves on port 3100, mocks `/api/*`, and enforces click latency budgets with Playwright.
 - Read `docs/Jejak_Project_Summary.md` before product or architecture changes and `docs/DESIGN.md` before UI/design changes.
 
 ## Implementation and review

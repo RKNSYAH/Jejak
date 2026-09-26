@@ -1,19 +1,27 @@
 import { createClient } from "../lib/server";
 
-export async function getUserProfile(userId: string, profileId: string) {
-    const res = await fetch(
-        `/api/users/${userId}/profiles/${profileId}`,
-        {
-            headers: {
-                "Authorization": `Bearer ${process.env.API_TOKEN}`,
-            },
+export async function registerUser(email: string, password: string, name: string) {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password: password,
+        options: {
+            data: {
+                name
+            }
         }
-    );
-    if (!res.ok) {
-        return null;
-    }
-    const data = await res.json();
-    return data;
+    });
+    return { data, error };
+}
+
+export async function loginUser(email: string, password: string) {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+    });
+    return { data, error };
 }
 
 export async function getAuthenticatedUser() {

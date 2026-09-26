@@ -99,6 +99,25 @@ export interface LF01Input {
   existing_entity_ids?: string[];
 }
 
+export type HciClick = {
+  elapsed_ms: number;
+  region: string;
+  target: string;
+  x: number | null;
+  y: number | null;
+  viewport_width: number;
+  viewport_height: number;
+  paint_ms: number;
+  // Click-specific work through its result frame; null if cancelled or timed out.
+  response_ms: number | null;
+};
+
+export type HciClickBatch = {
+  session_id: string;
+  participant: string | null;
+  clicks: HciClick[];
+};
+
 export type UserProfile = {
   target_sectors: TargetSector[];
   monthly_budget: number;
@@ -111,4 +130,3 @@ export type UserProfile = {
     mobility: number;
   };
 };
-

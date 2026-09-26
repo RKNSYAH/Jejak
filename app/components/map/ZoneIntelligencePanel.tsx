@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { X } from "lucide-react";
 
 import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
+import { formatFactValue, mapCategories, metricLabels } from "./mapMetrics";
 
 type ZoneIntelligencePanelProps = {
   zoneName: string;
@@ -37,24 +38,6 @@ const categoryMetrics: Record<MapCategory, string[]> = {
   mobility: ["public_transport_stops", "transit_access"],
 };
 
-const metricLabels: Record<string, string> = {
-  population: "Population",
-  employment_rate: "Employment rate",
-  average_monthly_wage_idr: "Average monthly wage",
-  company_count: "Companies",
-  universities: "Universities",
-  schools: "Schools",
-  median_monthly_rent_idr: "Median monthly rent",
-  housing_price_index: "Housing price index",
-  public_transport_stops: "Public transport stops",
-  transit_access: "Transit access",
-};
-
-const categoryLabels: Record<MapCategory, string> = {
-  summary: "Ringkasan", employment: "Pekerjaan", education: "Pendidikan",
-  housing: "Hunian", mobility: "Mobilitas",
-};
-
 function PanelContent({ zoneName, details, category, loading, error, isSample, geometryMissing, onRetry, onClose, idPrefix }: ZoneIntelligencePanelProps & { idPrefix: string }) {
   const facts = categoryMetrics[category].map((metric) => details?.facts.find((fact) => fact.metric === metric));
   const campuses = category === "education" ? details?.places.filter((place) => place.category === "campus") ?? [] : [];
@@ -63,7 +46,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
   return <div className="flex h-full min-h-0 flex-col font-body" aria-busy={loading}>
     <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{categoryLabels[category]}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
         <h2 id={`${idPrefix}-title`} className="mt-1 font-sans text-2xl font-bold text-ink">{zoneName}</h2>
       </div>
       <button type="button" className="btn btn-ghost btn-square size-11" onClick={onClose} aria-label={`Close ${zoneName} details`}>
@@ -78,14 +61,12 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
         {geometryMissing && <p className="mb-3">A boundary is not available for this region.</p>}
       </div>
       {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Retry</button>}
-      {!loading && !available && <p className="text-sm text-ink-muted">No {categoryLabels[category].toLowerCase()} data is available for this region yet.</p>}
+      {!loading && !available && <p className="text-sm text-ink-muted">No {mapCategories[category].panelLabel.toLowerCase()} data is available for this region yet.</p>}
       {available && <dl className="divide-y divide-rule border-y border-rule">
         {categoryMetrics[category].map((metric, index) => {
           const fact = facts[index];
           if (!fact) return null;
-          const value = metric === "employment_rate" ? `${(fact.value * 100).toLocaleString()}%`
-            : metric === "median_monthly_rent_idr" || metric === "average_monthly_wage_idr" ? `Rp${fact.value.toLocaleString("id-ID")}/month`
-            : `${fact.value.toLocaleString()}${fact.unit === "stops_within_500m" ? " stops within 500 m" : ""}`;
+          const value = formatFactValue(fact);
           return <div key={metric} className="py-3">
             <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
             <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
@@ -289,6 +270,7 @@ export default function ZoneIntelligencePanel(
       <aside
         ref={panelRef}
         id="zone-intelligence-desktop"
+        data-hci-region="zone-panel"
         className="absolute inset-y-0 right-0 z-200 hidden min-w-[320px] max-w-[min(45vw,720px)] border-l border-t border-rule bg-panel-surface shadow-overlay md:block"
         aria-labelledby="zone-intelligence-desktop-title"
         style={{ width: panelWidth }}
@@ -317,6 +299,7 @@ export default function ZoneIntelligencePanel(
 
       <dialog
         ref={dialogRef}
+        data-hci-region="zone-panel"
         className="modal modal-bottom open:bg-ink/30 md:hidden"
         aria-labelledby="zone-intelligence-mobile-title"
         onClose={handleDialogClose}

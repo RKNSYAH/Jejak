@@ -1,0 +1,13 @@
+{
+  "name": "jejak-schema-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/schema.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-postgis": "0.2.8"
+  },
+  "packageManager": "bun@1.4.2"
+}
