@@ -27,7 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       data-theme="jejak"
       className={`${urbanist.variable} ${sourceSans3.variable} h-dvh antialiased`}
     >
-      <body className="bg-base-100 text-base-content h-full flex flex-col">
+      <body className="h-full flex flex-col">
         {/* <Header /> */}
         {children}
         <Analytics />

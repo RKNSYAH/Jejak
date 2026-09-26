@@ -1,5 +1,9 @@
-import type { ZoneGeometry, ZoneIntelligenceResponse, ZoneIntelligenceResult, ZoneListResponse } from "../types";
+import type { ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "../types";
 import { isBoundary, isRecord } from "./zoneGeometry";
+
+function isNullableNumber(value: unknown): value is number | null {
+    return value === null || (typeof value === "number" && Number.isFinite(value));
+}
 
 async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
     const res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) });
@@ -10,45 +14,21 @@ async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
     return data;
 }
 
-function isCount(value: unknown): value is number {
-    return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isScore(value: unknown, max = 100): value is number {
-    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max;
-}
-
-function isDate(value: unknown): value is string {
-    return typeof value === "string" && Number.isFinite(Date.parse(value));
-}
-
-function isIntelligence(value: unknown): value is ZoneIntelligenceResponse {
-    if (!isRecord(value) || !isRecord(value.snapshot) || !isRecord(value.refresh)) return false;
-    const { snapshot, refresh } = value;
-    const { indices, evidence, local_headcount: headcount } = snapshot;
-    return typeof snapshot.zone_id === "string" && typeof snapshot.sector_id === "string" &&
-        isDate(snapshot.snapshot_at) && isCount(snapshot.observed_organizations) &&
-        isCount(snapshot.verified_offices) && isCount(snapshot.active_openings) &&
-        isRecord(indices) && isScore(indices.sector_presence) && isScore(indices.hiring_activity) && isScore(indices.employer_diversity) &&
-        isRecord(evidence) && isScore(evidence.confidence, 1) && isCount(evidence.sources_monitored) &&
-        isCount(evidence.organizations_without_headcount) && isDate(evidence.oldest_material_evidence) &&
-        ["high", "medium", "low", "insufficient"].includes(String(evidence.confidence_label)) &&
-        ["fresh", "stale"].includes(String(value.freshness)) && ["complete", "partial"].includes(String(value.coverage)) &&
-        ["unavailable", "queued", "running", "partial", "completed", "failed"].includes(String(refresh.status)) &&
-        (refresh.run_id === null || typeof refresh.run_id === "string") &&
-        (headcount === undefined || (isRecord(headcount) && isCount(headcount.minimum) && isCount(headcount.maximum) &&
-            headcount.maximum >= headcount.minimum && headcount.status === "estimated" && typeof headcount.method_version === "string"));
-}
-
 export async function getZones(signal: AbortSignal): Promise<ZoneListResponse> {
-    const data = await getJson("/api/zones?city_id=jakarta-selatan&sector_id=software_and_it_services", signal);
+    const data = await getJson("/api/zones?sector_id=software_and_it_services", signal);
     if (!isRecord(data) || typeof data.is_sample !== "boolean" || !Array.isArray(data.zones)) throw new Error("Invalid zone list");
     const zones = data.zones.map((zone) => {
         if (!isRecord(zone) || typeof zone.zone_id !== "string" || typeof zone.zone_name !== "string" ||
             typeof zone.city_id !== "string" || typeof zone.city_name !== "string" ||
-            (zone.intelligence !== null && !isIntelligence(zone.intelligence))) throw new Error("Invalid zone summary");
-        if (zone.intelligence && zone.intelligence.snapshot.zone_id !== zone.zone_id) throw new Error("Mismatched zone summary");
-        return { zone_id: zone.zone_id, zone_name: zone.zone_name, city_id: zone.city_id, city_name: zone.city_name, intelligence: zone.intelligence };
+            typeof zone.is_sample !== "boolean" ||
+            !isNullableNumber(zone.average_monthly_wage_idr) || !isNullableNumber(zone.median_monthly_rent_idr) ||
+            !isNullableNumber(zone.population) || !isNullableNumber(zone.wage_to_rent_ratio)) throw new Error("Invalid zone summary");
+        return {
+            zone_id: zone.zone_id, zone_name: zone.zone_name, city_id: zone.city_id, city_name: zone.city_name,
+            is_sample: zone.is_sample, average_monthly_wage_idr: zone.average_monthly_wage_idr,
+            median_monthly_rent_idr: zone.median_monthly_rent_idr, population: zone.population,
+            wage_to_rent_ratio: zone.wage_to_rent_ratio,
+        };
     });
     return { is_sample: data.is_sample, zones };
 }
@@ -73,12 +53,24 @@ export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Prom
     return { type: "FeatureCollection", features };
 }
 
-export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneIntelligenceResult> {
+export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneDetailResult> {
     const data = await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services`, signal);
-    if (!isRecord(data) || typeof data.is_sample !== "boolean" ||
-        (data.intelligence !== null && !isIntelligence(data.intelligence))) throw new Error("Invalid zone intelligence");
-    if (data.intelligence && (data.intelligence.snapshot.zone_id !== zoneId || data.intelligence.snapshot.sector_id !== "software_and_it_services")) {
-        throw new Error("Intelligence does not match the selected zone and sector");
+    if (!isRecord(data) || typeof data.is_sample !== "boolean" || !Array.isArray(data.facts) || !Array.isArray(data.places) ||
+        !data.facts.every((fact) => isRecord(fact) && typeof fact.metric === "string" &&
+            typeof fact.value === "number" && Number.isFinite(fact.value) && typeof fact.source === "string" &&
+            (fact.unit === null || typeof fact.unit === "string") &&
+            (fact.source_url == null || typeof fact.source_url === "string") &&
+            (fact.period_start == null || typeof fact.period_start === "string") &&
+            (fact.period_end === null || typeof fact.period_end === "string") &&
+            (fact.confidence == null || (typeof fact.confidence === "number" && fact.confidence >= 0 && fact.confidence <= 1)) &&
+            ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
+            (fact.limitations === null || typeof fact.limitations === "string") && typeof fact.is_sample === "boolean") ||
+        !data.places.every((place) => isRecord(place) && typeof place.id === "number" &&
+            typeof place.name === "string" && typeof place.category === "string" &&
+            typeof place.latitude === "number" && Number.isFinite(place.latitude) && Math.abs(place.latitude) <= 90 &&
+            typeof place.longitude === "number" && Number.isFinite(place.longitude) && Math.abs(place.longitude) <= 180 &&
+            typeof place.source === "string" && typeof place.is_sample === "boolean")) {
+        throw new Error("Invalid region data");
     }
-    return { is_sample: data.is_sample, intelligence: data.intelligence };
+    return data as ZoneDetailResult;
 }

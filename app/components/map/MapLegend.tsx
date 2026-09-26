@@ -1,16 +1,21 @@
-import type { ZoneMetric } from "@/app/engine/types";
+import type { MapCategory } from "@/app/engine/types";
 
-export default function MapLegend({ metric }: { metric: ZoneMetric; }) {
+const labels: Record<MapCategory, string> = {
+    summary: "Displayed regions",
+    employment: "Company count (companies)",
+    education: "Universities (count)",
+    housing: "Median monthly rent (IDR)",
+    mobility: "Public transport stops (count)",
+};
+
+export default function MapLegend({ category, isSample }: { category: MapCategory; isSample: boolean }) {
     return (
         <div className="font-body">
-            <button type="button" className="btn min-h-11 border-ink bg-panel-surface text-ink hover:bg-ink hover:text-on-ink" popoverTarget="map-legend">Legenda</button>
-            <div id="map-legend" popover="auto" className="fixed inset-auto bottom-24 left-4 m-0 max-w-72 rounded-lg border border-rule bg-panel-surface p-4 text-sm text-ink">
-                <h2 className="font-semibold">{metric === "sector_presence" ? "Sector presence" : "Hiring activity"} index</h2>
-                <p className="mt-1 text-xs text-ink-muted">Period and monitored-source coverage are shown in each zone’s detail panel.</p>
-                <div className="mt-3 h-2 rounded-full bg-[linear-gradient(to_right,#DCEEFF,#71B9EF,#098DEC)]" aria-hidden="true" />
-                <div className="mt-1 flex justify-between"><span>0</span><span>100</span></div>
-                <p className="mt-2">Gray: unavailable.</p>
-                <p className="mt-1">Zero: an available value of 0</p>
+            <button type="button" className="btn btn-outline btn-neutral min-h-11 bg-base-100 [anchor-name:--map-legend] hover:bg-neutral" popoverTarget="map-legend">Legenda</button>
+            <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 w-72 rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
+                <h2 className="font-semibold">{labels[category]}</h2>
+                <p className="mt-1 text-xs text-ink-muted">{isSample ? "Sample values. " : ""}Source and period are listed in the region panel.</p>
+                <p className="mt-2">{category === "summary" ? "Light blue: ranked or opened region. Selected region has a darker outline." : "Blue: a value is available (including zero). Gray: unavailable. Fill does not encode magnitude."}</p>
             </div>
         </div>
     );

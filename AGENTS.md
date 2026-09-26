@@ -8,10 +8,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-## Project guidance
+## Working in this repo
 
-- Read `docs/Jejak_Project_Summary.md` to understand the product before making product or architecture changes. Read `docs/DESIGN.md` before any design or UI work.
-- This is a single Bun-managed Next.js App Router app. `app/page.tsx` redirects `/` to `/map`; the map UI is in `app/components/map`, API routes are in `app/api`, and engine logic is in `app/engine`.
-- Use Bun 1.4.2 (`packageManager` in `package.json`): `bun run dev`, `bun run build`, `bun run lint`, and `bun run test`. Run a focused test with `bun test tests/mapping.test.ts` or `bun test tests/lf01.test.ts`.
-- `predev` and `prebuild` copy MapLibre worker files into `public/maplibre`; edit `scripts/copy-maplibre-worker.mjs` rather than the copied vendor files.
-- Zone intelligence in `app/datas/mockData.ts` is sample data. Do not present it as live evidence.
+- Use Bun 1.4.2 (`package.json`/`bun.lock`): `bun run dev`, `bun run build`, `bun run lint`, `bun run test`. Focus tests with `bun test tests/mapping.test.ts` or `bun test tests/lf01.test.ts`; there is no typecheck script (`bunx tsc --noEmit`).
+- `predev`/`prebuild` copy MapLibre workers from the installed package into `public/maplibre/`. Change `scripts/copy-maplibre-worker.mjs`, not the copied bundles.
+- The README is starter boilerplate. `app/page.tsx` redirects `/` to `/map`; `app/map/page.tsx` renders `app/components/map/JejakMap.tsx`. Map requests flow through `useZoneIntelligence` and `zoneApi` to `app/api` and the Supabase RPCs in `app/engine/controller/zoneController.ts`.
+- Map data needs `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (typically in gitignored `.env.local`). The RPC definitions live in `supabase/migrations/`; `proxy.ts` refreshes auth claims/cookies for matched requests.
+- `JEJAK_INCLUDE_SAMPLE_DATA` defaults to enabled unless set to `false`. API responses carry `is_sample`; never present those rows as verified/live evidence. `/api/geometry` uses stored geometry first, then falls back to the external BIG boundary service.
+- `/api/lf01` currently validates requests but returns `503 ENRICHMENT_UNAVAILABLE`; it does not run enrichment.
+- Read `docs/Jejak_Project_Summary.md` before product or architecture changes and `docs/DESIGN.md` before UI/design changes.
+
+## Implementation and review
+
+- Implement the smallest clear solution. Avoid unnecessary files, functions, and abstractions; reuse existing dependencies or a suitable package when it simplifies the work.
+- After code changes, give a short summary and key code snippets for review. Explain the snippets in implementation order, tracing how input flows through the logic to the result and why each step is needed.

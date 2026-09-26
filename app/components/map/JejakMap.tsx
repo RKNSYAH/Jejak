@@ -8,7 +8,7 @@ import type { StyleSpecification } from "maplibre-gl";
 
 import jejakStyle from "@/public/jejak_light_openfreemap.json";
 import { urbanist, sourceSans3 } from "@/app/fonts";
-import type { Zone, ZoneGeometry, ZoneMetric } from "@/app/engine/types";
+import type { MapCategory, Zone, ZoneGeometry } from "@/app/engine/types";
 import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
 import { createZoneLayerData } from "./zoneLayerData";
 import { getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
@@ -29,7 +29,7 @@ export default function JejakMap() {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const bottomSheetRef = useRef<MapBottomSheetHandle>(null);
     const [mapLoaded, setMapLoaded] = useState(false);
-    const [metric, setMetric] = useState<ZoneMetric>("sector_presence");
+    const [category, setCategory] = useState<MapCategory | null>("summary");
     const [hoveredZone, setHoveredZone] = useState<{ id: string; longitude: number; latitude: number } | null>(null);
     const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
     const [is3dEnabled, setIs3dEnabled] = useState(true);
@@ -42,17 +42,23 @@ export default function JejakMap() {
     const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
     const selectedResult = selectedId ? state.results[selectedId] : undefined;
 
-    const intelligenceByZone = useMemo(() => Object.fromEntries(state.catalog.zones.map((zone) => [
-        zone.zone_id, state.results[zone.zone_id] ? state.results[zone.zone_id].intelligence : zone.intelligence,
-    ])), [state.catalog.zones, state.results]);
-
     const layerData = useMemo(() => {
         const geometry: ZoneGeometry = {
             type: "FeatureCollection",
             features: Object.values(state.geometryByZone).flatMap((value) => value.features),
         };
-        return createZoneLayerData(geometry, intelligenceByZone);
-    }, [state.geometryByZone, intelligenceByZone]);
+        return createZoneLayerData(geometry, state.results, category ?? "summary");
+    }, [state.geometryByZone, state.results, category]);
+
+    const campusData = useMemo(() => ({
+        type: "FeatureCollection" as const,
+        features: [...new Set([...Object.keys(state.geometryByZone), ...(selectedId ? [selectedId] : [])])].flatMap((id) =>
+            (state.results[id]?.places ?? []).filter((place) => place.category === "campus").map((place) => ({
+                type: "Feature" as const,
+                geometry: { type: "Point" as const, coordinates: [place.longitude, place.latitude] },
+                properties: { name: place.name, is_sample: place.is_sample },
+            }))),
+    }), [state.geometryByZone, state.results, selectedId]);
 
     const pendingSearchFlyRef = useRef<{
         zoneId: string
@@ -199,7 +205,7 @@ export default function JejakMap() {
     }
 
     const hoveredMetadata = state.catalog.zones.find((zone) => zone.zone_id === hoveredZone?.id);
-    const hoveredSnapshot = hoveredZone ? intelligenceByZone[hoveredZone.id]?.snapshot : undefined;
+    const hoveredValue = hoveredZone ? layerData.features.find((feature) => feature.properties.zone_id === hoveredZone.id)?.properties.value : null;
 
     return (
         <div ref={mapContainerRef} className="relative h-full min-h-0 overflow-hidden">
@@ -238,20 +244,23 @@ export default function JejakMap() {
                 }}
                 onMouseLeave={() => setHoveredZone(null)}>
                 <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI" />
-                <Source id="zone-intelligence" type="geojson" data={layerData}>
-                    <Layer {...getZoneFillLayer(metric)} beforeId={BUILDINGS_3D_LAYER} />
+                <Source id="region-data" type="geojson" data={layerData}>
+                    <Layer {...getZoneFillLayer(category ?? "summary")} beforeId={BUILDINGS_3D_LAYER} />
                     <Layer {...ZONE_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} />
                     {hoveredZone && hoveredZone.id !== selectedId && <Layer {...ZONE_HOVER_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], hoveredZone.id]} />}
                     {selectedId && <Layer {...ZONE_SELECTED_CASING_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
                     {selectedId && <Layer {...ZONE_SELECTED_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
                 </Source>
+                {category === "education" && <Source id="region-campuses" type="geojson" data={campusData}>
+                    <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#098DEC", "circle-stroke-width": 2, "circle-stroke-color": "#080935" }} />
+                </Source>}
                 {hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
                     anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
                     <div role="tooltip" className="min-w-44 font-body">
                         <p className="font-sans text-base font-bold text-on-ink">{hoveredMetadata.zone_name}</p>
-                        <p className="mt-1 text-xs text-on-ink-muted">Software and IT services · Sample data</p>
-                        <p className="mt-3 text-sm">{metric === "sector_presence" ? "Sector presence" : "Hiring activity"}: <span className="font-semibold tabular-nums text-primary">{hoveredSnapshot ? `${hoveredSnapshot.indices[metric]}/100` : "Unavailable"}</span></p>
-                        <p className="mt-1 text-sm">Active openings: <span className="font-semibold tabular-nums text-on-ink">{hoveredSnapshot?.active_openings ?? "Unavailable"}</span></p>
+                        <p className="mt-1 text-xs text-on-ink-muted">{state.catalog.zones.find((zone) => zone.zone_id === hoveredZone.id)?.is_sample ? "Sample data" : "Region data"}</p>
+                        {category === "summary" && <p className="mt-3 text-sm">Wage-to-rent ratio: <span className="font-semibold tabular-nums text-primary">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : `${hoveredMetadata.wage_to_rent_ratio.toLocaleString("id-ID")}×`}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{category}: <span className="font-semibold tabular-nums text-primary">{hoveredValue ?? "Unavailable"}</span></p>}
                         <p className="mt-2 text-xs text-on-ink-muted">Select the zone for details</p>
                     </div>
                 </Popup>}
@@ -261,32 +270,41 @@ export default function JejakMap() {
                 zones={state.catalog.zones}
                 loading={state.catalogLoading}
                 error={state.catalogError}
-                hasActiveRegionLayers={layerData.features.length > 0}
+                hasActiveRegionLayers={state.recommendationsLoading || !!selectedId || layerData.features.length > 0 || campusData.features.length > 0}
                 onRetry={state.retryCatalog}
+                recommendationsLoading={state.recommendationsLoading}
+                recommendationsError={state.recommendationsError}
+                onRetryRecommendations={state.retryRecommendations}
+                category={category}
+                onCategoryChange={(next) => {
+                    setCategory(next);
+                    if (next === "summary") state.restoreRecommendations();
+                }}
                 onSelect={selectZone}
                 onReset={() => {
                     setHoveredZone(null);
                     cancelPendingSearchFly();
-                    setMobilePanelOpen(true);
-                    setMetric("sector_presence");
+                    setMobilePanelOpen(false);
+                    setCategory(null);
                     state.resetMap();
                 }} />
             <div className="absolute bottom-8 left-4 z-100 flex items-center gap-2 font-body">
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
-                {layerData.features.length > 0 && <MapLegend metric={metric} />}
+                {(layerData.features.length > 0 || (category === "education" && campusData.features.length > 0)) && <MapLegend category={category ?? "summary"} isSample={state.catalog.is_sample} />}
             </div>
             {state.selectedZone && (
                 <ZoneIntelligencePanel
                     zoneName={state.selectedZone.zone_name}
-                    intelligence={selectedResult?.intelligence ?? null}
-                    isSample={selectedResult?.is_sample ?? state.catalog.is_sample}
+                    details={selectedResult ?? null}
+                    category={category ?? "summary"}
+                    isSample={selectedResult?.is_sample ?? state.catalog.zones.find((zone) => zone.zone_id === selectedId)?.is_sample ?? false}
                     loading={state.loading}
                     error={state.error}
                     geometryMissing={selectedGeometry?.features.length === 0}
                     mobileOpen={mobilePanelOpen}
                     onRetry={() => {
                         if (state.selectedZone) {
-                            void state.selectZone(state.selectedZone);
+                            void state.selectZone(state.selectedZone, true);
                         }
                     }}
                     onClose={() => {

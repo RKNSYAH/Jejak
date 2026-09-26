@@ -1,43 +1,6 @@
 
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 
-export type ZoneSectorSnapshot = {
-  zone_id: string;
-  sector_id: string;
-  snapshot_at: string;
-  observed_organizations: number;
-  verified_offices: number;
-  active_openings: number;
-  local_headcount?: {
-    minimum: number;
-    maximum: number;
-    status: "estimated";
-    method_version: string;
-  };
-  indices: {
-    sector_presence: number;
-    hiring_activity: number;
-    employer_diversity: number;
-  };
-  evidence: {
-    sources_monitored: number;
-    organizations_without_headcount: number;
-    oldest_material_evidence: string;
-    confidence: number;
-    confidence_label: "high" | "medium" | "low" | "insufficient";
-  };
-};
-
-export type ZoneIntelligenceResponse = {
-  snapshot: ZoneSectorSnapshot;
-  freshness: "fresh" | "stale";
-  coverage: "complete" | "partial";
-  refresh: {
-    status: "unavailable" | "queued" | "running" | "partial" | "completed" | "failed";
-    run_id: string | null;
-  };
-};
-
 export type Zone = {
   zone_id: string;
   zone_name: string;
@@ -52,7 +15,11 @@ export type ZoneGeometry = FeatureCollection<Polygon | MultiPolygon, {
 }>;
 
 export type ZoneSummary = Zone & {
-  intelligence: ZoneIntelligenceResponse | null;
+  is_sample: boolean;
+  average_monthly_wage_idr: number | null;
+  median_monthly_rent_idr: number | null;
+  population: number | null;
+  wage_to_rent_ratio: number | null;
 };
 
 export type ZoneListResponse = {
@@ -60,12 +27,38 @@ export type ZoneListResponse = {
   zones: ZoneSummary[];
 };
 
-export type ZoneIntelligenceResult = {
+export type RegionFact = {
+  metric: string;
+  value: number;
+  unit: string | null;
+  source: string;
+  source_url?: string | null;
+  period_start?: string | null;
+  period_end: string | null;
+  confidence?: number | null;
+  evidence_type: "observed" | "estimated" | "derived" | "unavailable";
+  limitations: string | null;
   is_sample: boolean;
-  intelligence: ZoneIntelligenceResponse | null;
 };
 
-export type ZoneMetric = "sector_presence" | "hiring_activity";
+export type RegionPlace = {
+  id: number;
+  name: string;
+  category: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+  observed_at: string | null;
+  is_sample: boolean;
+};
+
+export type ZoneDetailResult = {
+  is_sample: boolean;
+  facts: RegionFact[];
+  places: RegionPlace[];
+};
+
+export type MapCategory = "summary" | "employment" | "education" | "housing" | "mobility";
 
 export type CityName =
   | "Jakarta Selatan"

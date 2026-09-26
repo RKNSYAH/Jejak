@@ -1,29 +1,27 @@
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import type { ZoneGeometry, ZoneIntelligenceResponse } from "@/app/engine/types";
+import type { MapCategory, ZoneDetailResult, ZoneGeometry } from "@/app/engine/types";
 
-type ZoneLayerProperties = {
-  zone_id: string;
-  zone_name: string;
-  sector_presence: number | null;
-  hiring_activity: number | null;
+const metricByCategory: Partial<Record<MapCategory, string>> = {
+    employment: "company_count",
+    education: "universities",
+    housing: "median_monthly_rent_idr",
+    mobility: "public_transport_stops",
 };
 
 export function createZoneLayerData(
-  geometry: ZoneGeometry,
-  intelligenceByZone: Record<string, ZoneIntelligenceResponse | null>,
-): FeatureCollection<Polygon | MultiPolygon, ZoneLayerProperties> {
-  return {
-    type: "FeatureCollection",
-    features: geometry.features.map((feature) => {
-      const snapshot = intelligenceByZone[feature.properties.zone_id]?.snapshot;
-      return {
-        ...feature,
-        properties: {
-          ...feature.properties,
-          sector_presence: snapshot?.indices.sector_presence ?? null,
-          hiring_activity: snapshot?.indices.hiring_activity ?? null,
-        },
-      };
-    }),
-  };
+    geometry: ZoneGeometry,
+    detailsByZone: Record<string, ZoneDetailResult | undefined>,
+    category: MapCategory,
+): FeatureCollection<Polygon | MultiPolygon, { zone_id: string; zone_name: string; value: number | null }> {
+    const metric = metricByCategory[category];
+    return {
+        type: "FeatureCollection",
+        features: geometry.features.map((feature) => ({
+            ...feature,
+            properties: {
+                ...feature.properties,
+                value: metric ? detailsByZone[feature.properties.zone_id]?.facts.find((fact) => fact.metric === metric)?.value ?? null : null,
+            },
+        })),
+    };
 }

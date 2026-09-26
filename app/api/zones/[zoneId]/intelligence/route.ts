@@ -1,14 +1,16 @@
-import { getZoneSnapshot, supportedZones, validateZoneQuery } from "@/app/engine/controller/zoneController";
+import { getZoneRow, toZoneDetails, validateZoneQuery } from "@/app/engine/controller/zoneController";
 
 export async function GET(req: Request, context: { params: Promise<{ zoneId: string }> }) {
     const { zoneId } = await context.params;
-    if (!supportedZones.some((zone) => zone.zone_id === zoneId)) {
-        return Response.json({ error: "Unknown zone" }, { status: 404 });
-    }
     try {
-        const { sectorId } = validateZoneQuery(new URL(req.url).searchParams);
-        return Response.json({ is_sample: true, intelligence: getZoneSnapshot(zoneId, sectorId) });
+        validateZoneQuery(new URL(req.url).searchParams);
+        const row = await getZoneRow(zoneId);
+        if (!row) return Response.json({ error: "Unknown region" }, { status: 404 });
+        return Response.json(toZoneDetails(row));
     } catch (error) {
-        return Response.json({ error: error instanceof Error ? error.message : "Invalid query" }, { status: 400 });
+        if (error instanceof Error && error.message.startsWith("Unsupported")) {
+            return Response.json({ error: error.message }, { status: 400 });
+        }
+        return Response.json({ error: "Unable to load region data" }, { status: 503 });
     }
 }

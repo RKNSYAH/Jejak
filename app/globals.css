@@ -1,5 +1,7 @@
 @import "tailwindcss";
-@plugin "daisyui";
+@plugin "daisyui" {
+  themes: false;
+}
 @plugin "daisyui/theme" {
   name: "jejak";
   default: true;
@@ -35,9 +37,9 @@
   --color-error: oklch(50% 0.213 27.518);
   --color-error-content: #ffffff;
 
-  --radius-selector: 1rem;
-  --radius-field: 0.25rem;
-  --radius-box: 0.5rem;
+  --radius-selector: 2rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
 
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
@@ -51,15 +53,33 @@
   --font-sans: var(--font-urbanist);
   --font-body: var(--font-source-sans-3);
 
-  /* Semantic aliases for design tokens */
-  --color-ink: #080935;
-  --color-ink-muted: rgba(8, 9, 53, 0.64);
-  --color-rule: rgba(8, 9, 53, 0.14);
-  --color-on-ink: #FFF9F9;
-  --color-on-ink-muted: rgba(255, 249, 249, 0.72);
-  --color-panel-surface: rgba(255, 249, 249, 0.96);
-  --color-primary-tint: rgba(9, 141, 236, 0.10);
-  --color-primary-tint-strong: rgba(9, 141, 236, 0.20);
+  /* DESIGN.md token names, derived from the daisyUI theme so they follow it */
+  --color-ink: var(--color-base-content);
+  --color-ink-muted: color-mix(in oklab, var(--color-base-content) 64%, transparent);
+  --color-rule: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+  --color-on-ink: var(--color-base-100);
+  --color-on-ink-muted: color-mix(in oklab, var(--color-base-100) 72%, transparent);
+  --color-panel-surface: color-mix(in oklab, var(--color-base-100) 96%, transparent);
+  --color-primary-tint: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  --color-primary-tint-strong: color-mix(in oklab, var(--color-primary) 20%, transparent);
+
+  /* DESIGN.md shadow limit for surfaces over the map */
+  --shadow-overlay: 0 2px 8px color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+/* Interface font and primary focus indicators for daisyUI controls (DESIGN.md) */
+@utility btn {
+  @apply font-body;
+  outline-color: var(--color-primary);
+}
+
+@utility input {
+  @apply font-body;
+
+  &:focus,
+  &:focus-within {
+    --input-color: var(--color-primary);
+  }
 }
 
 @keyframes footprintFade {
@@ -93,59 +113,34 @@
 }
 
 .zone-hover-popup .maplibregl-popup-content {
+  @apply shadow-overlay;
   pointer-events: none;
   border: 0;
   border-radius: 12px;
   padding: 14px 16px;
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-  box-shadow: 0 2px 8px rgba(8, 9, 53, 0.08);
+  background: var(--color-base-content);
+  color: var(--color-base-100);
 }
 
 .zone-hover-popup .maplibregl-popup-tip {
-  border-top-color: var(--color-ink);
-  border-bottom-color: var(--color-ink);
+  border-top-color: var(--color-base-content);
+  border-bottom-color: var(--color-base-content);
 }
 
-@media (max-width: 767px) {
-  .zone-intelligence-sheet {
-    transform: translateY(100%);
-    transition: transform 280ms ease-out;
+/* Without CSS anchor positioning, pin the legend above the bottom-left map
+   controls rather than daisyUI's fallback of centering it over the map. */
+@supports not (position-area: block-start) {
+  .map-legend-popover {
+    inset: auto auto 6rem 1rem;
+    margin: 0;
   }
+}
 
-  .zone-intelligence-sheet[open] {
-    display: flex;
-    flex-direction: column;
-    transform: translateY(var(--sheet-drag, 0px));
-
-    @starting-style {
-      transform: translateY(100%);
-    }
-  }
-
-  .zone-intelligence-sheet[open][data-closing] {
-    transform: translateY(100%);
-  }
-
-  .zone-intelligence-sheet[data-dragging] {
-    transition: none;
-  }
-
-  .zone-intelligence-sheet::backdrop {
-    opacity: 0;
-    transition: opacity 280ms ease-out;
-  }
-
-  .zone-intelligence-sheet[open]::backdrop {
-    opacity: 1;
-
-    @starting-style {
-      opacity: 0;
-    }
-  }
-
-  .zone-intelligence-sheet[open][data-closing]::backdrop {
-    opacity: 0;
+/* The sheet can mount and open in the same frame, before daisyUI's closed
+   modal-box translate has been computed; start the slide-in from below. */
+@starting-style {
+  .modal[open] > .zone-intelligence-sheet {
+    translate: 0 100%;
   }
 }
 

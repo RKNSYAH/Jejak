@@ -8,10 +8,10 @@ import {
     type KeyboardEvent,
     type Ref,
 } from "react";
-import type { Zone } from "@/app/engine/types";
+import type { ZoneSummary } from "@/app/engine/types";
 
 const MIN_HEIGHT = 30;
-const CENTER_HEIGHT = 260;
+const CENTER_HEIGHT = 290;
 const DEFAULT_HEIGHT = MIN_HEIGHT;
 
 export type MapBottomSheetHandle = { collapse: () => void };
@@ -21,8 +21,8 @@ export default function MapBottomSheet({
     onSelect,
     ref,
 }: {
-    zones: Zone[];
-    onSelect: (zone: Zone) => void;
+    zones: ZoneSummary[];
+    onSelect: (zone: ZoneSummary) => void;
     ref: Ref<MapBottomSheetHandle>;
 }) {
     const [height, setHeight] = useState(DEFAULT_HEIGHT);
@@ -109,7 +109,7 @@ export default function MapBottomSheet({
     const isExpanded = height > CENTER_HEIGHT;
 
     return (
-        <section className={`absolute bottom-0 left-0 right-0 z-300 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-ink/10 bg-panel-surface shadow-xs md:max-h-[72dvh] ${isDragging ? "" : "transition-[height] duration-200 ease-out"}`} style={{ height }}>
+        <section className={`absolute bottom-0 left-0 right-0 z-300 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-box border border-b-0 border-rule bg-panel-surface shadow-xs md:max-h-[72dvh] ${isDragging ? "" : "transition-[height] duration-200 ease-out"}`} style={{ height }}>
             <div
                 role="separator"
                 aria-label="Resize exploration panel"
@@ -137,10 +137,10 @@ export default function MapBottomSheet({
                 <div className="h-1 w-10 rounded-full bg-ink/20" />
             </div>
             <div className="shrink-0 px-4 pb-3">
-                <p className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Ringkasan - Jakarta</p>
+                <p className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Area yang tersedia</p>
                 <div className="mt-1 flex items-center justify-between">
-                <h2 className="font-bold font-heading text-lg text-ink">Pilih area jejakmu selanjutnya</h2>
-                <p className="font-body text-xs font-medium text-ink-muted md:text-sm">3 area dengan data terbaru</p>
+                <h2 className="font-sans text-lg font-bold text-ink">Pilih area jejakmu selanjutnya</h2>
+                <p className="font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} area tersedia</p>
                 </div>
             </div>
             <div inert={height === MIN_HEIGHT} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] ${isExpanded ? "overflow-y-auto overscroll-contain md:overflow-x-auto md:overflow-y-hidden" : "overflow-x-auto overscroll-x-contain"}`}>
@@ -151,6 +151,8 @@ export default function MapBottomSheet({
                         <RegionCard
                             key={zone.zone_id}
                             name={zone.zone_name}
+                            cityName={zone.city_name}
+                            isSample={zone.is_sample}
                             compact={!isExpanded}
                             onClick={() => {
                                 onSelect(zone);
@@ -163,17 +165,18 @@ export default function MapBottomSheet({
     )
 }
 
-function RegionCard({ name, compact, onClick }: { name: string; compact: boolean; onClick: () => void }) {
+function RegionCard({ name, cityName, isSample, compact, onClick }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void }) {
     return (
         <button
             type="button"
             onClick={onClick}
-            className={`card card-border shadow-md min-h-24 min-w-0 w-[min(10rem,calc((100cqi-0.5rem)/2))] cursor-pointer rounded-md bg-white text-left hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:min-h-28 md:w-[min(16rem,calc((100cqi-3rem)/5))] md:rounded-lg ${compact ? "shrink-0 snap-start" : ""}`}
+            className={`card card-border min-h-24 min-w-0 w-[min(10rem,calc((100cqi-0.5rem)/2))] cursor-pointer bg-base-100 text-left shadow-overlay hover:border-primary focus-visible:outline-primary md:min-h-28 md:w-[min(16rem,calc((100cqi-3rem)/5))] ${compact ? "shrink-0 snap-start" : ""}`}
         >
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
                 <span className="break-words font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{name}</span>
-                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">~45rb pekerja</span>
-                <span className="font-body text-xs font-semiboldS text-primary md:text-sm md:font-semibold">
+                <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
+                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data area"}</span>
+                <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
                     <span className="hidden md:inline">Jelajahi area ini</span>
                 </span>
