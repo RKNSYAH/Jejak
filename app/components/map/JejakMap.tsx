@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import MapView, { AttributionControl, Layer, Popup, Source, type MapMouseEvent, type MapRef } from "react-map-gl/maplibre";
+import MapView, { AttributionControl, Layer, Marker, Popup, Source, type MapMouseEvent, type MapRef } from "react-map-gl/maplibre";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { StyleSpecification } from "maplibre-gl";
@@ -10,15 +10,18 @@ import jejakStyle from "@/public/jejak_light_openfreemap.json";
 import { urbanist, sourceSans3 } from "@/app/fonts";
 import type { MapCategory, Zone, ZoneGeometry } from "@/app/engine/types";
 import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
-import { mapCategories } from "./mapMetrics";
-import { createZoneLayerData } from "./zoneLayerData";
-import { getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { cellLayers, mapCategories } from "./mapMetrics";
+import { createCellFillData, createCellGlowData, createZoneLayerData, summarizeCells } from "./zoneLayerData";
+import { CELL_GLOW_LAYER, CELL_OUTLINE_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { useMapCells } from "./useMapCells";
 import { useZoneIntelligence } from "./useZoneIntelligence";
 import Buildings3dToggle from "./Buildings3dToggle";
 import MapControls from "./MapControls";
+import MapChatComposer from "./MapChatComposer";
 import MapLegend from "./MapLegend";
 import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
-import MapBottomSheet, { type MapBottomSheetHandle } from "./MapBottomSheet";
+import MapBottomSheet, { type MapBottomSheetHandle, type MapBottomSheetState } from "./MapBottomSheet";
+import RelocationOnboarding, { officeLocations, type MapPoint, type OfficeChoice } from "./RelocationOnboarding";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -31,13 +34,27 @@ export default function JejakMap() {
     const bottomSheetRef = useRef<MapBottomSheetHandle>(null);
     const [mapLoaded, setMapLoaded] = useState(false);
     const [category, setCategory] = useState<MapCategory | null>("summary");
+    const [cellLayerId, setCellLayerId] = useState<string | null>(null);
     const [hoveredZone, setHoveredZone] = useState<{ id: string; longitude: number; latitude: number } | null>(null);
     const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+    const [isMobileViewport, setIsMobileViewport] = useState(false);
+    const [desktopPanelWidth, setDesktopPanelWidth] = useState(0);
+    const [bottomSheetState, setBottomSheetState] = useState<MapBottomSheetState>({
+        height: 30,
+        isExpanded: false,
+        isDragging: false,
+    });
     const [is3dEnabled, setIs3dEnabled] = useState(true);
+    const [onboardingActive, setOnboardingActive] = useState(true);
+    const [onboardingMapPicking, setOnboardingMapPicking] = useState(false);
+    const [onboardingMapPoint, setOnboardingMapPoint] = useState<MapPoint | null>(null);
+    const [onboardingOffice, setOnboardingOffice] = useState<OfficeChoice>("Belum tahu");
     const orbitFrameRef = useRef<number | null>(null);
     const orbitingRef = useRef(false);
     const orbitMoveEndRef = useRef<(() => void) | null>(null);
-    const state = useZoneIntelligence();
+    const chatComposerRef = useRef<HTMLDivElement>(null);
+    const bottomSheetStateRef = useRef(bottomSheetState);
+    const state = useZoneIntelligence(!onboardingActive);
     const selectedId = state.selectedZone?.zone_id;
     const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
     const selectedResult = selectedId ? state.results[selectedId] : undefined;
@@ -51,6 +68,17 @@ export default function JejakMap() {
     }, [state.geometryByZone, state.results, category]);
     const metricRange = useMemo(() => getMetricRange(layerData.features.map((feature) => feature.properties.value)), [layerData]);
     const visibleZoneIds = useMemo(() => [...new Set(layerData.features.map((feature) => feature.properties.zone_id))], [layerData]);
+    // H3 cells of the selected district, for categories that have cell layers.
+    const cells = useMapCells(selectedId ?? null, category);
+    const cellOptions = useMemo(() => (category ? cellLayers[category] : undefined) ?? [], [category]);
+    const activeCellLayer = cellOptions.find((layer) => layer.id === cellLayerId) ?? cellOptions[0] ?? null;
+    const cellList = useMemo(() => cells.data?.cells ?? [], [cells.data]);
+    const cellGlowData = useMemo(() => activeCellLayer?.kind === "glow" ? createCellGlowData(cellList, activeCellLayer.metric) : null, [cellList, activeCellLayer]);
+    const cellFillData = useMemo(() => activeCellLayer?.kind === "fill" ? createCellFillData(cellList, activeCellLayer.metric) : null, [cellList, activeCellLayer]);
+    const cellRange = useMemo(() => getMetricRange(cellFillData?.features.map((feature) => feature.properties.value) ?? []), [cellFillData]);
+    const cellSummary = useMemo(() => activeCellLayer ? summarizeCells(cellList, activeCellLayer) : null, [cellList, activeCellLayer]);
+    // Filled cells replace the selected district's own fill instead of blending with it.
+    const showCellFill = !!selectedId && cellRange !== null;
     const mapStyle = useMemo(() => {
         const style = structuredClone(jejakStyle) as StyleSpecification;
         for (const layer of style.layers) {
@@ -76,6 +104,70 @@ export default function JejakMap() {
     } | null>(null);
 
     const panelOpenTimer = useRef<number | null>(null);
+
+    const handleBottomSheetStateChange = useCallback((nextState: MapBottomSheetState) => {
+        const previousState = bottomSheetStateRef.current;
+        if (
+            nextState.isExpanded && !previousState.isExpanded &&
+            chatComposerRef.current?.contains(document.activeElement)
+        ) {
+            bottomSheetRef.current?.focusHandle();
+        }
+        bottomSheetStateRef.current = nextState;
+        setBottomSheetState(nextState);
+    }, []);
+
+    useEffect(() => {
+        const viewport = window.matchMedia("(max-width: 767px)");
+        const syncViewport = () => setIsMobileViewport(viewport.matches);
+        syncViewport();
+        viewport.addEventListener("change", syncViewport);
+        return () => viewport.removeEventListener("change", syncViewport);
+    }, []);
+
+    useEffect(() => {
+        const panel = mapContainerRef.current?.querySelector<HTMLElement>("#zone-intelligence-desktop");
+        if (!panel) {
+            setDesktopPanelWidth(0);
+            return;
+        }
+
+        const syncPanelWidth = () => {
+            const width = window.matchMedia("(min-width: 768px)").matches
+                ? Math.ceil(panel.getBoundingClientRect().width)
+                : 0;
+            setDesktopPanelWidth(width);
+        };
+        const observer = new ResizeObserver(syncPanelWidth);
+        observer.observe(panel);
+        window.addEventListener("resize", syncPanelWidth);
+        syncPanelWidth();
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener("resize", syncPanelWidth);
+        };
+    }, [selectedId]);
+
+    const handleOnboardingMapPick = useCallback((point: MapPoint) => {
+        setOnboardingMapPoint(point);
+        setOnboardingOffice("Dipilih di peta");
+    }, []);
+
+    const handleOnboardingOfficeChange = useCallback((office: OfficeChoice) => {
+        setOnboardingOffice(office);
+        if (office !== "Dipilih di peta") setOnboardingMapPoint(null);
+    }, []);
+
+    const handleOnboardingMapPickingChange = useCallback((picking: boolean) => {
+        setOnboardingMapPicking(picking);
+        if (picking) setHoveredZone(null);
+    }, []);
+
+    const handleOnboardingActiveChange = useCallback((active: boolean) => {
+        setOnboardingActive(active);
+        if (active) setHoveredZone(null);
+    }, []);
 
     function cancelPendingSearchFly() {
         pendingSearchFlyRef.current = null;
@@ -144,7 +236,7 @@ export default function JejakMap() {
 
     useEffect(() => {
         stopOrbit();
-        if (!mapLoaded || !selectedGeometry) return;
+        if (onboardingActive || !mapLoaded || !selectedGeometry) return;
         const bounds = getGeometryBounds(selectedGeometry);
         if (!bounds) return;
         const desktop = window.matchMedia("(min-width: 768px)").matches;
@@ -186,9 +278,29 @@ export default function JejakMap() {
             orbitMoveEndRef.current = onFitComplete;
             mapRef.current?.once("moveend", onFitComplete);
         }
-    }, [selectedGeometry, selectedId, mapLoaded, stopOrbit, startOrbit]);
+    }, [selectedGeometry, selectedId, mapLoaded, onboardingActive, stopOrbit, startOrbit]);
 
     useEffect(() => () => stopOrbit(), [stopOrbit]);
+
+    useEffect(() => {
+        if (!mapLoaded || !onboardingMapPicking) return;
+        stopOrbit();
+        const bounds = new maplibregl.LngLatBounds();
+        officeLocations.forEach((office) => bounds.extend([office.longitude, office.latitude]));
+        const desktop = window.matchMedia("(min-width: 768px)").matches;
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        mapRef.current?.fitBounds(bounds, {
+            padding: {
+                top: 88,
+                right: desktop ? 440 : 24,
+                bottom: desktop ? 56 : Math.min(window.innerHeight * 0.58, 640) + 24,
+                left: 24,
+            },
+            maxZoom: 12.5,
+            animate: !reducedMotion,
+            duration: reducedMotion ? 0 : 700,
+        });
+    }, [mapLoaded, onboardingMapPicking, stopOrbit]);
 
     useEffect(() => {
         const map = mapRef.current?.getMap();
@@ -210,9 +322,13 @@ export default function JejakMap() {
         <div ref={mapContainerRef} data-hci-region="map" className="relative h-full min-h-0 overflow-hidden">
             <MapView ref={mapRef} initialViewState={{ longitude: 106.8456, latitude: -6.2088, zoom: 11 }}
                 rotateSpeed={0.4} aroundCenter={false} style={{ width: "100%", height: "100%" }}
-                mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={[ZONE_FILL_LAYER.id]} cursor={hoveredZone ? "pointer" : "grab"}
+                mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={onboardingActive ? [] : [ZONE_FILL_LAYER.id]} cursor={hoveredZone && !onboardingActive ? "pointer" : "grab"}
                 onLoad={() => setMapLoaded(true)}
                 onClick={(event) => {
+                    if (onboardingActive) {
+                        if (onboardingMapPicking) handleOnboardingMapPick({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
+                        return;
+                    }
                     const zone = getEventZone(event);
                     if (zone) {
                         bottomSheetRef.current?.collapse();
@@ -225,6 +341,7 @@ export default function JejakMap() {
                 onMouseDown={() => stopOrbit()}
                 onTouchStart={() => stopOrbit()}
                 onMouseMove={(event) => {
+                    if (onboardingActive) return;
                     const zone = getEventZone(event);
                     setHoveredZone(zone ? { id: zone.zone_id, longitude: event.lngLat.lng, latitude: event.lngLat.lat } : null);
                 }}
@@ -242,30 +359,56 @@ export default function JejakMap() {
                     }, 120)
                 }}
                 onMouseLeave={() => setHoveredZone(null)}>
-                <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI" />
-                <Source id="region-data" type="geojson" data={layerData}>
-                    <Layer {...getZoneFillLayer(category ?? "summary", metricRange)} beforeId={BUILDINGS_3D_LAYER} />
-                    <Layer {...ZONE_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} />
-                    {hoveredZone && hoveredZone.id !== selectedId && <Layer {...ZONE_HOVER_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], hoveredZone.id]} />}
-                    {selectedId && <Layer {...ZONE_SELECTED_CASING_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
-                    {selectedId && <Layer {...ZONE_SELECTED_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
-                </Source>
-                {category === "education" && <Source id="region-campuses" type="geojson" data={campusData}>
-                    <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#006AD8", "circle-stroke-width": 2, "circle-stroke-color": "#21297C" }} />
-                </Source>}
-                {hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
+                 <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI / DKI Jakarta GIS" />
+                {onboardingMapPicking && officeLocations.map((office) => (
+                    <Marker key={office.name} longitude={office.longitude} latitude={office.latitude} anchor="bottom">
+                        <button
+                            type="button"
+                            aria-pressed={onboardingOffice === office.name}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                handleOnboardingOfficeChange(office.name);
+                            }}
+                            className={`btn btn-sm min-h-9 gap-1.5 rounded-full border shadow-overlay ${onboardingOffice === office.name ? "btn-primary border-primary" : "border-rule bg-base-100 text-ink"}`}
+                        >
+                            <span className={`size-2.5 rounded-full border-2 border-base-100 ${onboardingOffice === office.name ? "bg-base-100" : "bg-primary"}`} aria-hidden="true" />
+                            {office.name}
+                        </button>
+                    </Marker>
+                ))}
+                {!onboardingActive && <>
+                    <Source id="region-data" type="geojson" data={layerData}>
+                        <Layer {...getZoneFillLayer(category ?? "summary", metricRange)} beforeId={BUILDINGS_3D_LAYER}
+                            filter={["!=", ["get", "zone_id"], showCellFill ? selectedId ?? "" : ""]} />
+                        <Layer {...ZONE_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} />
+                        {hoveredZone && hoveredZone.id !== selectedId && <Layer {...ZONE_HOVER_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], hoveredZone.id]} />}
+                        {selectedId && <Layer {...ZONE_SELECTED_CASING_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
+                        {selectedId && <Layer {...ZONE_SELECTED_OUTLINE_LAYER} beforeId={BUILDINGS_3D_LAYER} filter={["==", ["get", "zone_id"], selectedId]} />}
+                    </Source>
+                    {showCellFill && cellFillData && <Source id="cell-fill-data" type="geojson" data={cellFillData}>
+                        <Layer {...getCellFillLayer(cellRange)} beforeId={ZONE_OUTLINE_LAYER.id} />
+                        <Layer {...CELL_OUTLINE_LAYER} beforeId={ZONE_OUTLINE_LAYER.id} />
+                    </Source>}
+                    {selectedId && cellGlowData && cellGlowData.features.length > 0 && <Source id="cell-glow-data" type="geojson" data={cellGlowData}>
+                        <Layer {...CELL_GLOW_LAYER} beforeId={ZONE_OUTLINE_LAYER.id} />
+                    </Source>}
+                    {category === "education" && <Source id="region-campuses" type="geojson" data={campusData}>
+                        <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#006AD8", "circle-stroke-width": 2, "circle-stroke-color": "#21297C" }} />
+                    </Source>}
+                </>}
+                {!onboardingActive && hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
                     anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
                     <div role="tooltip" className="min-w-44 font-body">
                         <p className="font-sans text-base font-bold text-on-ink">{hoveredMetadata.zone_name}</p>
                         <p className="mt-1 text-xs text-on-ink-muted">{hoveredMetadata.is_sample ? "Sample data" : "Region data"}</p>
                         {category === "summary" && <p className="mt-3 text-sm">{mapCategories.summary.popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : mapCategories.summary.format(hoveredMetadata.wage_to_rent_ratio)}</span></p>}
-                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel} (district): <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
                         <p className="mt-2 text-xs text-on-ink-muted">Select the zone for details</p>
                     </div>
                 </Popup>}
             </MapView>
 
-            <MapControls
+            {!onboardingActive && <MapControls
                 zones={state.catalog.zones}
                 loading={state.catalogLoading}
                 error={state.catalogError}
@@ -274,6 +417,10 @@ export default function JejakMap() {
                 recommendationsLoading={state.recommendationsLoading}
                 recommendationsError={state.recommendationsError}
                 onRetryRecommendations={state.retryRecommendations}
+                heatmapLoading={cells.loading}
+                heatmapError={cells.error}
+                heatmapEmpty={cells.enabled && !cells.loading && !cells.error && !cellSummary}
+                onRetryHeatmap={cells.retry}
                 category={category}
                 onCategoryChange={(next) => {
                     setCategory(next);
@@ -286,12 +433,16 @@ export default function JejakMap() {
                     setMobilePanelOpen(false);
                     setCategory(null);
                     state.resetMap();
-                }} />
-            <div className="absolute bottom-8 left-4 z-100 flex items-center gap-2 font-body">
+                }} />}
+            {!onboardingActive && <div className="absolute bottom-8 left-4 z-100 flex items-center gap-2 font-body">
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
-                {(layerData.features.length > 0 || (category === "education" && campusData.features.length > 0)) && <MapLegend category={category ?? "summary"} range={metricRange} detailsByZone={state.results} visibleZoneIds={visibleZoneIds} />}
-            </div>
-            {state.selectedZone && (
+                {(layerData.features.length > 0 || cellSummary) && <MapLegend category={category ?? "summary"} range={metricRange}
+                    detailsByZone={state.results} visibleZoneIds={visibleZoneIds} selectedZoneName={state.selectedZone?.zone_name ?? null}
+                    cellLayerOptions={selectedId ? cellOptions : []} activeCellLayer={selectedId ? activeCellLayer : null}
+                    cellSummary={cellSummary} cellsLoading={cells.loading} cellsError={cells.error}
+                    onCellLayerChange={setCellLayerId} />}
+            </div>}
+            {!onboardingActive && state.selectedZone && (
                 <ZoneIntelligencePanel
                     zoneName={state.selectedZone.zone_name}
                     details={selectedResult ?? null}
@@ -312,7 +463,33 @@ export default function JejakMap() {
                         state.closeSelection();
                     }} />
             )}
-            <MapBottomSheet ref={bottomSheetRef} zones={state.catalog.zones} onSelect={selectZone} />
+            {!onboardingActive && <MapBottomSheet
+                ref={bottomSheetRef}
+                zones={state.catalog.zones}
+                onSelect={selectZone}
+                onStateChange={handleBottomSheetStateChange}
+            />}
+            <MapChatComposer
+                containerRef={chatComposerRef}
+                visible={!onboardingActive && !bottomSheetState.isExpanded && !(isMobileViewport && mobilePanelOpen)}
+                isDragging={bottomSheetState.isDragging}
+                sheetHeight={bottomSheetState.height}
+                sidebarWidth={desktopPanelWidth}
+                category={category}
+                selectedZoneName={state.selectedZone?.zone_name ?? null}
+                onClearContext={() => {
+                    cancelPendingSearchFly();
+                    setMobilePanelOpen(false);
+                    state.closeSelection();
+                }}
+            />
+            <RelocationOnboarding
+                mapPoint={onboardingMapPoint}
+                selectedOffice={onboardingOffice}
+                onOfficeChange={handleOnboardingOfficeChange}
+                onMapPickingChange={handleOnboardingMapPickingChange}
+                onOnboardingActiveChange={handleOnboardingActiveChange}
+            />
         </div>
     );
 }

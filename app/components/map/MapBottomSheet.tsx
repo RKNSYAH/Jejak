@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    useCallback,
     useImperativeHandle,
     useRef,
     useState,
@@ -14,31 +15,59 @@ const MIN_HEIGHT = 30;
 const CENTER_HEIGHT = 290;
 const DEFAULT_HEIGHT = MIN_HEIGHT;
 
-export type MapBottomSheetHandle = { collapse: () => void };
+function getMaxHeight() {
+    if (typeof window === "undefined") return 600;
+    return window.innerHeight * (window.innerWidth >= 768 ? 0.72 : 0.6);
+}
+
+function getCenterHeight() {
+    return Math.min(CENTER_HEIGHT, Math.max(MIN_HEIGHT + 1, getMaxHeight() * 0.6));
+}
+
+export type MapBottomSheetHandle = {
+    collapse: () => void;
+    focusHandle: () => void;
+};
+
+export type MapBottomSheetState = {
+    height: number;
+    isExpanded: boolean;
+    isDragging: boolean;
+};
 
 export default function MapBottomSheet({
     zones,
     onSelect,
+    onStateChange,
     ref,
 }: {
     zones: ZoneSummary[];
     onSelect: (zone: ZoneSummary) => void;
+    onStateChange: (state: MapBottomSheetState) => void;
     ref: Ref<MapBottomSheetHandle>;
 }) {
     const [height, setHeight] = useState(DEFAULT_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
+    const dragHandleRef = useRef<HTMLDivElement>(null);
     const dragStartY = useRef(0);
     const dragStartHeight = useRef(0);
+
+    const setSheetHeight = useCallback((nextHeight: number, dragging = false) => {
+        onStateChange({
+            height: nextHeight,
+            isExpanded: nextHeight > getCenterHeight(),
+            isDragging: dragging,
+        });
+        setHeight(nextHeight);
+    }, [onStateChange]);
+
     useImperativeHandle(ref, () => ({
         collapse: () => {
             setIsDragging(false);
-            setHeight(MIN_HEIGHT);
+            setSheetHeight(MIN_HEIGHT);
         },
-    }), []);
-    const getMaxHeight = () => {
-        if (typeof window === "undefined") return 600;
-        return window.innerHeight * (window.innerWidth >= 768 ? 0.72 : 0.6);
-    };
+        focusHandle: () => dragHandleRef.current?.focus(),
+    }), [setSheetHeight]);
 
     const clampHeight = (value: number) => {
         return Math.min(Math.max(value, MIN_HEIGHT), getMaxHeight());
@@ -49,7 +78,7 @@ export default function MapBottomSheet({
 
         return [
             MIN_HEIGHT,
-            Math.min(CENTER_HEIGHT, max),
+            Math.min(getCenterHeight(), max),
             max,
         ];
     };
@@ -61,7 +90,7 @@ export default function MapBottomSheet({
             return Math.abs(curr - currentHeight) < Math.abs(prev - currentHeight) ? curr : prev;
         }, snapPoints[0]);
 
-        setHeight(nearest);
+        setSheetHeight(nearest);
     }
 
     const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -74,7 +103,7 @@ export default function MapBottomSheet({
         if (!isDragging) return;
         const deltaY = event.clientY - dragStartY.current;
         const newHeight = dragStartHeight.current - deltaY;
-        setHeight(clampHeight(newHeight));
+        setSheetHeight(clampHeight(newHeight), true);
     }
     const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!isDragging) return;
@@ -87,35 +116,36 @@ export default function MapBottomSheet({
 
         if (event.key === "ArrowUp") {
             event.preventDefault();
-            setHeight((current) => clampHeight(current + step));
+            setSheetHeight(clampHeight(height + step));
         }
 
         if (event.key === "ArrowDown") {
             event.preventDefault();
-            setHeight((current) => clampHeight(current - step));
+            setSheetHeight(clampHeight(height - step));
         }
 
         if (event.key === "Home") {
             event.preventDefault();
-            setHeight(MIN_HEIGHT);
+            setSheetHeight(MIN_HEIGHT);
         }
 
         if (event.key === "End") {
             event.preventDefault();
-            setHeight(getMaxHeight());
+            setSheetHeight(getMaxHeight());
         }
     };
 
-    const isExpanded = height > CENTER_HEIGHT;
+    const isExpanded = height > getCenterHeight();
 
     return (
         <section data-hci-region="zone-list" className={`absolute bottom-0 left-0 right-0 z-300 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-box border border-b-0 border-rule bg-panel-surface shadow-xs md:max-h-[72dvh] ${isDragging ? "" : "transition-[height] duration-200 ease-out"}`} style={{ height }}>
             <div
+                ref={dragHandleRef}
                 role="separator"
                 aria-label="Resize exploration panel"
                 aria-orientation="horizontal"
                 aria-valuemin={MIN_HEIGHT}
-                aria-valuemax={600}
+                aria-valuemax={Math.round(getMaxHeight())}
                 aria-valuenow={Math.round(height)}
                 tabIndex={0}
                 className="

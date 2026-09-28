@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { getAuthenticatedClaims } from "../engine/controller/userServerController";
 
-export default function Header({ activeHref = "/" }: { activeHref?: string }) {
+export default async function Header({ activeHref = "/" }: { activeHref?: string }) {
+  const claims = await getAuthenticatedClaims();
   const links = [
     { href: "/", label: "Fitur" },
     { href: "/how", label: "Cara Kerja" },
@@ -28,7 +30,7 @@ export default function Header({ activeHref = "/" }: { activeHref?: string }) {
           ))}
         </ul>
       </nav>
-      <Link href="/map" className="btn btn-primary ml-auto min-h-11 rounded-lg">
+      <Link href={claims ? "/map" : "/login"} className="btn btn-primary ml-auto min-h-11 rounded-lg">
         Mulai Jejakmu
       </Link>
     </header>

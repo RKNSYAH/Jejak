@@ -127,6 +127,10 @@
   border-bottom-color: var(--color-base-content);
 }
 
+.onboarding-dialog::backdrop {
+  background: color-mix(in oklab, var(--color-base-content) 42%, transparent);
+}
+
 /* Without CSS anchor positioning, pin the legend above the bottom-left map
    controls rather than daisyUI's fallback of centering it over the map. */
 @supports not (position-area: block-start) {

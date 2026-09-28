@@ -22,6 +22,10 @@ type MapControlsProps = {
     recommendationsLoading: boolean;
     recommendationsError: string | null;
     onRetryRecommendations: () => void;
+    heatmapLoading: boolean;
+    heatmapError: string | null;
+    heatmapEmpty: boolean;
+    onRetryHeatmap: () => void;
     onReset: () => void;
     category: MapCategory | null;
     onCategoryChange: (category: MapCategory) => void;
@@ -90,6 +94,11 @@ export default function MapControls(props: MapControlsProps) {
                 {props.recommendationsLoading ? "Memuat area peringkat…" : props.recommendationsError}
                 {props.recommendationsError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryRecommendations}>Retry</button>}
             </div>}
+            {props.category && props.category !== "summary" && (props.heatmapLoading || props.heatmapError || props.heatmapEmpty) &&
+                <div role="status" className="pointer-events-auto rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted">
+                    {props.heatmapLoading ? "Memuat heatmap…" : props.heatmapError ?? "Belum ada data sel untuk zona ini."}
+                    {props.heatmapError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryHeatmap}>Retry</button>}
+                </div>}
         </div>
     );
 }

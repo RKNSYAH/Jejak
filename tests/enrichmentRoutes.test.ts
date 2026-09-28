@@ -1,0 +1,37 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { POST as enrich } from "../app/api/zones/[zoneId]/enrich/route";
+import { GET as evidence } from "../app/api/zones/[zoneId]/evidence/route";
+import { GET as runStatus } from "../app/api/enrichment-runs/[runId]/route";
+
+const params = <T extends object>(value: T) => ({ params: Promise.resolve(value) });
+
+function post(body: string, type = "application/json") {
+    return new Request("http://localhost/api/zones/pancoran/enrich", { method: "POST", headers: { "Content-Type": type }, body });
+}
+
+test("enrich validates the request before authentication and never claims for anonymous callers", async (context) => {
+    let fetchCalls = 0;
+    context.mock.method(globalThis, "fetch", async () => {
+        fetchCalls += 1;
+        return Response.json({});
+    });
+    const zone = params({ zoneId: "pancoran" });
+    assert.equal((await enrich(post("{}", "text/plain"), zone)).status, 415);
+    assert.equal((await enrich(post("{"), zone)).status, 400);
+    assert.equal((await enrich(post('{"scope":"career"}'), params({ zoneId: "Pancoran!" }))).status, 400);
+    assert.equal((await enrich(post('{"scope":"news"}'), zone)).status, 400);
+    assert.equal((await enrich(post('{"scope":"career","run_id":"mine"}'), zone)).status, 400);
+
+    const anonymous = await enrich(post('{"scope":"career"}'), zone);
+    assert.equal(anonymous.status, 401);
+    assert.equal((await anonymous.json()).code, "SIGN_IN_REQUIRED");
+    assert.equal(fetchCalls, 0);
+});
+
+test("evidence and run status reject malformed identifiers", async () => {
+    const get = (url: string) => new Request(url);
+    assert.equal((await evidence(get("http://localhost/api/zones/pancoran/evidence?scope=jobs"), params({ zoneId: "pancoran" }))).status, 400);
+    assert.equal((await evidence(get("http://localhost/api/zones/x/evidence?scope=career"), params({ zoneId: "../x" }))).status, 400);
+    assert.equal((await runStatus(get("http://localhost/api/enrichment-runs/42"), params({ runId: "42" }))).status, 400);
+});

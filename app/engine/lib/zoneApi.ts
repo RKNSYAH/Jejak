@@ -1,4 +1,4 @@
-import type { ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "../types";
+import type { MapCategory, MapCellsResponse, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "../types";
 import { isBoundary, isRecord } from "./zoneGeometry";
 
 function isNullableNumber(value: unknown): value is number | null {
@@ -44,6 +44,29 @@ export async function getZones(signal: AbortSignal): Promise<ZoneListResponse> {
         };
     });
     return { is_sample: data.is_sample, zones };
+}
+
+function isCellFact(fact: unknown): boolean {
+    return isRecord(fact) && typeof fact.value === "number" && Number.isFinite(fact.value) &&
+        (fact.unit === null || typeof fact.unit === "string") &&
+        ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
+        (fact.period_end === null || typeof fact.period_end === "string") &&
+        typeof fact.source === "string" &&
+        (fact.sample_size === null || (typeof fact.sample_size === "number" && Number.isInteger(fact.sample_size) && fact.sample_size >= 0)) &&
+        (fact.limitations === null || typeof fact.limitations === "string") &&
+        typeof fact.is_sample === "boolean";
+}
+
+export async function getMapCells(zoneId: string, category: MapCategory, signal: AbortSignal): Promise<MapCellsResponse> {
+    const data = await getJson(`/api/heatmap?${new URLSearchParams({ zone_id: zoneId, category })}`, signal);
+    if (!isRecord(data) || typeof data.is_sample !== "boolean" || data.zone_id !== zoneId || data.category !== category ||
+        !Array.isArray(data.cells) ||
+        !data.cells.every((cell) => isRecord(cell) && typeof cell.cell_code === "string" && cell.parent_code === zoneId &&
+            isBoundary(cell.geometry) && Array.isArray(cell.centroid) && cell.centroid.length === 2 &&
+            Math.abs(Number(cell.centroid[0])) <= 180 && Math.abs(Number(cell.centroid[1])) <= 90 &&
+            isRecord(cell.facts) && Object.values(cell.facts).every(isCellFact) &&
+            typeof cell.is_sample === "boolean")) throw new Error("Invalid heatmap data");
+    return data as MapCellsResponse;
 }
 
 function parseGeometry(data: unknown, zoneId: string): ZoneGeometry {

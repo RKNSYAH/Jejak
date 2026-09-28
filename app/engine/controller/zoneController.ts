@@ -1,5 +1,6 @@
 import { createClient } from "@/app/engine/lib/server";
-import type { RegionFact, RegionPlace, Zone, ZoneDetailResult, ZoneListResponse } from "../types";
+import { cellLayers, cellMetrics } from "@/app/components/map/mapMetrics";
+import type { MapCategory, MapCell, MapCellsResponse, RegionFact, RegionPlace, Zone, ZoneDetailResult, ZoneListResponse } from "../types";
 
 export const supportedSector = "software_and_it_services";
 const includeSample = process.env.JEJAK_INCLUDE_SAMPLE_DATA !== "false";
@@ -72,6 +73,34 @@ export async function getZoneRow(zoneId: string): Promise<RegionDetailRow | null
     });
     if (error) throw error;
     return (data as RegionDetailRow[])[0] ?? null;
+}
+
+export function validateCellQuery(params: URLSearchParams): { zoneId: string; category: MapCategory } {
+    const zoneId = params.get("zone_id") ?? "";
+    const category = params.get("category") ?? "";
+    if (zoneId.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(zoneId)) throw new Error("Unsupported zone_id");
+    if (!Object.hasOwn(cellLayers, category)) throw new Error("Unsupported category");
+    return { zoneId, category: category as MapCategory };
+}
+
+type MapCellRow = Omit<MapCell, "centroid"> & { centroid: { coordinates: [number, number] } };
+
+export async function getMapCells(zoneId: string, category: MapCategory): Promise<MapCellsResponse> {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("get_map_cells", {
+        p_parent_code: zoneId,
+        p_metrics: cellMetrics(category),
+        p_include_sample: includeSample,
+    });
+    if (error) throw error;
+    const cells = (data as MapCellRow[]).map((row) => ({
+        ...row,
+        centroid: [Number(row.centroid.coordinates[0]), Number(row.centroid.coordinates[1])] as [number, number],
+        facts: Object.fromEntries(Object.entries(row.facts).map(([metric, fact]) => [metric, {
+            ...fact, value: Number(fact.value), sample_size: fact.sample_size == null ? null : Number(fact.sample_size),
+        }])),
+    }));
+    return { is_sample: cells.some((cell) => cell.is_sample), zone_id: zoneId, category, cells };
 }
 
 export function toZoneDetails(row: RegionDetailRow): ZoneDetailResult {

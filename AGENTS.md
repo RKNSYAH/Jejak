@@ -8,25 +8,30 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-## Working in this repo
+## Commands and generated files
 
-- Use Bun 1.4.2 (`package.json`/`bun.lock`): `bun run dev`, `bun run build`, `bun run lint`, `bun run test`. Focus tests with `bun test tests/mapping.test.ts` or `bun test tests/lf01.test.ts`; there is no typecheck script (`bunx tsc --noEmit`).
-- `predev`/`prebuild` copy MapLibre workers from the installed package into `public/maplibre/`. Change `scripts/copy-maplibre-worker.mjs`, not the copied bundles.
-- The README is starter boilerplate. `app/page.tsx` redirects `/` to `/map`; `app/map/page.tsx` renders `app/components/map/JejakMap.tsx`. Map requests flow through `useZoneIntelligence` and `zoneApi` to `app/api` and the Supabase RPCs in `app/engine/controller/zoneController.ts`.
-- Map data needs `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (typically in gitignored `.env.local`). The RPC definitions live in `supabase/migrations/`; `proxy.ts` refreshes auth claims/cookies for matched requests.
-- `JEJAK_INCLUDE_SAMPLE_DATA` defaults to enabled unless set to `false`. API responses carry `is_sample`; never present those rows as verified/live evidence. `/api/geometry` uses stored geometry first, then falls back to the external BIG boundary service.
-- `/api/lf01` currently validates requests but returns `503 ENRICHMENT_UNAVAILABLE`; it does not run enrichment.
-- Alpha click telemetry runs from `instrumentation-client.ts` through `/api/hci` into `hci_click_events` (off with `NEXT_PUBLIC_HCI_TELEMETRY=false`; `?study=P01` tags a participant). Give new UI surfaces a `data-hci-region`. `bun run test:e2e` builds, serves on port 3100, mocks `/api/*`, and enforces click latency budgets with Playwright.
-- Read `docs/Jejak_Project_Summary.md` before product or architecture changes and `docs/DESIGN.md` before UI/design changes.
+- Use Bun 1.4.2 and Node.js 20.9+ (`package.json`). Common checks: `bun run lint`, `bunx tsc --noEmit` (no typecheck script), and `bun run test` (runs `tests/` only). Focus tests with `bun test tests/mapping.test.ts`, `bun test tests/enrichment.test.ts`, or `bun test tests/hci.test.ts`.
+- `bun run test:schema` runs the separate Node test suite against in-memory PGlite/PostGIS; it needs no remote database credentials. `bun run test:e2e` builds and serves on port 3100 for Playwright latency tests; install Chromium with `bunx playwright install chromium` first. E2E reuses an existing server outside CI, so use production server for meaningful latency results.
+- `predev` and `prebuild` copy MapLibre workers into `public/maplibre/`; update `scripts/copy-maplibre-worker.mjs`, not copied bundles.
 
-## HCI user flow
+## Architecture and runtime
 
-- Read `docs/Jejak_HCI_User_Flow_Summary.md` before changing navigation, onboarding, discovery, map interactions, comparison, or saved plans. Its route tree describes the **proposed** experience; the current app still redirects `/` to `/map`. Do not assume the proposed routes are implemented.
-- Intended journey: landing CTA **Mulai Jejakmu** → state-aware `/start` (register, resume, begin, or return to the last map state) → choose study/work goal and decision-changing context → choose open discovery or a fixed destination → set budget, housing, mobility, and priorities → review hard constraints versus soft preferences → city shortlist or fixed-destination result → city overview → explore zones on map or equivalent list → inspect evidence and trade-offs → compare → save a shortlist or plan. Refining assumptions should recalculate results and explain what changed.
-- Branches: a fixed destination skips broad city discovery and focuses on nearby zones/commute; no results explains the limiting constraint and lets the user relax it one step at a time; an unfinished user can resume without losing inputs. Guest exploration can precede an account, with sign-in requested when saving or syncing is useful.
-- HCI expectations: one main decision/action per step, visible progress and reversible navigation, persistent profile/map context, four top-level dimensions (Opportunity, Affordability, Access, Daily Life) with details disclosed on demand. Show why a result fits, its trade-offs, source/date/geographic level and missing or stale evidence. Keep map and list access equivalent; define loading, partial/no data, error, and success states with a clear next action. The user confirms AI-inferred changes that affect ranking.
+- `app/page.tsx` redirects `/` to `/map`; `app/map/page.tsx` renders `app/components/map/JejakMap.tsx`. Map data flows through `useZoneIntelligence` → `zoneApi` → `app/api` → `app/engine/controller/zoneController.ts` → Supabase RPCs in `supabase/migrations/`.
+- Map data requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, usually in gitignored `.env.local`. `proxy.ts` refreshes auth claims/cookies for matched requests.
+- `JEJAK_INCLUDE_SAMPLE_DATA` defaults to enabled. Preserve `is_sample` in API/UI data; sample rows are demo content, not verified/live evidence. Geometry uses stored boundary first, then the BIG boundary service.
+- Evidence enrichment is API-only (no UI trigger yet): signed-in `POST /api/zones/[zoneId]/enrich` claims runs, then `after()` runs `app/engine/enrichment/pipeline.ts` (LF-01 → LF-02 → Nominatim → PostGIS tiers → acceptance → snapshot). It needs `NEXT_LANGFLOW_URL`, `NEXT_LANGFLOW_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `JEJAK_GEOCODER_USER_AGENT`; read env through `process.env` only. Flow IDs live in `app/engine/lib/langflow.ts`.
+- Click telemetry flows from `instrumentation-client.ts` through `/api/hci` to `hci_click_events`; disable with `NEXT_PUBLIC_HCI_TELEMETRY=false`, or tag a study participant with `?study=P01`. Add `data-hci-region` to new UI surfaces.
+
+## Code style
+
+- Match the surrounding file. The inspected controllers/routes use four-space indentation, mostly double-quoted strings and semicolons, named exported functions, straightforward object mapping, and early returns for validation/errors. Existing formatting is inconsistent; avoid reformatting unrelated legacy lines.
+- Keep route handlers focused on request parsing, validation, and HTTP status/JSON responses; delegate auth and data access to controllers. Follow `userController.ts` with `/api/user/login/route.ts` and `/api/user/register/route.ts`, and `zoneController.ts` with `/api/geometry/route.ts` as examples. Geometry route loads a region row, then delegates stored/fallback boundary handling to `zoneBoundary.ts`.
+
+## Product guidance
+
+- Read `docs/Jejak_Project_Summary.md` before product/architecture changes and `docs/DESIGN.md` before UI/design changes. Before navigation, onboarding, discovery, map interaction, comparison, or saved-plan changes, read `docs/Jejak_HCI_User_Flow_Summary.md`; its route tree is proposed, not implemented.
+- Keep map and list access equivalent, show evidence provenance and sample/stale/missing-data status, and let users understand why results fit. Confirm AI-inferred changes that affect ranking.
 
 ## Implementation and review
 
-- Implement the smallest clear solution. Avoid unnecessary files, functions, and abstractions; reuse existing dependencies or a suitable package when it simplifies the work.
-- After code changes, give a short summary and key code snippets for review. Explain the snippets in implementation order, tracing how input flows through the logic to the result and why each step is needed.
+- After code changes, give a full summary and key code snippets/functions for review. Explain snippets in implementation order, tracing input through logic to result and why each step is needed. Use the caveman skill for the summary.

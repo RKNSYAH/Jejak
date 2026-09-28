@@ -1,0 +1,95 @@
+import type { LF05Taxonomy } from "../extractUserProfile";
+
+export type LF05ProposedProfile = {
+  hard_constraints: Record<string, unknown>;
+  soft_preferences: Record<string, unknown>;
+  priority_weights: Record<string, number>;
+  inferred_fields: string[];
+  clarification_questions: string[];
+  requires_confirmation: true;
+  confirmed: false;
+  taxonomy_version: string;
+  contract_version: "lf05-v2";
+  writes_performed: false;
+  decision_trace: Record<string, unknown>;
+  runtime_usage: unknown;
+};
+
+const PROFILE_FIELDS = new Set([
+  "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
+  "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
+]);
+const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living"]);
+const SENSITIVE_TEXT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<!\d)(?:\d[ -]?){16}(?!\d)/iu;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 100 && value.every((item) => typeof item === "string" && item.length <= 4000);
+}
+
+function validateBudget(value: unknown) {
+  if (!isRecord(value) || Object.keys(value).length !== 3) return false;
+  return (
+    typeof value.amount === "number" && Number.isFinite(value.amount) && value.amount >= 0 && value.amount <= 1_000_000_000 &&
+    value.currency === "IDR" && value.period === "month"
+  );
+}
+
+function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Taxonomy) {
+  const sectorIds = new Set(taxonomy.sectors.map(({ id }) => id));
+  const occupationIds = new Set(taxonomy.occupations.map(({ id }) => id));
+
+  for (const [field, value] of Object.entries(values)) {
+    if (!PROFILE_FIELDS.has(field)) return false;
+    if (value === null) continue;
+    if (field === "monthly_budget" || field === "housing_budget") {
+      if (!validateBudget(value)) return false;
+      continue;
+    }
+    if (field === "commute_minutes") {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 240) return false;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (!isStringArray(value)) return false;
+      if (field === "target_fields" && value.some((id) => !sectorIds.has(id))) return false;
+      if (field === "target_occupations" && value.some((id) => !occupationIds.has(id))) return false;
+      continue;
+    }
+    if (typeof value === "object" || (typeof value !== "string" && typeof value !== "number")) return false;
+    if (typeof value === "number" && !Number.isFinite(value)) return false;
+  }
+
+  return true;
+}
+
+export function validateLF05Proposal(value: unknown, taxonomy: LF05Taxonomy): LF05ProposedProfile {
+  if (!isRecord(value) || JSON.stringify(value).length > 60_000) throw new Error("INVALID_LF05_PROFILE");
+
+  if (
+    !isRecord(value.hard_constraints) || !validateProfileValues(value.hard_constraints, taxonomy) ||
+    !isRecord(value.soft_preferences) || !validateProfileValues(value.soft_preferences, taxonomy) ||
+    !isRecord(value.priority_weights) || !isStringArray(value.inferred_fields) ||
+    !isStringArray(value.clarification_questions) || value.requires_confirmation !== true || value.confirmed !== false ||
+    value.taxonomy_version !== taxonomy.version || value.contract_version !== "lf05-v2" || value.writes_performed !== false ||
+    !isRecord(value.decision_trace) || !("runtime_usage" in value)
+  ) {
+    throw new Error("INVALID_LF05_PROFILE");
+  }
+
+  if (value.inferred_fields.some((field) => !PROFILE_FIELDS.has(field))) throw new Error("INVALID_LF05_PROFILE");
+
+  const weightEntries = Object.entries(value.priority_weights);
+  if (
+    weightEntries.some(([key, weight]) => !WEIGHT_FIELDS.has(key) || typeof weight !== "number" || !Number.isFinite(weight) || weight < 0 || weight > 1) ||
+    (weightEntries.length > 0 && Math.abs(weightEntries.reduce((sum, [, weight]) => sum + Number(weight), 0) - 1) > 0.000001)
+  ) {
+    throw new Error("INVALID_LF05_PROFILE");
+  }
+
+  if (SENSITIVE_TEXT.test(JSON.stringify(value))) throw new Error("INVALID_LF05_PROFILE");
+  return value as unknown as LF05ProposedProfile;
+}

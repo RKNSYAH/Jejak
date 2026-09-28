@@ -1,6 +1,9 @@
 import type { LF01Input, MissingEvidence } from "../types";
 import { isRecord } from "./zoneGeometry";
 
+// LF-01 fetches at most this many pages per call (search results plus job and listing details).
+export const MAX_LF01_SOURCES = 30;
+
 const evidenceTypes: MissingEvidence[] = [
     "company_presence", "active_openings", "salary", "headcount",
     "news", "kos", "apartment", "house", "housing",
@@ -37,8 +40,8 @@ export function validateLF01Input(value: unknown): LF01Input {
     }
 
     const maximumSources = value.maximum_sources === undefined ? 10 : value.maximum_sources;
-    if (typeof maximumSources !== "number" || !Number.isInteger(maximumSources) || maximumSources < 1 || maximumSources > 10) {
-        throw new Error("maximum_sources must be an integer from 1 to 10");
+    if (typeof maximumSources !== "number" || !Number.isInteger(maximumSources) || maximumSources < 1 || maximumSources > MAX_LF01_SOURCES) {
+        throw new Error(`maximum_sources must be an integer from 1 to ${MAX_LF01_SOURCES}`);
     }
     const missingEvidence = readStrings(value.missing_evidence, "missing_evidence") ?? ["company_presence", "active_openings"];
     const validatedEvidence = missingEvidence.map((item) => {

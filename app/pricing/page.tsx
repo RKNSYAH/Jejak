@@ -15,13 +15,14 @@ type Plan = {
   price: string;
   term: string;
   benefits: string[];
+  reccommended: boolean;
 };
 
 // Isi harga, masa akses, dan daftar manfaat di sini saat model paket ditetapkan.
 const plans: Plan[] = [
-  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: [] },
-  { id: "plus", name: "Plus", price: "Rp49.000", term: "/ bulan", benefits: [] },
-  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: [] },
+  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: [], reccommended: false },
+  { id: "plus", name: "Plus", price: "Rp49.000", term: "/ bulan", benefits: [], reccommended: true },
+  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: [], reccommended: false },
 ];
 
 type ComparisonGroup = {
@@ -57,7 +58,7 @@ export default function PricingPage() {
               <article
                 key={plan.id}
                 data-hci-region={`pricing-${plan.id}`}
-                className="card card-border min-w-0 rounded-xl border-rule bg-base-100 shadow-none"
+                className={`card card-border min-w-0 rounded-xl border-rule bg-base-100 ${plan.reccommended ? "ring-2 ring-primary shadow-xl" : ""}`}
               >
                 <div className="card-body gap-0 p-6 lg:p-7">
                   <h2 className="card-title font-sans text-xl text-ink">{plan.name}</h2>
@@ -103,10 +104,6 @@ export default function PricingPage() {
             ))}
           </div>
 
-          <div role="note" className="alert mt-5 rounded-lg border-0 bg-primary-tint text-sm text-ink">
-            <span aria-hidden="true" className="font-bold text-primary">ⓘ</span>
-            <p>Harga dan manfaat di halaman ini belum ditetapkan. Belum ada paket berbayar yang dapat dipilih.</p>
-          </div>
         </section>
 
         <section aria-labelledby="comparison-heading" data-hci-region="pricing-comparison" className="mt-24">

@@ -5,7 +5,7 @@ import { beginHciResponse } from "@/app/engine/lib/hciTelemetry";
 import { getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "@/app/engine/lib/zoneApi";
 import type { Zone, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "@/app/engine/types";
 
-export function useZoneIntelligence() {
+export function useZoneIntelligence(enabled = true) {
     const [catalog, setCatalog] = useState<ZoneListResponse>({ is_sample: false, zones: [] });
     const [catalogError, setCatalogError] = useState<string | null>(null);
     const [catalogLoading, setCatalogLoading] = useState(true);
@@ -65,7 +65,7 @@ export function useZoneIntelligence() {
     useEffect(() => () => requestRef.current?.abort(), []);
 
     useEffect(() => {
-        if (!showRecommendations || catalogLoading || catalogError || catalog.zones.length === 0) return;
+        if (!enabled || !showRecommendations || catalogLoading || catalogError || catalog.zones.length === 0) return;
         const controller = new AbortController();
         recommendationsRef.current = controller;
         const topFive = catalog.zones.slice(0, 5);
@@ -111,7 +111,7 @@ export function useZoneIntelligence() {
         })();
 
         return () => controller.abort();
-    }, [catalog, catalogLoading, catalogError, showRecommendations, recommendationRevision]);
+    }, [catalog, catalogLoading, catalogError, enabled, showRecommendations, recommendationRevision]);
 
     async function selectZone(zone: Zone, retry = false) {
         requestRef.current?.abort();

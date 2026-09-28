@@ -28,6 +28,11 @@
 *.pem
 .temp/
 
+# downloaded source data (large, re-created by ingestion/download_sources.py)
+/ingestion/data/
+/ingestion/.venv/
+__pycache__/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

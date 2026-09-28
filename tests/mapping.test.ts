@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeGeometry, getGeometryBounds } from "../app/engine/lib/zoneGeometry";
-import { toZone, toZoneDetails, validateZoneQuery } from "../app/engine/controller/zoneController";
+import { toZone, toZoneDetails, validateCellQuery, validateZoneQuery } from "../app/engine/controller/zoneController";
 import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
-import { createZoneLayerData } from "../app/components/map/zoneLayerData";
-import { formatFactValue, mapCategories } from "../app/components/map/mapMetrics";
-import { getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
-import { getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
+import { createCellFillData, createCellGlowData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
+import { cellLayers, cellMetrics, formatFactValue, mapCategories } from "../app/components/map/mapMetrics";
+import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
+import { getMapCells, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
 import mapStyle from "../public/jejak_light_openfreemap.json";
-import type { ZoneDetailResult, ZoneGeometry } from "../app/engine/types";
+import type { MapCell, ZoneDetailResult, ZoneGeometry } from "../app/engine/types";
 
 const zone = { zone_id: "pancoran", zone_name: "Pancoran", city_id: "jakarta-selatan", city_name: "Jakarta Selatan" };
 const polygon = { type: "Polygon", coordinates: [[[106, -6], [107, -6], [107, -5], [106, -6]]] };
@@ -69,15 +69,72 @@ test("a stored boundary is returned alongside facts without a provider request",
     await assert.rejects(getZoneBoundary({ ...row, geometry: { type: "Point", coordinates: [0, 0] } }), /Invalid stored boundary/);
 });
 
-test("thematic fills encode the available range and leave missing values unfilled", () => {
+test("district colors remain data driven", () => {
     assert.deepEqual(getMetricRange([null, 0, 1400]), { min: 0, max: 1400 });
-    assert.equal(getMetricRange([null]), null);
     const fill = getZoneFillLayer("employment", { min: 0, max: 1400 });
     assert.deepEqual(fill.paint?.["fill-color"], ["interpolate", ["linear"], ["to-number", ["get", "value"]], 0, "#9ED9EB", 1400, "#006AD8"]);
     assert.deepEqual(fill.paint?.["fill-opacity"], ["case", ["==", ["get", "value"], null], 0, 0.6]);
     assert.equal(ZONE_OUTLINE_LAYER.paint?.["line-color"], "#5F84B1");
     assert.equal(getZoneFillLayer("summary", null).paint?.["fill-opacity"], 0.16);
-    assert.equal(getZoneFillLayer("housing", { min: 42, max: 42 }).paint?.["fill-color"], "#006AD8");
+});
+
+const fact = (value: number, sample_size: number | null = 5) => ({ value, unit: "workers", evidence_type: "estimated" as const,
+    period_end: null, source: "SAMPLE", sample_size, limitations: "Synthetic", is_sample: true });
+const hexCell = (code: string, x: number, facts: MapCell["facts"]): MapCell => ({
+    cell_code: code, parent_code: "setiabudi", is_sample: true, centroid: [x + 0.001, -6.2015], facts,
+    geometry: { type: "Polygon", coordinates: [[[x, -6.2], [x + 0.002, -6.2], [x + 0.002, -6.203], [x, -6.2]]] },
+});
+
+test("employment and housing get cell layers; education and mobility do not", () => {
+    assert.deepEqual(cellMetrics("employment"), ["estimated_office_workers", "estimated_office_workers_low", "estimated_office_workers_high"]);
+    assert.deepEqual(cellMetrics("housing"), ["median_monthly_rent_idr", "housing_listing_count"]);
+    assert.deepEqual(cellMetrics("education"), []);
+    assert.deepEqual(cellMetrics("mobility"), []);
+    assert.deepEqual(cellLayers.housing?.map((layer) => layer.kind), ["fill", "glow"]);
+    assert.deepEqual(validateCellQuery(new URLSearchParams("zone_id=setiabudi&category=housing")), { zoneId: "setiabudi", category: "housing" });
+    assert.throws(() => validateCellQuery(new URLSearchParams("zone_id=setiabudi&category=education")), /Unsupported category/);
+    assert.throws(() => validateCellQuery(new URLSearchParams("zone_id=setiabudi&category=toString")), /Unsupported category/);
+    assert.throws(() => validateCellQuery(new URLSearchParams("zone_id=Setiabudi%3B&category=housing")), /Unsupported zone_id/);
+});
+
+test("cell glow weights are relative to the busiest cell and rent fills hexagons", () => {
+    const workers = cellLayers.employment![0];
+    const cells = [
+        hexCell("h3-a", 106.8, { estimated_office_workers: fact(6000), estimated_office_workers_low: fact(4200), estimated_office_workers_high: fact(8400) }),
+        hexCell("h3-b", 106.81, { estimated_office_workers: fact(1500), estimated_office_workers_low: fact(1050), estimated_office_workers_high: fact(2100) }),
+        hexCell("h3-c", 106.82, {}),
+    ];
+    const glow = createCellGlowData(cells, workers.metric);
+    assert.deepEqual(glow.features.map((f) => [f.properties.cell_code, f.properties.weight]), [["h3-a", 1], ["h3-b", 0.25]]);
+    assert.deepEqual(glow.features[0].geometry.coordinates, [106.801, -6.2015]);
+    assert.equal(createCellGlowData([hexCell("h3-z", 106.8, {})], workers.metric).features.length, 0);
+    assert.deepEqual(summarizeCells(cells, workers), {
+        cells: 3, withValue: 2, min: 1500, max: 6000, total: 7500,
+        maxBounds: { low: 4200, high: 8400 }, totalBounds: { low: 5250, high: 10500 },
+        sources: ["SAMPLE"], periods: ["period unavailable"], isSample: true,
+    });
+    const fill = createCellFillData(cells, "median_monthly_rent_idr");
+    assert.deepEqual(fill.features.map((f) => f.properties.value), [null, null, null]);
+    assert.equal(fill.features[0].geometry.type, "Polygon");
+    assert.equal(summarizeCells(cells, cellLayers.housing![0]), null);
+    assert.deepEqual(getCellFillLayer({ min: 2000000, max: 6000000 }).paint?.["fill-opacity"], ["case", ["==", ["get", "value"], null], 0, 0.7]);
+    assert.deepEqual(CELL_GLOW_LAYER.paint?.["heatmap-weight"], ["get", "weight"]);
+    assert.deepEqual(CELL_GLOW_LAYER.paint?.["heatmap-radius"], ["interpolate", ["exponential", 2], ["zoom"], 11, 5, 17, 336]);
+});
+
+test("cell API data must match the requested zone and category", async (context) => {
+    const cell = hexCell("h3-a", 106.8, { estimated_office_workers: fact(6000, 12) });
+    let payload: unknown = { is_sample: true, zone_id: "setiabudi", category: "employment", cells: [cell] };
+    let requested = "";
+    context.mock.method(globalThis, "fetch", async (url: string) => { requested = url; return Response.json(payload); });
+    const result = await getMapCells("setiabudi", "employment", new AbortController().signal);
+    assert.equal(requested, "/api/heatmap?zone_id=setiabudi&category=employment");
+    assert.equal(result.cells[0].facts.estimated_office_workers.sample_size, 12);
+    payload = { is_sample: true, zone_id: "pancoran", category: "employment", cells: [cell] };
+    await assert.rejects(getMapCells("setiabudi", "employment", new AbortController().signal), /Invalid heatmap data/);
+    payload = { is_sample: true, zone_id: "setiabudi", category: "employment", cells: [{ ...cell, facts: { estimated_office_workers: { ...fact(1), value: "many" } } }] };
+    await assert.rejects(getMapCells("setiabudi", "employment", new AbortController().signal), /Invalid heatmap data/);
+    context.mock.restoreAll();
 });
 
 test("basemap labels use local web fonts without requesting unavailable glyph stacks", () => {

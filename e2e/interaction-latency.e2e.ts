@@ -23,6 +23,27 @@ const details = {
         period_end: "2025-12-31", confidence: 0.8, evidence_type: "observed", limitations: null, is_sample: true }],
 };
 
+// Four square "cells" inside each fixture zone; real cells are H3 hexagons.
+function cells(zoneId: string, category: string) {
+    const west = 106.76 + Number(zoneId.split("-")[1]) * 0.02;
+    const south = -6.28;
+    const fact = (value: number, sampleSize: number | null) => ({ value, unit: null, evidence_type: "estimated", period_end: null,
+        source: "Playwright sample cells", sample_size: sampleSize, limitations: "Synthetic cells", is_sample: true });
+    return Array.from({ length: 4 }, (_, index) => {
+        const x = west + (index % 2) * 0.0075;
+        const y = south + Math.floor(index / 2) * 0.0075;
+        const facts = category === "employment"
+            ? { estimated_office_workers: fact(1000 * (index + 1), 5), estimated_office_workers_low: fact(700 * (index + 1), 5),
+                estimated_office_workers_high: fact(1400 * (index + 1), 5) }
+            : { median_monthly_rent_idr: fact(2_000_000 + index * 500_000, 4), housing_listing_count: fact(4 + index, null) };
+        return {
+            cell_code: `h3-${zoneId}-${index}`, parent_code: zoneId, is_sample: true, facts,
+            centroid: [x + 0.00375, y + 0.00375],
+            geometry: { type: "Polygon", coordinates: [[[x, y], [x + 0.0075, y], [x + 0.0075, y + 0.0075], [x, y + 0.0075], [x, y]]] },
+        };
+    });
+}
+
 function geometry(zoneId: string) {
     const zone = zones.find((candidate) => candidate.zone_id === zoneId)!;
     const west = 106.76 + Number(zoneId.split("-")[1]) * 0.02;
@@ -40,6 +61,12 @@ function geometry(zoneId: string) {
 async function openMap(page: Page) {
     const batches: HciClickBatch[] = [];
     await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: true, zones } }));
+    await page.route((url) => url.pathname === "/api/heatmap", (route) => {
+        const url = new URL(route.request().url());
+        const zoneId = url.searchParams.get("zone_id") ?? "";
+        const category = url.searchParams.get("category") ?? "";
+        return route.fulfill({ json: { is_sample: true, zone_id: zoneId, category, cells: cells(zoneId, category) } });
+    });
     await page.route((url) => /^\/api\/zones\/[^/]+\/intelligence$/.test(url.pathname), async (route) => {
         const url = new URL(route.request().url());
         const zoneId = decodeURIComponent(url.pathname.split("/")[3]);
@@ -80,6 +107,7 @@ test("category lens clicks repaint within budget", async ({ page }) => {
         const button = page.getByRole("button", { name, exact: true });
         await button.click();
         await expect(button).toHaveAttribute("aria-pressed", "true");
+        if (name === "Pekerjaan") await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
     }
 
     const clicks = await sentClicks(page, batches, lenses.length);
@@ -87,6 +115,32 @@ test("category lens clicks repaint within budget", async ({ page }) => {
     const paints = clicks.map((click) => click.paint_ms).sort((a, b) => a - b);
     expect(paints[Math.floor(paints.length / 2)]).toBeLessThanOrEqual(PAINT_GOOD_MS);
     expect(paints.at(-1)).toBeLessThanOrEqual(PAINT_POOR_MS);
+});
+
+test("heatmap appears only for the selected zone", async ({ page }) => {
+    await openMap(page);
+    await page.getByRole("button", { name: "Pekerjaan", exact: true }).click();
+    await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
+    await page.getByRole("searchbox").fill("Tebet");
+    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Tebet/ }).click();
+    await expect(page.getByText("Sample heatmap", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close Tebet details" }).click();
+    await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
+});
+
+test("housing cells switch between median rent and listings", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile", "The zone panel covers the map controls on mobile");
+    await openMap(page);
+    await page.getByRole("searchbox").fill("Tebet");
+    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Tebet/ }).click();
+    await page.getByRole("button", { name: "Hunian", exact: true }).click();
+    const layers = page.getByRole("group", { name: "Cell layer" });
+    await expect(layers.getByRole("button", { name: "Median rent" })).toHaveAttribute("aria-pressed", "true");
+    await layers.getByRole("button", { name: "Listings" }).click();
+    await expect(layers.getByRole("button", { name: "Listings" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Pendidikan", exact: true }).click();
+    await expect(layers).toBeHidden();
+    await expect(page.getByText("Belum ada data sel untuk zona ini.")).toBeHidden();
 });
 
 test("selecting an unloaded zone from search responds within budget", async ({ page }) => {

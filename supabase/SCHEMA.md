@@ -1,6 +1,6 @@
 # Jejak database schema
 
-The schema has **15 active tables**. Prepared facts, private enrichment evidence,
+The schema has **16 active tables**. Prepared facts, private enrichment evidence,
 public aggregates, user decisions, subscriptions, and anonymous interaction
 telemetry have separate responsibilities.
 
@@ -63,6 +63,12 @@ Canonical geographic hierarchy and trusted boundaries.
 
 Types: country, province, regency, city, district, neighborhood, grid, metro.
 The geometry has a GiST index. Missing geometry stays missing; no model invents it.
+
+**Heatmap cells** are `grid` regions: H3 resolution-9 hexagons (~0.1 km²) coded
+`h3-<index>`, whose parent is the district containing the cell centre. Their
+values are ordinary `region_data` facts, for example `estimated_office_workers`
+with `_low`/`_high` bounds (`sample_size` = buildings) and
+`housing_listing_count` / `median_monthly_rent_idr` (`sample_size` = listings).
 
 ### 2. `institutions`
 
@@ -127,16 +133,19 @@ years. Institution totals are never copied into every campus.
 One policy per dynamic evidence type. Counts mean **accepted evidence records**,
 not workers, vacancies, or people.
 
-| Type | Required | Target | Refresh after | Expire after | Failure cooldown |
-|---|---:|---:|---:|---:|---:|
-| `active_opening` | 25 | 25 | 24 hours | 72 hours | 2 hours |
-| `kos_listing` | 15 | 25 | 5 days | 7 days | 12 hours |
-| `apartment_listing` | 15 | 25 | 5 days | 7 days | 12 hours |
-| `house_listing` | 15 | 25 | 5 days | 7 days | 12 hours |
-| `office_presence` | 15 | 25 | 21 days | 30 days | 1 day |
-| `local_employment` | 25 | 25 | 21 days | 30 days | 1 day |
+| Type | Required | Target | Refresh after | Expire after |
+|---|---:|---:|---:|---:|
+| `active_opening` | 25 | 25 | 24 hours | 72 hours |
+| `kos_listing` | 15 | 25 | 5 days | 7 days |
+| `apartment_listing` | 15 | 25 | 5 days | 7 days |
+| `house_listing` | 15 | 25 | 5 days | 7 days |
+| `office_presence` | 15 | 25 | 21 days | 30 days |
+| `local_employment` | 25 | 25 | 21 days | 30 days |
+| `salary_observation` | 5 | 25 | 21 days | 30 days |
 
-Other fields: `max_sources_per_run` (seeded at 3) and `updated_at`.
+Other fields: `max_sources_per_run` (8 since `20260928120000`), `retry_after_minutes`
+(0 for every type: users trigger runs from prompts, so a failed or partial run never
+blocks the next request; a policy may opt back into a cooldown), and `updated_at`.
 Enrollment belongs in prepared institution facts, not this cache.
 
 ### 7. `zone_evidence_cache`
@@ -316,6 +325,15 @@ code, name, and features, or no rows for the free tier. `past_due` keeps access
 while the provider retries. A lapsed `current_period_end` ends access even if a
 renewal webhook was missed.
 
+### 16. `geocode_cache`
+
+Backend-only cache of geocoder responses for LF-01 candidate addresses, keyed by
+`query_hash` (SHA-256 of provider, country, viewbox, and normalized query).
+Fields: `query`, `provider`, `status` (`found`/`not_found`), `result` JSON (required
+exactly when found), `fetched_at`, `expires_at`. Nominatim's usage policy requires
+caching; misses are cached for 7 days and hits for 90. RLS is on with no policies;
+only `service_role` can read or write.
+
 ## Dynamic request lifecycle
 
 1. The backend resolves the region and canonicalizes evidence type and filters.
@@ -325,7 +343,8 @@ renewal webhook was missed.
    - Failed/partial cooldown: `retry_cooldown`, no new call.
    - Missing/stale evidence: claim one queued run, return `call_lf01 = true`.
 3. Read existing evidence if preparing a refresh, then call LF-01 once.
-4. Validate and geocode its candidates; explicitly accept eligible records through
+4. Validate and geocode its candidates, classify them with
+   `classify_evidence_points()`, and explicitly accept eligible records through
    `upsert_zone_evidence()`.
 5. Build a public aggregate and publish it with `publish_region_snapshot()`.
 6. Call `complete_enrichment_run()`; use `partial` if requested work is incomplete.
@@ -357,8 +376,9 @@ or wage statistics do not satisfy a dynamic office/headcount evidence request.
 The application must invoke LF-01 only after a successful backend claim. The
 backend maps policy names such as `active_opening` to the flow's request vocabulary
 such as `active_openings`. Deploy the updated flow export with that orchestration.
-An API route/worker and a live Langflow deployment are separate application work;
-these schema files and adapter do not implement or deploy them.
+`POST /api/zones/[zoneId]/enrich` implements this orchestration
+(`app/engine/enrichment/pipeline.ts`); a live Langflow deployment remains
+separate work.
 
 ## Access and RPCs
 
@@ -388,6 +408,10 @@ New function defaults are private for the migration role.
   Passing only one of snapshot type/hash is rejected. This is one batch request
   for a district/grid layer, not one call per cell. It returns source, period,
   limitations, coverage, and freshness needed for a trustworthy legend.
+- `get_map_cells(text, text[], boolean)` — every H3 cell of one district with
+  geometry, centroid, and the latest fact per requested metric (1–10 metrics).
+  Worker estimates and median rent built from fewer than three buildings or
+  listings are omitted. Sample cells and facts appear only when the caller opts in.
 - `get_region_snapshot(integer, varchar, text)`
 - `get_region_data(integer, varchar)`
 - `get_public_places(integer, varchar)`
@@ -406,6 +430,10 @@ New function defaults are private for the migration role.
 - `publish_region_snapshot(bigint)`
 - `zone_evidence_gc()`
 - `calculate_relocation_fit(...)`
+- `classify_evidence_points(integer, jsonb)` — locality tier of geocoded points
+  against trusted district boundaries: `zone` (inside the target district),
+  `city` (a sibling district), `region` (same grandparent), or null when no
+  boundary decides; the backend then falls back to geocoder address fields.
 
 Definer RPCs use an empty search path and qualified relations. Public functions
 never read the private cache. The legacy `get_zone_data`, cache upsert/read
@@ -424,8 +452,21 @@ they are not the new write/read path.
 | `0009` | Explicit privileges, RLS, public read RPCs |
 | `20260925194332` | Batch heatmap read, repeatable regional imports, aggregate fields for the map |
 | `20260925194645` | Correct aggregate date validation after remote deployment |
+| `20260926073400` | `regions.is_sample`, sample-aware map region reads (`get_map_regions`, `get_map_region`) |
+| `20260926075100` | Wage-to-rent ranking columns in `get_map_regions` |
+| `20260926084200` | `get_map_regions` with an optional parent (full catalogue) |
 | `20260926112145` | Anonymous click telemetry table and region summary view |
+| `20260926194550` | Synthetic heatmap point table (superseded by `20260927032800`) |
 | `20260926225056` | Subscription plans, user subscriptions, and `get_my_subscription()` |
+| `20260927032800` | Drops the heatmap point table; `get_map_cells()` for H3 cell heatmaps |
+| `20260927121326` | Idempotently restores click telemetry and subscription objects |
+| `20260928100000` | `salary_observation` cache policy, `geocode_cache`, `classify_evidence_points()` |
+| `20260928120000` | Zero retry cooldown and 8 sources per run for every cache policy; lifts recorded cooldowns |
+
+The three `202609260...` files were renamed from `20260926_*`, which sorted after
+every later `20260926hhmmss_*` file and shared one version. If the hosted project
+recorded them under other versions, align the names with `supabase migration list`
+(or `supabase migration repair`) before the next push.
 
 Each draft migration is transactional and takes the same schema advisory lock.
 Cache operations lock the exact enrichment scope; publication locks its snapshot
@@ -446,7 +487,8 @@ Supabase roles and the Auth objects used here. No remote credentials are needed.
 Tests cover migration validity, browser/backend permissions, RLS, default IDs,
 confirmed revisions, ownership, duplicate claims, sample exclusion, locality
 ranking, refresh work, expired-worker rejection/cooldowns, campus integrity,
-snapshot validation, a batch of 85 grid cells with scoped aggregates and
+snapshot validation, a batch of 85 grid cells with scoped aggregates, district
+cell reads that hide small samples, and
 idempotent fact imports, subscription ownership and current-subscription rules,
 and account deletion.
 The Python tests also check the prepared-request adapter and ensure its saved

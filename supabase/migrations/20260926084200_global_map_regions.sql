@@ -1,4 +1,4 @@
--- A null parent requests the full supported district catalogue. A city code
+ -- A null parent requests the full supported district catalogue. A city code
 -- still narrows results for city-level explorers.
 create or replace function public.get_map_regions(
     p_parent_code text default null,

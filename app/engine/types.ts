@@ -60,6 +60,35 @@ export type ZoneDetailResult = {
 
 export type MapCategory = "summary" | "employment" | "education" | "housing" | "mobility";
 
+export type MapCellFact = {
+  value: number;
+  unit: string | null;
+  evidence_type: RegionFact["evidence_type"];
+  period_end: string | null;
+  source: string;
+  // Buildings or listings behind the value; the database hides values below 3.
+  sample_size: number | null;
+  limitations: string | null;
+  is_sample: boolean;
+};
+
+// One H3 cell of a district, with the facts requested for a map category.
+export type MapCell = {
+  cell_code: string;
+  parent_code: string;
+  geometry: Polygon | MultiPolygon;
+  centroid: [number, number];
+  facts: Record<string, MapCellFact>;
+  is_sample: boolean;
+};
+
+export type MapCellsResponse = {
+  is_sample: boolean;
+  zone_id: string;
+  category: MapCategory;
+  cells: MapCell[];
+};
+
 export type CityName =
   | "Jakarta Selatan"
   | "Jakarta Barat"

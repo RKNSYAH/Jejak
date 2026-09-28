@@ -56,7 +56,7 @@ test('migration chain and database contracts', async (t) => {
       where n.nspname = 'public' and p.proname in (
         'check_and_claim_zone_enrichment', 'get_zone_evidence', 'upsert_zone_evidence',
         'complete_enrichment_run', 'zone_evidence_gc', 'publish_region_snapshot',
-        'calculate_relocation_fit', 'get_zone_data')
+        'calculate_relocation_fit', 'get_zone_data', 'classify_evidence_points')
       and (has_function_privilege('anon', p.oid, 'execute')
         or has_function_privilege('authenticated', p.oid, 'execute'))`);
     assert.deepEqual(exposed, []);
@@ -147,12 +147,12 @@ test('migration chain and database contracts', async (t) => {
     }
   });
 
-  await t.test('full stale cache requests real refresh work; expired workers enter cooldown', async () => {
+  await t.test('full stale cache requests real refresh work; failed runs retry at once unless a policy opts in', async () => {
     await db.query(`update public.zone_evidence_cache set refresh_after = now() - interval '1 hour'
       where region_id = $1`, [region.id]);
     const run = await claim();
     assert.equal(run.needed_count, 25);
-    assert.equal(run.source_budget, 3);
+    assert.equal(run.source_budget, 7);
     const { input } = await one('select input from public.enrichment_runs where id = $1', [run.run_id]);
     assert.equal(input.missing_count, 0);
     assert.equal(input.refresh_count, 25);
@@ -160,18 +160,24 @@ test('migration chain and database contracts', async (t) => {
       where id = $1`, [run.run_id]);
     await assert.rejects(upsert(run.run_id, [candidate(1)]), /lease has expired/);
     await assert.rejects(db.query(`select public.complete_enrichment_run($1, 'completed')`, [run.run_id]), /lease has expired/);
+    // No cooldown by default: the expired worker fails and a new run is claimed immediately.
     const retry = await claim();
-    assert.equal(retry.status, 'retry_cooldown');
-    assert.equal(retry.call_lf01, false);
-    assert.equal((await claim()).run_id, retry.run_id);
-    // Recover after cooldown, then fail again: a new run must not bypass cooldown.
-    await db.query(`update public.enrichment_runs set next_retry_at = now() - interval '1 second'
-      where id = $1`, [run.run_id]);
-    const replacement = await claim();
-    assert.equal(replacement.call_lf01, true);
-    assert.notEqual(replacement.run_id, run.run_id);
-    await db.query(`update public.enrichment_runs set lease_expires_at = null where id = $1`, [replacement.run_id]);
-    assert.equal((await claim()).status, 'retry_cooldown');
+    assert.equal(retry.call_lf01, true);
+    assert.notEqual(retry.run_id, run.run_id);
+    assert.equal((await one('select status from public.enrichment_runs where id = $1', [run.run_id])).status, 'failed');
+
+    // A policy can still opt into a cooldown, and a new run must not bypass it.
+    await db.query(`update public.evidence_cache_policies set retry_after_minutes = 120 where evidence_type = 'active_opening'`);
+    try {
+      await db.query(`update public.enrichment_runs set lease_expires_at = null where id = $1`, [retry.run_id]);
+      const cooling = await claim();
+      assert.equal(cooling.status, 'retry_cooldown');
+      assert.equal(cooling.call_lf01, false);
+      assert.equal((await claim()).run_id, cooling.run_id);
+    } finally {
+      await db.query(`update public.evidence_cache_policies set retry_after_minutes = 0 where evidence_type = 'active_opening'`);
+      await db.query(`update public.enrichment_runs set next_retry_at = null where region_id = $1`, [region.id]);
+    }
   });
 
   await t.test('acceptance is explicit and requires a complete classified location', async () => {
@@ -317,6 +323,69 @@ test('migration chain and database contracts', async (t) => {
     assert.equal((await getLayer(null, null)).length, 85);
   });
 
+  await t.test('one district call returns its H3 cells with facts, hiding small samples', async () => {
+    const city = await one(`insert into public.regions (code, name, region_type, is_supported)
+      values ('cells-city', 'Cells City', 'city', true) returning id`);
+    const district = await one(`insert into public.regions (parent_id, code, name, region_type, is_supported)
+      values ($1, 'cells-district', 'Cells District', 'district', true) returning id`, [city.id]);
+    const hex = (x) => `extensions.ST_Multi(extensions.ST_GeomFromText(
+      'POLYGON((${x} -6.2,${x + 0.003} -6.2,${x + 0.003} -6.203,${x} -6.2))', 4326))`;
+    const cell = async (code, x, { sample = false, supported = true, geometry = true } = {}) =>
+      (await one(`insert into public.regions (parent_id, code, name, region_type, is_supported, is_sample, geometry)
+        values ($1, $2, $2, 'grid', $3, $4, ${geometry ? hex(x) : 'null'}) returning id`,
+      [district.id, code, supported, sample])).id;
+    const cellA = await cell('h3-cell-a', 106.8);
+    const cellB = await cell('h3-cell-b', 106.81);
+    await cell('h3-cell-no-geometry', 0, { geometry: false });
+    const sampleCell = await cell('h3-cell-sample', 106.82, { sample: true, supported: false });
+    await db.query(`insert into public.regions (parent_id, code, name, region_type, is_supported)
+      values ($1, 'cells-other-district', 'Other', 'district', true)`, [city.id]);
+    const fact = (regionId, metric, value, sampleSize, { sample = false, source = 'cells-test' } = {}) =>
+      db.query(`insert into public.region_data
+        (region_id, metric, numeric_value, unit, evidence_type, source, sample_size, is_sample)
+        values ($1, $2, $3, 'test', 'estimated', $4, $5, $6)`,
+      [regionId, metric, value, source, sampleSize, sample]);
+    await fact(cellA, 'estimated_office_workers', 4200, 12);
+    await fact(cellA, 'estimated_office_workers_low', 3000, 12);
+    await fact(cellA, 'housing_listing_count', 2, null);
+    await fact(cellA, 'median_monthly_rent_idr', 2500000, 2);
+    await fact(cellA, 'estimated_office_workers', 99999, 50, { sample: true, source: 'sample' });
+    await fact(cellB, 'median_monthly_rent_idr', 3100000, 7);
+    await fact(cellB, 'population', 1234, null);
+    await fact(sampleCell, 'estimated_office_workers', 800, 4, { sample: true });
+    const metrics = ['estimated_office_workers', 'estimated_office_workers_low',
+      'housing_listing_count', 'median_monthly_rent_idr'];
+    const getCells = (parent, requested = metrics, sample = false) =>
+      rows('select * from public.get_map_cells($1, $2, $3)', [parent, requested, sample]);
+
+    assert.equal(await one(`select to_regclass('public.map_heatmap_points') as t`).then((r) => r.t), null);
+    await db.exec('set role anon');
+    try {
+      const cells = await getCells('cells-district');
+      assert.deepEqual(cells.map((c) => c.cell_code), ['h3-cell-a', 'h3-cell-b']);
+      assert.equal(cells[0].parent_code, 'cells-district');
+      assert.equal(cells[0].geometry.type, 'MultiPolygon');
+      assert.equal(cells[0].centroid.type, 'Point');
+      assert.equal(cells[0].is_sample, false);
+      assert.deepEqual(Object.keys(cells[0].facts).sort(),
+        ['estimated_office_workers', 'estimated_office_workers_low', 'housing_listing_count']);
+      assert.equal(cells[0].facts.estimated_office_workers.value, 4200);
+      assert.equal(cells[0].facts.estimated_office_workers.sample_size, 12);
+      assert.equal(cells[0].facts.housing_listing_count.value, 2);
+      assert.deepEqual(Object.keys(cells[1].facts), ['median_monthly_rent_idr']);
+
+      const withSample = await getCells('cells-district', metrics, true);
+      assert.deepEqual(withSample.map((c) => c.cell_code), ['h3-cell-a', 'h3-cell-b', 'h3-cell-sample']);
+      assert.equal(withSample[0].facts.estimated_office_workers.value, 4200);
+      assert.equal(withSample[2].facts.estimated_office_workers.is_sample, true);
+      assert.deepEqual(await getCells('cells-other-district'), []);
+      await assert.rejects(getCells(null), /district code and 1 to 10 metrics/);
+      await assert.rejects(getCells('cells-district', []), /district code and 1 to 10 metrics/);
+    } finally {
+      await db.exec('reset role');
+    }
+  });
+
   await t.test('subscriptions are backend-written, owner-read, and one current per user', async () => {
     await db.exec('set role service_role');
     try {
@@ -385,5 +454,71 @@ test('migration chain and database contracts', async (t) => {
     }
     assert.deepEqual(await rows('select region, clicks, response_timeouts from public.hci_region_summary'),
       [{ region: 'categories', clicks: 1, response_timeouts: 1 }]);
+  });
+
+  await t.test('geocoded evidence gets a boundary-based tier and publishes a scoped snapshot', async () => {
+    const square = (west, south) => `extensions.ST_Multi(extensions.ST_GeomFromText('POLYGON((${west} ${south},
+      ${west + 0.1} ${south},${west + 0.1} ${south + 0.1},${west} ${south + 0.1},${west} ${south}))', 4326))`;
+    const addRegion = (code, type, parentId, geometry = 'null') => one(`insert into public.regions
+      (code, name, region_type, parent_id, geometry) values ($1, $1, $2, $3, ${geometry}) returning id`,
+    [code, type, parentId]);
+    const province = await addRegion('tier-province', 'province', null);
+    const cityA = await addRegion('tier-city-a', 'city', province.id);
+    const cityB = await addRegion('tier-city-b', 'city', province.id);
+    const target = await addRegion('tier-target', 'district', cityA.id, square(110, -8));
+    await addRegion('tier-sibling', 'district', cityA.id, square(110.1, -8));
+    await addRegion('tier-cousin', 'district', cityB.id, square(110.2, -8));
+    const points = JSON.stringify([
+      { point_index: 0, latitude: -7.95, longitude: 110.05 },
+      { point_index: 1, latitude: -7.95, longitude: 110.15 },
+      { point_index: 2, latitude: -7.95, longitude: 110.25 },
+      { point_index: 3, latitude: -7.95, longitude: 111.05 },
+      { point_index: 4, latitude: 200, longitude: 110.05 },
+    ]);
+
+    await db.exec('set role anon');
+    try {
+      await assert.rejects(db.query('select * from public.classify_evidence_points($1, $2)', [target.id, points]), /permission denied/);
+      await assert.rejects(db.query('select * from public.geocode_cache'), /permission denied/);
+    } finally {
+      await db.exec('reset role');
+    }
+
+    await db.exec('set role service_role');
+    try {
+      const tiers = await rows('select * from public.classify_evidence_points($1, $2)', [target.id, points]);
+      assert.deepEqual(tiers.map((row) => [row.point_index, row.containing_region_code, row.locality_tier]), [
+        [0, 'tier-target', 'zone'], [1, 'tier-sibling', 'city'], [2, 'tier-cousin', 'region'], [3, null, null],
+      ]);
+
+      await assert.rejects(db.query(`insert into public.geocode_cache (query_hash, query, provider, status, expires_at)
+        values ($1, 'setiabudi', 'nominatim', 'found', now() + interval '1 day')`, ['d'.repeat(64)]), /result_ck/);
+      await db.query(`insert into public.geocode_cache (query_hash, query, provider, status, result, expires_at)
+        values ($1, 'setiabudi', 'nominatim', 'found', '{"latitude": -6.2}', now() + interval '1 day')`, ['d'.repeat(64)]);
+
+      const scopeHash = 'e'.repeat(64);
+      const run = await one(`select * from public.check_and_claim_zone_enrichment($1,
+        'salary_observation', 'salary_observation|sector=software_and_it_services', $2)`, [target.id, scopeHash]);
+      assert.equal(run.call_lf01, true);
+      assert.equal(run.minimum_required_count, 5);
+      await upsert(run.run_id, [candidate(40, { latitude: -7.95, longitude: 110.05, locality_tier: tiers[0].locality_tier })]);
+      await db.query(`select public.complete_enrichment_run($1, 'partial', '{"accepted": 1}')`, [run.run_id]);
+      assert.equal((await rows(`select * from public.get_zone_evidence($1, 'salary_observation', $2)`,
+        [target.id, scopeHash])).length, 1);
+
+      const snapshot = await one(`insert into public.region_snapshots
+        (region_id, snapshot_type, scope_key, scope_hash, snapshot, evidence_count, contributor_count,
+         coverage, refresh_after, expires_at)
+        values ($1, 'career', 'career|sector=software_and_it_services', $2, $3, 1, 1, 'partial',
+          now() + interval '1 day', now() + interval '2 days') returning id`,
+      [target.id, scopeHash, JSON.stringify({ salary_idr: { status: 'unavailable' }, sources_monitored: 1,
+        coverage: 'partial', as_of: '2026-09-28', limitations: ['Counts describe observed web sources.'] })]);
+      await db.query('select public.publish_region_snapshot($1)', [snapshot.id]);
+      const published = await one(`select * from public.get_region_snapshot($1, 'career', $2)`, [target.id, scopeHash]);
+      assert.equal(published.coverage, 'partial');
+      assert.equal(published.is_stale, false);
+    } finally {
+      await db.exec('reset role');
+    }
   });
 });

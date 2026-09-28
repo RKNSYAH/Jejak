@@ -10,7 +10,7 @@ Jejak is a relocation-planning project for people choosing where to study or wor
 - Browse areas ranked by wage-to-rent ratio, with population as a secondary sort key.
 - Measure click-to-paint and response latency through anonymous alpha-study telemetry.
 
-The broader plan includes relocation profiles, personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. The current `/api/lf01` endpoint validates enrichment requests but returns `503 ENRICHMENT_UNAVAILABLE`; it does not execute a Langflow flow.
+The broader plan includes relocation profiles, personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. Evidence enrichment runs through the API only; no UI triggers it yet. A signed-in `POST /api/zones/[zoneId]/enrich` claims runs and, after responding, runs LF-01, LF-02, geocoding, and acceptance in the background, then publishes a zone snapshot. `POST /api/lf05` interprets onboarding stories.
 
 Sample data is enabled by default. Treat rows marked `is_sample` as demo content, not verified or live evidence. Coverage depends on the regions and facts in your database.
 
@@ -51,6 +51,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-project-anon-key
 # Optional; both features default to enabled.
 JEJAK_INCLUDE_SAMPLE_DATA=true
 NEXT_PUBLIC_HCI_TELEMETRY=true
+
+# Langflow (LF-05 onboarding and evidence enrichment). Server-only.
+NEXT_LANGFLOW_URL=https://your-langflow-host
+NEXT_LANGFLOW_API_KEY=your-langflow-api-key
+
+# Evidence enrichment only. Server-only; never expose these to the browser.
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+JEJAK_GEOCODER_USER_AGENT=Jejak/0.1 (you@example.com)
 ```
 
 | Variable | Purpose |
@@ -59,6 +67,10 @@ NEXT_PUBLIC_HCI_TELEMETRY=true
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Required public anon key for browser and server clients. Use the anon key, not a service-role key. |
 | `JEJAK_INCLUDE_SAMPLE_DATA` | Set to `false` to exclude sample rows from map reads. |
 | `NEXT_PUBLIC_HCI_TELEMETRY` | Set to `false` to disable click telemetry. Keep it enabled for the interaction-latency tests. |
+| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/lf05` and enrichment return 503. |
+| `NEXT_LANGFLOW_API_KEY` | Langflow API key, sent as `x-api-key`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for the backend-only enrichment RPCs. Used only by server enrichment code. |
+| `JEJAK_GEOCODER_USER_AGENT` | Identifying User-Agent with contact details, required by Nominatim's usage policy. |
 
 Git ignores `.env.local`. Restart the development server after changing environment variables; rebuild production assets after changing `NEXT_PUBLIC_*` values.
 
@@ -112,12 +124,18 @@ For a focused run:
 
 ```bash
 bun test tests/mapping.test.ts
-bun test tests/lf01.test.ts
+bun test tests/enrichment.test.ts
 bun test tests/hci.test.ts
 ```
 
 - `mapping.test.ts`: boundary validation, sample labels, map metrics, ranking, API response validation, and partial-load failures.
-- `lf01.test.ts`: enrichment request validation and the unavailable-enrichment response.
+- `lf01.test.ts`: LF-01 request validation.
+- `lf05.test.ts`, `extractUserProfile.test.ts`: onboarding input, LF-05 call, and proposal validation.
+- `langflow.test.ts`: Langflow URL handling, workflow envelopes, and transport errors.
+- `enrichment.test.ts`: scope hashing, LF-01 parsing, acceptance, locality, confidence, snapshots, geocoding, and the pipeline with fakes.
+- `enrichmentRoutes.test.ts`: enrichment route validation and sign-in requirement.
+
+`bunfig.toml` preloads `tests/setup.mjs`, which stubs Next's `server-only` module so route tests can import server controllers.
 - `hci.test.ts`: click payload validation and malformed-request handling.
 
 These tests use fixtures and mocks for external data. The root `bun run test` command runs `bun test` without a directory filter, so it also discovers `supabase/tests/schema.test.mjs`. That database test can exceed Bun's default five-second timeout; use its Node test command below.
@@ -158,9 +176,10 @@ Find report files in `playwright-report/` and test artifacts in `test-results/`.
 
 ```text
 app/
-  api/                 Map data, geometry, auth, telemetry, and LF-01 routes
+  api/                 Map data, geometry, auth, telemetry, LF-05, and enrichment routes
   components/map/      Map canvas, controls, discovery sheet, and detail panel
   engine/              Data controllers, API clients, validation, and types
+  engine/enrichment/   LF-01/LF-02 contracts, geocoding, acceptance, snapshots, pipeline
   map/page.tsx         Map route
   stores/              Client state
 docs/                  Product, design, AI, and data-research specifications
@@ -178,7 +197,18 @@ For map-data changes, follow this path:
 JejakMap → useZoneIntelligence → zoneApi → app/api → zoneController → Supabase RPCs
 ```
 
-The main read routes are `/api/zones`, `/api/zones/[zoneId]/intelligence`, and `/api/geometry`. Click telemetry posts to `/api/hci`; adding `?study=P01` to the map URL tags a study participant. Give new UI surfaces a `data-hci-region` attribute so telemetry can identify them.
+The main read routes are `/api/zones`, `/api/zones/[zoneId]/intelligence`, and `/api/geometry`.
+
+Evidence enrichment follows this path:
+
+```text
+POST /api/zones/[zoneId]/enrich → enrichmentController (claim runs) → after(): pipeline
+  → LF-01 → LF-02 (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
+  → publish_region_snapshot → complete_enrichment_run
+GET /api/zones/[zoneId]/evidence?scope=career|housing   snapshot, freshness, refresh state
+GET /api/enrichment-runs/[runId]                          one run's status
+```
+ Click telemetry posts to `/api/hci`; adding `?study=P01` to the map URL tags a study participant. Give new UI surfaces a `data-hci-region` attribute so telemetry can identify them.
 
 ## Project documentation
 
