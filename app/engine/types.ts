@@ -39,6 +39,8 @@ export type RegionFact = {
   evidence_type: "observed" | "estimated" | "derived" | "unavailable";
   limitations: string | null;
   is_sample: boolean;
+  // Counted from monitored web sources: show as "approx. N", never as an exact total.
+  approximate?: boolean;
 };
 
 export type RegionPlace = {
@@ -76,7 +78,8 @@ export type MapCellFact = {
 export type MapCell = {
   cell_code: string;
   parent_code: string;
-  geometry: Polygon | MultiPolygon;
+  // Point-only heatmaps omit the polygon; filled cells still require it.
+  geometry: Polygon | MultiPolygon | null;
   centroid: [number, number];
   facts: Record<string, MapCellFact>;
   is_sample: boolean;
@@ -126,7 +129,96 @@ export interface LF01Input {
   bounding_box?: [number, number, number, number];
   target_occupations?: string[];
   existing_entity_ids?: string[];
+  // Companies whose office address LF-01 should look up (postings that name no location).
+  company_names?: string[];
 }
+
+export type EvidenceScope = "career" | "housing";
+
+// A range in a public evidence snapshot; unavailable when the evidence can't support one.
+export type EvidenceRange =
+  | { minimum: number; maximum: number; status: "observed" | "estimated"; method_version?: string }
+  | { status: "unavailable" };
+
+// Aggregate-only snapshot (counts and ranges, never company names), as enforced by
+// private.is_public_snapshot() in Postgres. Counts are for evidence inside the zone.
+export type EvidenceSnapshotData = {
+  observed_office_count?: number;
+  observed_organizations?: number;
+  offices_with_local_headcount_evidence?: number;
+  organizations_without_headcount?: number;
+  opening_count?: number;
+  housing_count?: number;
+  sources_monitored?: number;
+  estimated_employment?: EvidenceRange;
+  monthly_rent_idr?: EvidenceRange;
+  salary_idr?: EvidenceRange;
+  as_of?: string;
+  oldest_material_evidence?: string;
+  coverage?: "complete" | "partial" | "unavailable";
+  confidence?: number;
+  limitations?: string[];
+};
+
+export type EnrichmentRunSummary = {
+  run_id: string;
+  evidence_type: string;
+  status: string;
+  stage: string | null;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  retry_at: string | null;
+  accepted: number | null;
+  rejected: Record<string, number> | null;
+  incomplete_categories: string[];
+  snapshot_published: boolean;
+  error_code: string | null;
+};
+
+// One district's accepted evidence, as counts only (never names or single points).
+// Counts are approximate: they cover monitored sources, not every job or listing.
+export type EvidenceCluster = {
+  zone_id: string;
+  zone_name: string;
+  centroid: [number, number];
+  counts: Record<string, { count: number; organizations: number }>;
+  // Display text per evidence type, e.g. "approx. 3 offices", "approx. 1 opening".
+  labels: string[];
+  latest_retrieved_at: string | null;
+};
+
+// GET /api/evidence/clusters?city_id=&scope=
+export type EvidenceClustersResponse = {
+  city_id: string;
+  scope: EvidenceScope;
+  clusters: EvidenceCluster[];
+  note: string;
+};
+
+// GET /api/zones/[zoneId]/evidence?scope=
+export type ZoneEvidenceResponse = {
+  zone_id: string;
+  scope: EvidenceScope;
+  freshness: "fresh" | "stale" | "missing";
+  snapshot: {
+    data: EvidenceSnapshotData;
+    coverage: "complete" | "partial" | "unavailable";
+    confidence: number | null;
+    evidence_count: number;
+    generated_at: string;
+    refresh_after: string | null;
+    expires_at: string | null;
+    is_stale: boolean;
+    is_expired: boolean;
+  } | null;
+  refresh: {
+    status: "running" | "queued" | "cooldown" | "idle";
+    stage: string | null;
+    retry_at: string | null;
+    runs: EnrichmentRunSummary[];
+  };
+};
 
 export type HciClick = {
   elapsed_ms: number;

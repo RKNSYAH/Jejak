@@ -1,9 +1,12 @@
 import { create } from "zustand";
 import { UserProfile, TargetSector } from "../engine/types";
+import type { StoredRelocationProfile } from "../engine/lib/relocationProfile";
 
 type UserProfileStore = {
     profile: UserProfile | null;
+    relocationProfile: StoredRelocationProfile | null;
     setProfile: (profile: UserProfile) => void;
+    setRelocationProfile: (profile: StoredRelocationProfile | null) => void;
     setTargetSectors: (sectors: TargetSector[]) => void;
     resetProfile: () => void;
 };
@@ -24,8 +27,10 @@ const initialProfile: UserProfile = {
 
 export const useUserProfileStore = create<UserProfileStore>((set) => ({
     profile: null,
+    relocationProfile: null,
 
     setProfile: (profile) => set({ profile }),
+    setRelocationProfile: (relocationProfile) => set({ relocationProfile }),
 
     setTargetSectors: (sectors) =>
         set((state) => ({

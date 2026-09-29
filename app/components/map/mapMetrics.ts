@@ -1,4 +1,5 @@
 import type { MapCategory, RegionFact } from "@/app/engine/types";
+import { approxCount } from "@/app/engine/enrichment/labels";
 
 const number = (value: number) => value.toLocaleString("id-ID");
 const rupiah = (value: number) => `Rp${number(value)}`;
@@ -67,6 +68,8 @@ export const metricLabels: Record<string, string> = {
 };
 
 export function formatFactValue(fact: RegionFact): string {
+    if (fact.approximate && fact.metric === "company_count") return approxCount(fact.value, "company", "companies");
+    if (fact.approximate) return `approx. ${formatFactValue({ ...fact, approximate: false })}`;
     if (fact.metric === "employment_rate") return `${number(fact.value * 100)}%`;
     if (fact.metric === "median_monthly_rent_idr" || fact.metric === "average_monthly_wage_idr") return `${rupiah(fact.value)}/month`;
     return `${number(fact.value)}${fact.unit === "stops_within_500m" ? " stops within 500 m" : ""}`;

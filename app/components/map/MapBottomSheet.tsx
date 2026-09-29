@@ -2,6 +2,7 @@
 
 import {
     useCallback,
+    useEffect,
     useImperativeHandle,
     useRef,
     useState,
@@ -39,27 +40,40 @@ export default function MapBottomSheet({
     zones,
     onSelect,
     onStateChange,
+    onHeightChange,
     ref,
 }: {
     zones: ZoneSummary[];
     onSelect: (zone: ZoneSummary) => void;
     onStateChange: (state: MapBottomSheetState) => void;
+    onHeightChange: (height: number) => void;
     ref: Ref<MapBottomSheetHandle>;
 }) {
     const [height, setHeight] = useState(DEFAULT_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
+    const sheetRef = useRef<HTMLElement>(null);
     const dragHandleRef = useRef<HTMLDivElement>(null);
     const dragStartY = useRef(0);
     const dragStartHeight = useRef(0);
+    const pendingHeight = useRef<number | null>(null);
+    const dragFrame = useRef<number | null>(null);
 
-    const setSheetHeight = useCallback((nextHeight: number, dragging = false) => {
+    useEffect(() => {
+        onHeightChange(DEFAULT_HEIGHT);
+        onStateChange({ height: DEFAULT_HEIGHT, isExpanded: false, isDragging: false });
+    }, [onHeightChange, onStateChange]);
+
+    const setSheetHeight = useCallback((nextHeight: number) => {
+        if (sheetRef.current) sheetRef.current.style.height = `${nextHeight}px`;
+        dragHandleRef.current?.setAttribute("aria-valuenow", String(Math.round(nextHeight)));
+        onHeightChange(nextHeight);
         onStateChange({
             height: nextHeight,
             isExpanded: nextHeight > getCenterHeight(),
-            isDragging: dragging,
+            isDragging: false,
         });
         setHeight(nextHeight);
-    }, [onStateChange]);
+    }, [onHeightChange, onStateChange]);
 
     useImperativeHandle(ref, () => ({
         collapse: () => {
@@ -98,19 +112,38 @@ export default function MapBottomSheet({
         setIsDragging(true);
         dragStartY.current = event.clientY;
         dragStartHeight.current = height;
+        pendingHeight.current = null;
+        onStateChange({ height, isExpanded: height > getCenterHeight(), isDragging: true });
     }
     const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!isDragging) return;
         const deltaY = event.clientY - dragStartY.current;
-        const newHeight = dragStartHeight.current - deltaY;
-        setSheetHeight(clampHeight(newHeight), true);
+        pendingHeight.current = clampHeight(dragStartHeight.current - deltaY);
+        if (dragFrame.current === null) {
+            dragFrame.current = requestAnimationFrame(() => {
+                dragFrame.current = null;
+                if (pendingHeight.current !== null) {
+                    if (sheetRef.current) sheetRef.current.style.height = `${pendingHeight.current}px`;
+                    dragHandleRef.current?.setAttribute("aria-valuenow", String(Math.round(pendingHeight.current)));
+                    onHeightChange(pendingHeight.current);
+                }
+            });
+        }
     }
     const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!isDragging) return;
-        event.currentTarget.releasePointerCapture(event.pointerId);
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
         setIsDragging(false);
-        snapToNearestHeight(height);
+        if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+        dragFrame.current = null;
+        const releasedHeight = pendingHeight.current ?? height;
+        pendingHeight.current = null;
+        snapToNearestHeight(releasedHeight);
     }
+
+    useEffect(() => () => {
+        if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+    }, []);
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         const step = 40;
 
@@ -138,7 +171,7 @@ export default function MapBottomSheet({
     const isExpanded = height > getCenterHeight();
 
     return (
-        <section data-hci-region="zone-list" className={`absolute bottom-0 left-0 right-0 z-300 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-box border border-b-0 border-rule bg-panel-surface shadow-xs md:max-h-[72dvh] ${isDragging ? "" : "transition-[height] duration-200 ease-out"}`} style={{ height }}>
+        <section ref={sheetRef} data-hci-region="zone-list" className={`absolute bottom-0 left-0 right-0 z-300 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-box border border-b-0 border-rule bg-panel-surface shadow-xs md:max-h-[72dvh] ${isDragging ? "" : "transition-[height] duration-200 ease-out"}`} style={{ height }}>
             <div
                 ref={dragHandleRef}
                 role="separator"

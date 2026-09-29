@@ -59,7 +59,7 @@ export default function MapChatComposer({
             className={`pointer-events-none absolute bottom-0 left-0 z-100 flex justify-center px-3 md:px-4 ${isDragging ? "" : "transition-[bottom,right] duration-200 ease-out motion-reduce:transition-none"}`}
             style={{
                 right: sidebarWidth,
-                bottom: `${sheetHeight + 16}px`,
+                bottom: `calc(var(--map-sheet-height, ${sheetHeight}px) + 16px)`,
             }}
         >
             <section aria-label="Tanya tentang peta" className="pointer-events-auto w-full max-w-[42rem]">
@@ -114,15 +114,6 @@ export default function MapChatComposer({
                             className="input input-ghost h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-1 text-base text-ink shadow-none focus:bg-transparent focus:outline-none md:text-sm"
                         />
                     </div>
-                    <button
-                        type="button"
-                        disabled
-                        title="Input suara belum tersedia"
-                        aria-label="Input suara belum tersedia"
-                        className="btn btn-ghost btn-square size-10 shrink-0 text-ink-muted pointer-coarse:size-11"
-                    >
-                        <Mic aria-hidden="true" className="size-4" />
-                    </button>
                     <button
                         type="submit"
                         disabled={!canSubmit}

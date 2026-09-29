@@ -7,6 +7,14 @@ export async function getAuthenticatedClaims() {
     return error ? null : data?.claims ?? null;
 }
 
+export async function getAuthenticatedUserId() {
+    const claims = await getAuthenticatedClaims();
+    const userId = claims?.sub;
+    return typeof userId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)
+        ? userId
+        : null;
+}
+
 export async function registerUser(email: string, password: string, name: string) {
     const supabase = await createClient();
     return supabase.auth.signUp({

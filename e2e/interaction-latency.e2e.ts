@@ -65,7 +65,9 @@ async function openMap(page: Page) {
         const url = new URL(route.request().url());
         const zoneId = url.searchParams.get("zone_id") ?? "";
         const category = url.searchParams.get("category") ?? "";
-        return route.fulfill({ json: { is_sample: true, zone_id: zoneId, category, cells: cells(zoneId, category) } });
+        const includeGeometry = url.searchParams.get("geometry") !== "0";
+        return route.fulfill({ json: { is_sample: true, zone_id: zoneId, category, cells: cells(zoneId, category)
+            .map((cell) => includeGeometry ? cell : { ...cell, geometry: null }) } });
     });
     await page.route((url) => /^\/api\/zones\/[^/]+\/intelligence$/.test(url.pathname), async (route) => {
         const url = new URL(route.request().url());
@@ -107,7 +109,7 @@ test("category lens clicks repaint within budget", async ({ page }) => {
         const button = page.getByRole("button", { name, exact: true });
         await button.click();
         await expect(button).toHaveAttribute("aria-pressed", "true");
-        if (name === "Pekerjaan") await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
+        if (name === "Pekerjaan") await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
     }
 
     const clicks = await sentClicks(page, batches, lenses.length);
@@ -120,12 +122,12 @@ test("category lens clicks repaint within budget", async ({ page }) => {
 test("heatmap appears only for the selected zone", async ({ page }) => {
     await openMap(page);
     await page.getByRole("button", { name: "Pekerjaan", exact: true }).click();
-    await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
+    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
     await page.getByRole("searchbox").fill("Tebet");
     await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Tebet/ }).click();
-    await expect(page.getByText("Sample heatmap", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeVisible();
     await page.getByRole("button", { name: "Close Tebet details" }).click();
-    await expect(page.getByText("Sample heatmap", { exact: true })).toBeHidden();
+    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
 });
 
 test("housing cells switch between median rent and listings", async ({ page }, testInfo) => {

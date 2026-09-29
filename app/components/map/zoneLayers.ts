@@ -4,6 +4,7 @@ import type { MapCategory } from "@/app/engine/types";
 type FillLayerProps = Extract<LayerProps, { type: "fill" }>;
 type LineLayerProps = Extract<LayerProps, { type: "line" }>;
 type HeatmapLayerProps = Extract<LayerProps, { type: "heatmap" }>;
+type CircleLayerProps = Extract<LayerProps, { type: "circle" }>;
 
 export type MetricRange = { min: number; max: number } | null;
 
@@ -111,5 +112,19 @@ export const ZONE_SELECTED_OUTLINE_LAYER: LineLayerProps = {
   paint: {
     "line-color": "#006AD8",
     "line-width": 2.5,
+  },
+};
+
+// Located companies in the selected district, sized by the square root of the
+// approximate count. Ink fill with a white ring stays readable over the blue fill.
+export const COMPANY_POINT_LAYER: CircleLayerProps & { id: string } = {
+  id: "company-point",
+  type: "circle",
+  paint: {
+    "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "companies"]], 1, 8, 10, 24],
+    "circle-color": "#21297C",
+    "circle-opacity": 0.85,
+    "circle-stroke-width": 2,
+    "circle-stroke-color": "#FFFFFF",
   },
 };

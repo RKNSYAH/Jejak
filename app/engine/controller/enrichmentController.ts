@@ -7,7 +7,9 @@ import type { LocalityTier } from "../enrichment/locality";
 import { runEnrichment, type ClaimedRun, type EnrichmentDb, type EnrichmentJob, type EnrichmentOutcome, type ScopeType } from "../enrichment/pipeline";
 import { evidenceScope, scopeEvidenceTypes, snapshotScope, type EnrichmentScope, type EvidenceType } from "../enrichment/scopes";
 import type { StoredEvidence } from "../enrichment/snapshot";
-import { getZoneRow, supportedSector, toZone } from "./zoneController";
+import type { EnrichmentRunSummary, EvidenceClustersResponse, EvidenceSnapshotData, ZoneEvidenceResponse } from "../types";
+import { mergeLocatedEvidence, toEvidenceClusters, type ClusterRow } from "../enrichment/clusters";
+import { getZoneRow, includeSample, supportedSector, toZone, type RegionDetailRow } from "./zoneController";
 
 export type EnrichmentErrorCode = "UNKNOWN_ZONE" | "BOUNDARY_REQUIRED";
 
@@ -217,7 +219,7 @@ type RunRow = {
 const runColumns = "external_run_id, evidence_type, status, stage, requested_at, started_at, completed_at, lease_expires_at, next_retry_at, output, error";
 
 // Only aggregate counts and safe codes leave the server; LF-01 output is not echoed.
-function publicRun(run: RunRow) {
+function publicRun(run: RunRow): EnrichmentRunSummary {
     const output = run.output ?? {};
     return {
         run_id: run.external_run_id,
@@ -229,8 +231,8 @@ function publicRun(run: RunRow) {
         completed_at: run.completed_at,
         retry_at: run.next_retry_at,
         accepted: typeof output.accepted === "number" ? output.accepted : null,
-        rejected: output.rejected ?? null,
-        incomplete_categories: output.incomplete_categories ?? [],
+        rejected: (output.rejected as Record<string, number> | undefined) ?? null,
+        incomplete_categories: Array.isArray(output.incomplete_categories) ? output.incomplete_categories as string[] : [],
         snapshot_published: output.snapshot_published === true,
         error_code: run.error,
     };
@@ -244,8 +246,8 @@ export async function getRunStatus(externalRunId: string) {
 }
 
 type SnapshotRow = {
-    snapshot: Record<string, unknown>;
-    coverage: string;
+    snapshot: EvidenceSnapshotData;
+    coverage: "complete" | "partial" | "unavailable";
     confidence: number | null;
     evidence_count: number;
     generated_at: string;
@@ -256,7 +258,7 @@ type SnapshotRow = {
 };
 
 // Latest accepted snapshot for the scope plus the state of its refresh runs.
-export async function getZoneEvidence(zoneId: string, scope: EnrichmentScope) {
+export async function getZoneEvidence(zoneId: string, scope: EnrichmentScope): Promise<ZoneEvidenceResponse | null> {
     const region = await getRegion(zoneId);
     if (!region) return null;
     const admin = createAdminClient();
@@ -298,10 +300,41 @@ export async function getZoneEvidence(zoneId: string, scope: EnrichmentScope) {
             is_expired: snapshot.is_expired,
         } : null,
         refresh: {
-            status: active ? active.status : cooling ? "cooldown" : "idle",
+            status: active ? active.status as "running" | "queued" : cooling ? "cooldown" : "idle",
             stage: active?.stage ?? null,
             retry_at: active ? null : cooling?.next_retry_at ?? null,
             runs: runs.map(publicRun),
         },
     };
+}
+
+// Accepted evidence under a city, counted per district for map clusters. Only counts
+// leave the server; evidence rows (names, URLs, points) stay private.
+export async function getEvidenceClusters(cityId: string, scope: EnrichmentScope): Promise<EvidenceClustersResponse> {
+    const types = scopeEvidenceTypes[scope];
+    const { data, error } = await createAdminClient().rpc("get_evidence_clusters", {
+        p_parent_code: cityId,
+        p_scope_hashes: types.map((type) => evidenceScope(type, supportedSector).scopeHash),
+        p_include_sample: includeSample,
+    });
+    if (error) throw error;
+    return {
+        city_id: cityId,
+        scope,
+        clusters: toEvidenceClusters(data as ClusterRow[], types),
+        note: "Counts are approximate: they cover the web sources Jejak monitored, not every company, job, or listing.",
+    };
+}
+
+// The district's facts with its located evidence merged in (see mergeLocatedEvidence).
+// Best-effort: never throws, so region data still loads when evidence can't.
+export async function withLocatedEvidence(row: RegionDetailRow): Promise<RegionDetailRow> {
+    if (!isAdminConfigured()) return row;
+    const zone = toZone(row);
+    try {
+        const { clusters } = await getEvidenceClusters(zone.city_id, "career");
+        return { ...row, facts: mergeLocatedEvidence(row.facts, clusters.find((cluster) => cluster.zone_id === zone.zone_id)) };
+    } catch {
+        return row;
+    }
 }

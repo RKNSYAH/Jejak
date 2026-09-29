@@ -64,11 +64,9 @@ Canonical geographic hierarchy and trusted boundaries.
 Types: country, province, regency, city, district, neighborhood, grid, metro.
 The geometry has a GiST index. Missing geometry stays missing; no model invents it.
 
-**Heatmap cells** are `grid` regions: H3 resolution-9 hexagons (~0.1 km²) coded
-`h3-<index>`, whose parent is the district containing the cell centre. Their
-values are ordinary `region_data` facts, for example `estimated_office_workers`
-with `_low`/`_high` bounds (`sample_size` = buildings) and
-`housing_listing_count` / `median_monthly_rent_idr` (`sample_size` = listings).
+The synthetic H3 heatmap cells and their housing/employment facts were removed
+by `20260928161244`. District boundaries and the grid read contract remain
+available without a fabricated thematic value.
 
 ### 2. `institutions`
 
@@ -406,12 +404,11 @@ New function defaults are private for the migration role.
   boundaries, latest non-sample prepared metric, and current accepted snapshot
   for an exact type/hash. A missing boundary, metric, or snapshot is `null`.
   Passing only one of snapshot type/hash is rejected. This is one batch request
-  for a district/grid layer, not one call per cell. It returns source, period,
-  limitations, coverage, and freshness needed for a trustworthy legend.
-- `get_map_cells(text, text[], boolean)` — every H3 cell of one district with
-  geometry, centroid, and the latest fact per requested metric (1–10 metrics).
-  Worker estimates and median rent built from fewer than three buildings or
-  listings are omitted. Sample cells and facts appear only when the caller opts in.
+   for a district/grid layer, not one call per cell. It returns source, period,
+   limitations, coverage, and freshness needed for a trustworthy legend.
+- `get_map_cells(text, text[], boolean)` — returns grid cells and available facts
+  for a district. With mock rows removed it returns an empty list until verified
+  data is imported.
 - `get_region_snapshot(integer, varchar, text)`
 - `get_region_data(integer, varchar)`
 - `get_public_places(integer, varchar)`
@@ -430,6 +427,11 @@ New function defaults are private for the migration role.
 - `publish_region_snapshot(bigint)`
 - `zone_evidence_gc()`
 - `calculate_relocation_fit(...)`
+- `get_evidence_clusters(varchar, text[], boolean)` — accepted, unexpired evidence
+  under a parent city counted per district for map clusters: only points placed at
+  district precision or finer, binned by trusted district boundaries, one row per
+  (district, evidence type), each claim counted once by `dedup_hash`. Counts only;
+  `GET /api/evidence/clusters` is the public gateway and labels them as approximate.
 - `classify_evidence_points(integer, jsonb)` — locality tier of geocoded points
   against trusted district boundaries: `zone` (inside the target district),
   `city` (a sibling district), `region` (same grandparent), or null when no
@@ -462,6 +464,9 @@ they are not the new write/read path.
 | `20260927121326` | Idempotently restores click telemetry and subscription objects |
 | `20260928100000` | `salary_observation` cache policy, `geocode_cache`, `classify_evidence_points()` |
 | `20260928120000` | Zero retry cooldown and 8 sources per run for every cache policy; lifts recorded cooldowns |
+| `20260928140000` | `get_evidence_clusters()` backend-only per-district evidence counts |
+| `20260928161244` | Remove synthetic grids, mock district facts and housing observations |
+| `20260928161436` | Preserve/restore `get_map_cells()` after remote cleanup |
 
 The three `202609260...` files were renamed from `20260926_*`, which sorted after
 every later `20260926hhmmss_*` file and shared one version. If the hosted project
@@ -487,8 +492,8 @@ Supabase roles and the Auth objects used here. No remote credentials are needed.
 Tests cover migration validity, browser/backend permissions, RLS, default IDs,
 confirmed revisions, ownership, duplicate claims, sample exclusion, locality
 ranking, refresh work, expired-worker rejection/cooldowns, campus integrity,
-snapshot validation, a batch of 85 grid cells with scoped aggregates, district
-cell reads that hide small samples, and
+snapshot validation, a batch of 85 generic child regions with scoped aggregates,
+retired grid RPC cleanup, and
 idempotent fact imports, subscription ownership and current-subscription rules,
 and account deletion.
 The Python tests also check the prepared-request adapter and ensure its saved

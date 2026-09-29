@@ -3,6 +3,8 @@ import { isRecord } from "./zoneGeometry";
 
 // LF-01 fetches at most this many pages per call (search results plus job and listing details).
 export const MAX_LF01_SOURCES = 30;
+// Companies per office-address lookup; each becomes one LF-01 search query.
+export const MAX_COMPANY_NAMES = 8;
 
 const evidenceTypes: MissingEvidence[] = [
     "company_presence", "active_openings", "salary", "headcount",
@@ -65,6 +67,10 @@ export function validateLF01Input(value: unknown): LF01Input {
     if (value.search_query !== undefined && typeof value.search_query !== "string") {
         throw new Error("search_query must be a string");
     }
+    const companyNames = readStrings(value.company_names, "company_names");
+    if (companyNames && (companyNames.length > MAX_COMPANY_NAMES || companyNames.some((name) => name.length > 120))) {
+        throw new Error(`company_names must hold at most ${MAX_COMPANY_NAMES} names of up to 120 characters`);
+    }
 
     // Construct the outbound contract explicitly; UI-only fields never reach the flow.
     return {
@@ -80,5 +86,6 @@ export function validateLF01Input(value: unknown): LF01Input {
         target_occupations: readStrings(value.target_occupations, "target_occupations"),
         existing_entity_ids: readStrings(value.existing_entity_ids, "existing_entity_ids"),
         search_query: value.search_query,
+        company_names: companyNames,
     };
 }

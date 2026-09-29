@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BriefcaseBusiness, ClipboardList, GraduationCap, House, RotateCcw, Search, TrainFront } from "lucide-react";
+import { Bookmark, BriefcaseBusiness, ClipboardList, GraduationCap, House, RotateCcw, Search, TrainFront, User } from "lucide-react";
 import type { MapCategory, Zone } from "@/app/engine/types";
 
 const categories = [
@@ -29,6 +29,7 @@ type MapControlsProps = {
     onReset: () => void;
     category: MapCategory | null;
     onCategoryChange: (category: MapCategory) => void;
+    sidebarWidth: number;
 };
 
 export default function MapControls(props: MapControlsProps) {
@@ -49,12 +50,12 @@ export default function MapControls(props: MapControlsProps) {
     }
 
     return (
-        <div data-hci-region="controls" className="pointer-events-none absolute inset-x-3 top-4 z-100 flex flex-col gap-3 md:items-start">
+        <div data-hci-region="controls" className="pointer-events-none absolute inset-x-3 top-4 z-100 flex flex-row gap-3 md:items-start" style={{ right: props.sidebarWidth + 12 }}>
             <div className="flex w-full min-w-0 flex-col items-start gap-2 md:flex-row md:items-center md:gap-3">
                 <search data-hci-region="search" className={`dropdown pointer-events-auto z-10 w-full md:w-80 md:shrink-0 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) selectZone(matches[0]); }}>
-                        <label className="input w-full shadow-sm rounded-2xl md:h-11 md:gap-3">
+                        <label className="input w-full shadow-sm rounded-3xl md:h-11 md:gap-3">
                             <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                             <span className="sr-only">Cari zona yang didukung</span>
                             <input type="search" placeholder="Cari zona..." value={query}
@@ -78,27 +79,36 @@ export default function MapControls(props: MapControlsProps) {
                         </ul>
                     </div>
                 </search>
-                <div data-hci-region="categories" className="map-category-scroll pointer-events-auto -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
+                <div data-hci-region="categories" className="map-category-scroll border border-rule shadow-sm rounded-3xl bg-panel-surface pointer-events-auto px-2 -my-1 flex w-full min-w-0 max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 md:w-auto" role="group" aria-label="Kategori peta">
                     {categories.map(({ id, label, Icon }) => <button key={id} onClick={() => props.onCategoryChange(id as MapCategory)} type="button"
                         aria-pressed={props.category === id} title={label}
-                        className={`btn btn-sm shadow-sm rounded-2xl h-9 whitespace-nowrap px-2.5 text-sm font-normal focus-visible:-outline-offset-2 ${props.category === id ? "btn-primary font-semibold" : "border-rule bg-panel-surface font-semibold text-ink-muted"}`}>
+                        className={`btn btn-sm h-9 whitespace-nowrap px-2.5 text-sm font-normal rounded-3xl focus-visible:-outline-offset-2 ${props.category === id ? "btn-primary font-semibold" : "border-rule bg-panel-surface font-semibold text-ink-muted"}`}>
                         <Icon aria-hidden="true" className="size-3.5" />{label}
                     </button>)}
+                    {props.hasActiveRegionLayers && <button type="button" onClick={handleReset} aria-label="Reset semua lapisan peta"
+                        className="btn btn-sm btn-outline btn-neutral pointer-events-auto h-9 rounded-3xl bg-base-100 px-2.5 text-sm hover:bg-neutral md:self-center">
+                        <RotateCcw aria-hidden="true" className="size-3.5" />Reset
+                    </button>}
                 </div>
-                {props.hasActiveRegionLayers && <button type="button" onClick={handleReset} aria-label="Reset semua lapisan peta"
-                    className="btn btn-sm btn-outline rounded-2xl btn-neutral pointer-events-auto h-9 self-start bg-base-100 px-2.5 text-sm shadow-sm hover:bg-neutral md:self-center">
-                    <RotateCcw aria-hidden="true" className="size-3.5" />Reset
-                </button>}
             </div>
             {(props.recommendationsLoading || props.recommendationsError) && <div role="status" className="pointer-events-auto rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted">
                 {props.recommendationsLoading ? "Memuat area peringkat…" : props.recommendationsError}
                 {props.recommendationsError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryRecommendations}>Retry</button>}
             </div>}
             {props.category && props.category !== "summary" && (props.heatmapLoading || props.heatmapError || props.heatmapEmpty) &&
-                <div role="status" className="pointer-events-auto rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted">
+                <div role="status" className="pointer-events-auto rounded-box border border-rule bg-panel-surface px-3 py-2 w-80 font-body text-sm text-ink-muted">
                     {props.heatmapLoading ? "Memuat heatmap…" : props.heatmapError ?? "Belum ada data sel untuk zona ini."}
                     {props.heatmapError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryHeatmap}>Retry</button>}
                 </div>}
+            <div className="pointer-events-auto flex flex-row gap-3"> 
+                <button className="btn btn-sm shadow-sm rounded-2xl h-9 whitespace-nowrap px-2.5 bg-panel-surface text-sm font-normal focus-visible:-outline-offset-2 hover:bg-base-200">
+                    <Bookmark aria-hidden="true" className="size-4" />
+                </button>
+                
+                <button className="btn btn-sm shadow-sm rounded-2xl h-9 whitespace-nowrap px-2.5 bg-panel-surface text-sm font-normal focus-visible:-outline-offset-2 hover:bg-base-200">
+                    <User aria-hidden="true" className="size-4" />
+                </button>
+            </div>
         </div>
     );
 }

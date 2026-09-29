@@ -70,6 +70,28 @@ test("composer stays above sheet, hides when expanded, and keeps draft", async (
     await expect(composer).toBeVisible();
 });
 
+test("dragging the sheet moves the composer before the snap", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "mobile", "Mouse drag is measured on desktop; keyboard resizing is covered on both viewports");
+    await openMap(page);
+    const composer = page.locator('[data-hci-region="map-chat"]');
+    const sheetHandle = page.getByRole("separator", { name: "Resize exploration panel" });
+    const box = (await sheetHandle.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    const initialBottom = await composer.evaluate((element) => parseFloat(getComputedStyle(element).bottom));
+
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y - 180, { steps: 5 });
+    await expect.poll(() => composer.evaluate((element) => parseFloat(getComputedStyle(element).bottom)))
+        .toBeGreaterThan(initialBottom + 100);
+    await page.mouse.up();
+
+    await expect(sheetHandle).toHaveAttribute("aria-valuenow", "290");
+    await expect.poll(() => composer.evaluate((element) => parseFloat(getComputedStyle(element).bottom)))
+        .toBeGreaterThan(initialBottom + 200);
+});
+
 test("composer centers in remaining desktop map area when sidebar resizes", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "mobile", "Mobile zone details use a modal sheet, not a desktop sidebar");
     await openMap(page);

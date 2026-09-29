@@ -2,7 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 // Service-role client for backend-only RPCs (enrichment claims, evidence writes,
-// snapshot publication). Never import this from client code.
+// snapshot publication).
 export function isAdminConfigured(): boolean {
     return !!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() && !!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 }

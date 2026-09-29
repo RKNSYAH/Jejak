@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { normalizeGeometry, getGeometryBounds } from "../app/engine/lib/zoneGeometry";
 import { toZone, toZoneDetails, validateCellQuery, validateZoneQuery } from "../app/engine/controller/zoneController";
 import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
-import { createCellFillData, createCellGlowData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
+import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
 import { cellLayers, cellMetrics, formatFactValue, mapCategories } from "../app/components/map/mapMetrics";
 import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
 import { getMapCells, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
@@ -128,8 +128,13 @@ test("cell API data must match the requested zone and category", async (context)
     let requested = "";
     context.mock.method(globalThis, "fetch", async (url: string) => { requested = url; return Response.json(payload); });
     const result = await getMapCells("setiabudi", "employment", new AbortController().signal);
-    assert.equal(requested, "/api/heatmap?zone_id=setiabudi&category=employment");
+    assert.equal(requested, "/api/heatmap?zone_id=setiabudi&category=employment&geometry=1");
     assert.equal(result.cells[0].facts.estimated_office_workers.sample_size, 12);
+    payload = { is_sample: true, zone_id: "setiabudi", category: "employment", cells: [{ ...cell, geometry: null }] };
+    assert.equal((await getMapCells("setiabudi", "employment", new AbortController().signal, false)).cells[0].geometry, null);
+    assert.equal(requested, "/api/heatmap?zone_id=setiabudi&category=employment&geometry=0");
+    payload = { is_sample: true, zone_id: "setiabudi", category: "employment", cells: [cell] };
+    await assert.rejects(getMapCells("setiabudi", "employment", new AbortController().signal, false), /Invalid heatmap data/);
     payload = { is_sample: true, zone_id: "pancoran", category: "employment", cells: [cell] };
     await assert.rejects(getMapCells("setiabudi", "employment", new AbortController().signal), /Invalid heatmap data/);
     payload = { is_sample: true, zone_id: "setiabudi", category: "employment", cells: [{ ...cell, facts: { estimated_office_workers: { ...fact(1), value: "many" } } }] };
@@ -213,4 +218,23 @@ test("zone requests report non-JSON errors and timeouts clearly", async (context
 
     context.mock.method(globalThis, "fetch", async () => { throw new DOMException("Timeout", "TimeoutError"); });
     await assert.rejects(getZones(signal), /timed out/);
+});
+
+test("company point sits at the district centre with its located company count", () => {
+    const setiabudi = { zone_id: "setiabudi", zone_name: "Setiabudi", centroid: [106.83, -6.22] as [number, number], latest_retrieved_at: "2026-09-28T09:00:00Z",
+        counts: { active_opening: { count: 1, organizations: 1 }, office_presence: { count: 3, organizations: 2 } },
+        labels: ["approx. 1 opening", "approx. 3 offices"] };
+    const data = createCompanyPointData(setiabudi);
+    assert.deepEqual(data.features.map((feature) => feature.geometry.coordinates), [[106.83, -6.22]]);
+    assert.deepEqual(data.features[0].properties, { zone_id: "setiabudi", companies: 2 });
+    assert.equal(createCompanyPointData({ ...setiabudi, counts: { active_opening: { count: 1, organizations: 1 } } }).features.length, 0);
+    assert.equal(createCompanyPointData(null).features.length, 0);
+});
+
+test("approximate facts are labelled as approximate counts", () => {
+    const fact = { metric: "company_count", value: 2, unit: "companies", source: "Monitored sources", period_end: "2026-09-28",
+        evidence_type: "observed" as const, limitations: null, is_sample: false, approximate: true };
+    assert.equal(formatFactValue(fact), "approx. 2 companies");
+    assert.equal(formatFactValue({ ...fact, value: 1 }), "approx. 1 company");
+    assert.equal(formatFactValue({ ...fact, approximate: false, value: 3100 }), (3100).toLocaleString("id-ID"));
 });

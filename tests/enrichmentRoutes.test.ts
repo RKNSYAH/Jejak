@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { POST as enrich } from "../app/api/zones/[zoneId]/enrich/route";
 import { GET as evidence } from "../app/api/zones/[zoneId]/evidence/route";
 import { GET as runStatus } from "../app/api/enrichment-runs/[runId]/route";
+import { GET as clusters } from "../app/api/evidence/clusters/route";
 
 const params = <T extends object>(value: T) => ({ params: Promise.resolve(value) });
 
@@ -34,4 +35,6 @@ test("evidence and run status reject malformed identifiers", async () => {
     assert.equal((await evidence(get("http://localhost/api/zones/pancoran/evidence?scope=jobs"), params({ zoneId: "pancoran" }))).status, 400);
     assert.equal((await evidence(get("http://localhost/api/zones/x/evidence?scope=career"), params({ zoneId: "../x" }))).status, 400);
     assert.equal((await runStatus(get("http://localhost/api/enrichment-runs/42"), params({ runId: "42" }))).status, 400);
+    assert.equal((await clusters(get("http://localhost/api/evidence/clusters?city_id=Jakarta%20Selatan&scope=career"))).status, 400);
+    assert.equal((await clusters(get("http://localhost/api/evidence/clusters?city_id=jakarta-selatan&scope=jobs"))).status, 400);
 });

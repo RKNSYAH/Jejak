@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildEvidenceRow, checkClaimValue, dedupHash, publishedConfidence, type EvidenceRow } from "../app/engine/enrichment/acceptance";
-import { createNominatimGeocoder, GeocodeBudgetError, GeocoderUnavailableError, type GeocodeCache, type GeocodeResult } from "../app/engine/enrichment/geocoder";
+import { addressQueries, createNominatimGeocoder, GeocodeBudgetError, GeocoderUnavailableError, type GeocodeCache, type GeocodeResult } from "../app/engine/enrichment/geocoder";
 import { parseLF01Output, type LF01Candidate } from "../app/engine/enrichment/lf01Contract";
 import { resolveLocality, type LocalityTier } from "../app/engine/enrichment/locality";
 import { runEnrichment, type EnrichmentDeps, type EnrichmentJob, type RunStatus } from "../app/engine/enrichment/pipeline";
 import { evidenceScope, evidenceTypeForClaim, scopeEvidenceTypes, snapshotScope, type EvidenceType } from "../app/engine/enrichment/scopes";
 import { buildSnapshot, isPublicSnapshot, type SnapshotDraft, type StoredEvidence } from "../app/engine/enrichment/snapshot";
+import { mergeLocatedEvidence, toEvidenceClusters } from "../app/engine/enrichment/clusters";
+import { approxEvidenceLabel } from "../app/engine/enrichment/labels";
 import { LangflowError, LANGFLOW_FLOWS } from "../app/engine/lib/langflow";
 
 const runId = "11111111-1111-4111-8111-111111111111";
@@ -50,7 +52,7 @@ function parsed(overrides: Overrides = {}): LF01Candidate {
 }
 
 const jakarta = (latitude: number, longitude: number, precision: GeocodeResult["precision"]): GeocodeResult => ({
-    latitude, longitude, precision, countryCode: "id", placeNames: ["Jakarta Selatan"], state: "Daerah Khusus Ibukota Jakarta",
+    latitude, longitude, precision, countryCode: "id", placeNames: ["Jakarta Selatan"], state: null, provinceCode: "ID-JK",
 });
 
 test("scope identities are canonical, sector-scoped for work, and hash deterministically", () => {
@@ -127,18 +129,23 @@ test("published confidence favors first-party, precise, fresh, corroborated evid
 });
 
 test("locality never promotes a city-level address into the zone", () => {
-    const base = { statedPrecision: "street" as const, geocode: jakarta(-6.25, 106.84, "street"), boundaryTier: "zone" as LocalityTier, cityName: "Jakarta Selatan", zoneState: null };
+    const base = { statedPrecision: "street" as const, geocode: jakarta(-6.25, 106.84, "street"), boundaryTier: "zone" as LocalityTier, cityName: "Jakarta Selatan", zoneRegion: null };
     assert.deepEqual(resolveLocality(base), { precision: "street", tier: "zone" });
     assert.deepEqual(resolveLocality({ ...base, statedPrecision: "city" }), { precision: "city", tier: "city" });
     assert.deepEqual(resolveLocality({ ...base, statedPrecision: "unknown", geocode: jakarta(-6.25, 106.84, "district") }), { precision: "district", tier: "zone" });
     assert.deepEqual(resolveLocality({ ...base, statedPrecision: "unknown", geocode: jakarta(-6.25, 106.84, "unknown") }), { reason: "imprecise_location" });
     assert.deepEqual(resolveLocality({ ...base, geocode: { ...base.geocode, countryCode: "sg" } }), { reason: "outside_indonesia" });
+    // A city-only fallback query caps precision, so a building claim can't land in the zone through it.
+    assert.deepEqual(resolveLocality({ ...base, statedPrecision: "building", geocode: jakarta(-6.25, 106.84, "city"), capPrecision: "city" }), { precision: "city", tier: "city" });
+    // A posting placed by its company's office is at most district-level.
+    assert.deepEqual(resolveLocality({ ...base, statedPrecision: "building", geocode: jakarta(-6.25, 106.84, "building"), capPrecision: "district" }), { precision: "district", tier: "zone" });
 
-    // Without a covering boundary, fall back to the geocoder's own place names.
-    const fallback = { ...base, boundaryTier: null, zoneState: "Daerah Khusus Ibukota Jakarta" };
+    // Without a covering boundary, fall back to the geocoder's own place names; Jakarta
+    // results carry the province only as an ISO 3166-2 code.
+    const fallback = { ...base, boundaryTier: null, zoneRegion: "ID-JK" };
     assert.equal((resolveLocality({ ...fallback, geocode: { ...base.geocode, placeNames: ["Kota Administrasi Jakarta Selatan"] } }) as { tier: string }).tier, "city");
     assert.equal((resolveLocality({ ...fallback, geocode: { ...base.geocode, placeNames: ["Jakarta Timur"] } }) as { tier: string }).tier, "region");
-    assert.equal((resolveLocality({ ...fallback, geocode: { ...base.geocode, placeNames: ["Bandung"], state: "Jawa Barat" } }) as { tier: string }).tier, "national");
+    assert.equal((resolveLocality({ ...fallback, geocode: { ...base.geocode, placeNames: ["Bandung"], state: "Jawa Barat", provinceCode: "ID-JB" } }) as { tier: string }).tier, "national");
 });
 
 function stored(type: EvidenceType, tier: LocalityTier, entity: string, value: unknown, extra: Partial<StoredEvidence> = {}): StoredEvidence {
@@ -164,7 +171,8 @@ test("career snapshots count zone evidence only and gate employment on three con
     assert.deepEqual(draft.snapshot.estimated_employment, { status: "unavailable" });
     assert.deepEqual(draft.snapshot.salary_idr, { minimum: 8_000_000, maximum: 12_000_000, status: "observed" });
     assert.equal(draft.coverage, "partial");
-    assert.ok((draft.snapshot.limitations as string[]).some((line) => line.startsWith("1 more observations")));
+    // Counts are never stated as exact totals.
+    assert.ok((draft.snapshot.limitations as string[]).includes("approx. 1 more observation found elsewhere in or beyond Jakarta Selatan is not counted for this zone."));
     assert.equal(draft.refreshAfter, "2026-10-18T00:00:00.000Z");
 
     const three = buildSnapshot({ scope: "career", cityName: "Jakarta Selatan", now, minimums,
@@ -252,9 +260,9 @@ function fakeDeps(options: {
             return handler(input);
         },
         geocoder: {
+            // Unknown queries are simply not found, as several address variants may be tried.
             async geocode(query) {
-                if (!(query in options.places)) throw new Error(`unexpected geocode ${query}`);
-                return options.places[query];
+                return options.places[query] ?? null;
             },
         },
         db: {
@@ -313,8 +321,9 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
 
     const outcome = await runEnrichment(deps, careerJob(runs));
     assert.equal(outcome.status, "completed");
-    assert.deepEqual(outcome.accepted, { active_opening: 2, office_presence: 1 });
-    assert.deepEqual(outcome.rejected, { rent_summary_not_ingested: 1, not_requested: 1, sector_mismatch: 1, missing_address: 1 });
+    // The posting with no address (ev-6) borrows Example Indonesia's office.
+    assert.deepEqual(outcome.accepted, { active_opening: 3, office_presence: 1 });
+    assert.deepEqual(outcome.rejected, { rent_summary_not_ingested: 1, not_requested: 1, sector_mismatch: 1 });
     assert.equal(outcome.snapshotId, 99);
 
     const lf01Input = flowInputs[LANGFLOW_FLOWS.lf01] as Record<string, unknown>;
@@ -325,7 +334,10 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
     assert.deepEqual(calls.filter((call) => call.stage).map((call) => call.stage![0]), ["lf01", "lf02", "geocoding", "ingesting"]);
 
     const openings = calls.find((call) => call.upsert?.[0] === 11)!.upsert![1];
-    assert.deepEqual(openings.map((row) => [row.locality_tier, row.geographic_precision]), [["zone", "street"], ["national", "city"]]);
+    // The Bandung posting keeps its own city: it never borrows the Jakarta office.
+    assert.deepEqual(openings.map((row) => [row.locality_tier, row.geographic_precision, row.source.location_basis]), [
+        ["zone", "street", "stated_address"], ["national", "city", "stated_address"], ["city", "district", "company_office"],
+    ]);
     const snapshot = calls.find((call) => call.publish)!.publish!;
     assert.equal(snapshot.snapshot.opening_count, 1);
     assert.equal(snapshot.snapshot.observed_office_count, 0);
@@ -333,7 +345,7 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
 
     const completions = calls.filter((call) => call.complete).map((call) => call.complete!);
     assert.deepEqual(completions.map(([id, status, , code]) => [id, status, code]), [[11, "completed", null], [12, "completed", null]]);
-    assert.equal(completions[0][2].accepted, 2);
+    assert.equal(completions[0][2].accepted, 3);
     assert.equal(completions[0][2].lf02_status, "classified");
 });
 
@@ -365,4 +377,146 @@ test("LF-02 failures and incomplete LF-01 coverage keep accepted evidence but ma
     const completions = calls.filter((call) => call.complete).map((call) => call.complete!);
     assert.deepEqual(completions.map(([id, status]) => [id, status]), [[11, "partial"], [12, "partial"]]);
     assert.equal(completions[0][2].lf02_status, "failed:langflow_unreachable");
+});
+
+test("noisy Indonesian office addresses get the query forms that resolved live", () => {
+    const queries = (building: string | null, address: string | null) => addressQueries(building, address).map(({ query, cap }) => `${query} [${cap ?? "-"}]`);
+    assert.deepEqual(queries("Menara Caraka", "Menara Caraka Lantai 12B, JI. Mega Kuningan Barat Blok E.4.7 No.1 RT.5/RW.2, Kawasan Mega Kuningan, Kelurahan Kuningan Timur, Kecamatan Setiabudi, Jakarta Selatan 12950"), [
+        "Menara Caraka, Jakarta Selatan [-]",
+        "Kuningan Timur, Setiabudi, Jakarta Selatan [neighborhood]",
+        "Setiabudi, Jakarta Selatan [district]",
+        "Jalan Mega Kuningan Barat, Jakarta Selatan [street]",
+        "Mega Kuningan, Jakarta Selatan [neighborhood]",
+        "Menara Caraka, JI. Mega Kuningan Barat, Mega Kuningan, Kuningan Timur, Setiabudi, Jakarta Selatan [-]",
+        "Jakarta Selatan [city]",
+    ]);
+    assert.deepEqual(queries("Satrio Tower", "Satrio Tower Floor 26 Unit C-D Jl. Prof. Dr. Satrio Kav. C4 - Mega Kuningan Jakarta - 12950"), [
+        "Satrio Tower, Jakarta [-]",
+        "Jalan Prof. Dr. Satrio, Jakarta [street]",
+        "Satrio Tower Jl. Prof. Dr. Satrio, Mega Kuningan Jakarta [-]",
+        "Jakarta [city]",
+    ]);
+    assert.equal(queries("District 8", "District 8 Lantai 38, SCBD, Jalan Senopati RT.000 RW.000 Senayan Kebayoran Baru Jakarta Selatan")[0], "District 8, Jakarta Selatan [-]");
+    assert.equal(queries("Gedung ILP Centre", "Gedung ILP Centre L4-00B Jl. Raya Pasar Minggu No.39A Jakarta Selatan 12780")[1], "Jalan Raya Pasar Minggu, Jakarta Selatan [street]");
+    assert.deepEqual(queries(null, "Jakarta Selatan"), ["Jakarta Selatan [-]"]);
+    assert.deepEqual(queries(null, null), []);
+});
+
+test("pipeline falls back to a cleaned address and names non-local headcounts", async () => {
+    const office = candidate({ id: "ev-office", claim: { claim_type: "office_location", normalized_value: "Satrio Tower" },
+        location: { raw_address: "Satrio Tower Floor 26 Unit C-D Jl. Prof. Dr. Satrio Kav. C4, Kuningan, Setiabudi, Jakarta Selatan", building_name: "Satrio Tower", precision: "building" } });
+    const headcount = candidate({ id: "ev-headcount", claim: { claim_type: "headcount", scope: "national", normalized_value: { minimum: 500, maximum: 500, basis: "exact" } },
+        location: { raw_address: null, precision: "unknown" } });
+    const { deps } = fakeDeps({
+        flows: {
+            [LANGFLOW_FLOWS.lf01]: () => lf01Output([office, headcount]),
+            [LANGFLOW_FLOWS.lf02]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
+        },
+        places: {
+            "Satrio Tower, Jakarta Selatan": null,
+            "Jalan Prof. Dr. Satrio, Jakarta Selatan": jakarta(-6.224, 106.826, "street"),
+        },
+        tiers: ["city"],
+    });
+    const outcome = await runEnrichment(deps, careerJob(runs));
+    assert.deepEqual(outcome.accepted, { active_opening: 0, office_presence: 1 });
+    assert.deepEqual(outcome.rejected, { non_local_headcount: 1 });
+});
+
+test("postings without a precise location borrow their company's office at district precision", async () => {
+    const posting = (id: string, company: string, address: string | null) => candidate({
+        id, subject: { raw_name: company, registered_domain: null },
+        source: { canonical_url: `https://glints.com/id/opportunities/jobs/${id}/0f0e0d0c-1111-4222-8333-444455556666` },
+        claim: { normalized_value: { title: `Engineer ${id}`, work_arrangement: "unspecified" } },
+        location: { raw_address: address, precision: address ? "city" : "unknown" },
+    });
+    const office = (id: string, company: string, building: string | null, address: string) => candidate({
+        id, subject: { raw_name: company, registered_domain: null },
+        source: { canonical_url: `https://${id}.example.co.id/contact` },
+        claim: { claim_type: "office_location", normalized_value: address },
+        location: { raw_address: address, building_name: building, precision: building ? "building" : "street" },
+    });
+    let officeRequest: Record<string, unknown> | null = null;
+    const { deps, calls } = fakeDeps({
+        flows: {
+            [LANGFLOW_FLOWS.lf01]: (input) => {
+                const request = input as Record<string, unknown>;
+                if (request.company_names) {
+                    officeRequest = request;
+                    return { ...lf01Output([{ ...office("beta-office", "PT Beta Digital Indonesia", null, "Jl. Pancoran Raya 1, Jakarta Selatan"), run_id: `${runId}-offices` }]), run_id: `${runId}-offices` };
+                }
+                return lf01Output([
+                    posting("alpha-job", "Alpha Teknologi", "Jakarta Selatan"),
+                    office("alpha-office", "PT. Alpha Teknologi", "Menara Caraka", "Menara Caraka Lantai 12B, Kelurahan Kuningan Timur, Jakarta Selatan"),
+                    posting("beta-job", "Beta Digital", null),
+                ]);
+            },
+            [LANGFLOW_FLOWS.lf02]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
+        },
+        places: {
+            "Menara Caraka, Jakarta Selatan": jakarta(-6.226, 106.825, "building"),
+            "Jalan Pancoran Raya 1, Jakarta Selatan": jakarta(-6.25, 106.84, "street"),
+        },
+        tiers: ["zone", "city", "zone", "zone"],
+    });
+
+    const outcome = await runEnrichment(deps, careerJob(runs));
+    // Only the company with no office in the first pass is looked up.
+    assert.deepEqual((officeRequest as Record<string, unknown> | null)?.company_names, ["Beta Digital"]);
+    assert.deepEqual((officeRequest as Record<string, unknown> | null)?.missing_evidence, ["company_presence"]);
+    assert.deepEqual(outcome.accepted, { active_opening: 2, office_presence: 2 });
+
+    const postings = calls.find((call) => call.upsert?.[0] === 11)!.upsert![1];
+    assert.deepEqual(postings.map((row) => [row.entity_name, row.geographic_precision, row.source.location_basis]), [
+        ["Alpha Teknologi", "district", "company_office"],
+        ["Beta Digital", "district", "company_office"],
+    ]);
+    assert.equal(postings[1].source.office_source_url, "https://beta-office.example.co.id/contact");
+    const offices = calls.find((call) => call.upsert?.[0] === 12)!.upsert![1];
+    assert.deepEqual(offices.map((row) => [row.entity_name, row.geographic_precision, row.source.location_basis]), [
+        ["PT. Alpha Teknologi", "building", "stated_address"],
+        ["PT Beta Digital Indonesia", "street", "stated_address"],
+    ]);
+    const report = calls.find((call) => call.complete)!.complete![2];
+    assert.deepEqual(report.company_lookup, { companies: 1, status: "ok", offices_found: 1 });
+});
+
+test("evidence clusters pivot per district with approximate labels, never exact totals", () => {
+    assert.equal(approxEvidenceLabel("active_opening", 1), "approx. 1 opening");
+    assert.equal(approxEvidenceLabel("office_presence", 3), "approx. 3 offices");
+    const point = (lng: number, lat: number) => ({ type: "Point" as const, coordinates: [lng, lat] as [number, number] });
+    const clusters = toEvidenceClusters([
+        { region_code: "setiabudi", region_name: "Setiabudi", centroid: point(106.83, -6.22), evidence_type: "active_opening", evidence_count: 1, organization_count: 1, latest_retrieved_at: "2026-09-28T08:00:00Z" },
+        { region_code: "setiabudi", region_name: "Setiabudi", centroid: point(106.83, -6.22), evidence_type: "office_presence", evidence_count: 3, organization_count: 3, latest_retrieved_at: "2026-09-28T09:00:00Z" },
+        { region_code: "pancoran", region_name: "Pancoran", centroid: null, evidence_type: "office_presence", evidence_count: 2, organization_count: 2, latest_retrieved_at: null },
+    ], scopeEvidenceTypes.career);
+    assert.equal(clusters.length, 1, "a district without a centroid can't be drawn");
+    assert.deepEqual(clusters[0].centroid, [106.83, -6.22]);
+    assert.deepEqual(clusters[0].labels, ["approx. 3 offices", "approx. 1 opening"]);
+    assert.deepEqual(clusters[0].counts.office_presence, { count: 3, organizations: 3 });
+    assert.equal(clusters[0].latest_retrieved_at, "2026-09-28T09:00:00Z");
+});
+
+test("located offices become the district's company count instead of a separate metric", () => {
+    const stored = [
+        { metric: "company_count", value: 3100, unit: "companies", source: "Sample registry", period_end: "2025-12-31",
+            evidence_type: "observed" as const, limitations: null, is_sample: true },
+        { metric: "employment_rate", value: 0.7, unit: "ratio", source: "Sample survey", period_end: "2025-12-31",
+            evidence_type: "observed" as const, limitations: null, is_sample: true },
+    ];
+    const cluster = { zone_id: "setiabudi", zone_name: "Setiabudi", centroid: [106.83, -6.22] as [number, number],
+        counts: { office_presence: { count: 3, organizations: 2 } }, labels: ["approx. 3 offices"], latest_retrieved_at: "2026-09-28T08:09:44Z" };
+
+    const merged = mergeLocatedEvidence(stored, cluster);
+    assert.equal(merged.length, 2);
+    const companies = merged.find((fact) => fact.metric === "company_count");
+    assert.equal(companies?.value, 2);
+    assert.equal(companies?.approximate, true);
+    assert.equal(companies?.is_sample, false);
+    assert.equal(companies?.period_end, "2026-09-28");
+    assert.equal(merged.find((fact) => fact.metric === "employment_rate")?.value, 0.7);
+
+    // No located offices: the stored fact stays.
+    assert.equal(mergeLocatedEvidence(stored, undefined), stored);
+    assert.equal(mergeLocatedEvidence(stored, { ...cluster, counts: { active_opening: { count: 1, organizations: 1 } } }), stored);
 });

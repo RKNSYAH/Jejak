@@ -25,7 +25,6 @@ export class LangflowError extends Error {
     }
 }
 
-// NEXT_LANGFLOW_URL may be the server's base URL or its /api/v2/workflows endpoint.
 type Environment = Record<string, string | undefined>;
 
 export function getLangflowConfig(env: Environment = process.env): { endpoint: URL; apiKey: string } {

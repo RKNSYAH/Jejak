@@ -10,7 +10,7 @@ Jejak is a relocation-planning project for people choosing where to study or wor
 - Browse areas ranked by wage-to-rent ratio, with population as a secondary sort key.
 - Measure click-to-paint and response latency through anonymous alpha-study telemetry.
 
-The broader plan includes relocation profiles, personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. Evidence enrichment runs through the API only; no UI triggers it yet. A signed-in `POST /api/zones/[zoneId]/enrich` claims runs and, after responding, runs LF-01, LF-02, geocoding, and acceptance in the background, then publishes a zone snapshot. `POST /api/lf05` interprets onboarding stories.
+The broader plan includes relocation profiles, personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. Evidence enrichment runs through the API only; no UI triggers it yet. A signed-in `POST /api/zones/[zoneId]/enrich` claims runs and, after responding, runs LF-01, LF-02, geocoding, and acceptance in the background, then publishes a zone snapshot. `POST /api/lf05` interprets onboarding stories. `POST /api/lf03` (evidence conflict review) and `POST /api/lf04` (zone explanation against the saved confirmed profile) are linked API-only; nothing calls them yet.
 
 Sample data is enabled by default. Treat rows marked `is_sample` as demo content, not verified or live evidence. Coverage depends on the regions and facts in your database.
 
@@ -67,7 +67,7 @@ JEJAK_GEOCODER_USER_AGENT=Jejak/0.1 (you@example.com)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Required public anon key for browser and server clients. Use the anon key, not a service-role key. |
 | `JEJAK_INCLUDE_SAMPLE_DATA` | Set to `false` to exclude sample rows from map reads. |
 | `NEXT_PUBLIC_HCI_TELEMETRY` | Set to `false` to disable click telemetry. Keep it enabled for the interaction-latency tests. |
-| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/lf05` and enrichment return 503. |
+| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/lf03`, `/api/lf04`, `/api/lf05`, and enrichment return 503. |
 | `NEXT_LANGFLOW_API_KEY` | Langflow API key, sent as `x-api-key`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for the backend-only enrichment RPCs. Used only by server enrichment code. |
 | `JEJAK_GEOCODER_USER_AGENT` | Identifying User-Agent with contact details, required by Nominatim's usage policy. |
@@ -131,6 +131,7 @@ bun test tests/hci.test.ts
 - `mapping.test.ts`: boundary validation, sample labels, map metrics, ranking, API response validation, and partial-load failures.
 - `lf01.test.ts`: LF-01 request validation.
 - `lf05.test.ts`, `extractUserProfile.test.ts`: onboarding input, LF-05 call, and proposal validation.
+- `lf03.test.ts`, `lf04.test.ts`: conflict-review and zone-explanation input/output contracts, flow calls, and route guards.
 - `langflow.test.ts`: Langflow URL handling, workflow envelopes, and transport errors.
 - `enrichment.test.ts`: scope hashing, LF-01 parsing, acceptance, locality, confidence, snapshots, geocoding, and the pipeline with fakes.
 - `enrichmentRoutes.test.ts`: enrichment route validation and sign-in requirement.
@@ -176,7 +177,7 @@ Find report files in `playwright-report/` and test artifacts in `test-results/`.
 
 ```text
 app/
-  api/                 Map data, geometry, auth, telemetry, LF-05, and enrichment routes
+  api/                 Map data, geometry, auth, telemetry, LF-03/04/05, and enrichment routes
   components/map/      Map canvas, controls, discovery sheet, and detail panel
   engine/              Data controllers, API clients, validation, and types
   engine/enrichment/   LF-01/LF-02 contracts, geocoding, acceptance, snapshots, pipeline
@@ -203,10 +204,11 @@ Evidence enrichment follows this path:
 
 ```text
 POST /api/zones/[zoneId]/enrich → enrichmentController (claim runs) → after(): pipeline
-  → LF-01 → LF-02 (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
+  → LF-01 → LF-02 + company-office LF-01 pass (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
   → publish_region_snapshot → complete_enrichment_run
 GET /api/zones/[zoneId]/evidence?scope=career|housing   snapshot, freshness, refresh state
 GET /api/enrichment-runs/[runId]                          one run's status
+GET /api/evidence/clusters?city_id=&scope=                approximate evidence counts per district (map clusters)
 ```
  Click telemetry posts to `/api/hci`; adding `?study=P01` to the map URL tags a study participant. Give new UI surfaces a `data-hci-region` attribute so telemetry can identify them.
 

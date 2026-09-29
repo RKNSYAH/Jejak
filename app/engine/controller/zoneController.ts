@@ -3,7 +3,7 @@ import { cellLayers, cellMetrics } from "@/app/components/map/mapMetrics";
 import type { MapCategory, MapCell, MapCellsResponse, RegionFact, RegionPlace, Zone, ZoneDetailResult, ZoneListResponse } from "../types";
 
 export const supportedSector = "software_and_it_services";
-const includeSample = process.env.JEJAK_INCLUDE_SAMPLE_DATA !== "false";
+export const includeSample = process.env.JEJAK_INCLUDE_SAMPLE_DATA !== "false";
 
 export function validateZoneQuery(params: URLSearchParams) {
     const cityId = params.get("city_id");
@@ -65,11 +65,12 @@ export async function getZones(cityId: string | null): Promise<ZoneListResponse>
     return { is_sample: zones.some((zone) => zone.is_sample), zones };
 }
 
-export async function getZoneRow(zoneId: string): Promise<RegionDetailRow | null> {
+export async function getZoneRow(zoneId: string, includeGeometry = true): Promise<RegionDetailRow | null> {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("get_map_region", {
         p_region_code: zoneId,
         p_include_sample: includeSample,
+        p_include_geometry: includeGeometry,
     });
     if (error) throw error;
     return (data as RegionDetailRow[])[0] ?? null;
@@ -85,12 +86,13 @@ export function validateCellQuery(params: URLSearchParams): { zoneId: string; ca
 
 type MapCellRow = Omit<MapCell, "centroid"> & { centroid: { coordinates: [number, number] } };
 
-export async function getMapCells(zoneId: string, category: MapCategory): Promise<MapCellsResponse> {
+export async function getMapCells(zoneId: string, category: MapCategory, includeGeometry: boolean): Promise<MapCellsResponse> {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("get_map_cells", {
         p_parent_code: zoneId,
         p_metrics: cellMetrics(category),
         p_include_sample: includeSample,
+        p_include_geometry: includeGeometry,
     });
     if (error) throw error;
     const cells = (data as MapCellRow[]).map((row) => ({

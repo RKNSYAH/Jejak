@@ -11,8 +11,9 @@ import { urbanist, sourceSans3 } from "@/app/fonts";
 import type { MapCategory, Zone, ZoneGeometry } from "@/app/engine/types";
 import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
 import { cellLayers, mapCategories } from "./mapMetrics";
-import { createCellFillData, createCellGlowData, createZoneLayerData, summarizeCells } from "./zoneLayerData";
-import { CELL_GLOW_LAYER, CELL_OUTLINE_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "./zoneLayerData";
+import { CELL_GLOW_LAYER, CELL_OUTLINE_LAYER, COMPANY_POINT_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
+import { useLocatedEvidence } from "./useEvidence";
 import { useMapCells } from "./useMapCells";
 import { useZoneIntelligence } from "./useZoneIntelligence";
 import Buildings3dToggle from "./Buildings3dToggle";
@@ -49,12 +50,21 @@ export default function JejakMap() {
     const [onboardingMapPicking, setOnboardingMapPicking] = useState(false);
     const [onboardingMapPoint, setOnboardingMapPoint] = useState<MapPoint | null>(null);
     const [onboardingOffice, setOnboardingOffice] = useState<OfficeChoice>("Belum tahu");
+    const hoverFrameRef = useRef<number | null>(null);
+    const pendingHoverRef = useRef<{ zoneId: string | null; x: number; y: number; longitude: number; latitude: number } | null>(null);
+    const clearHover = useCallback(() => {
+        if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+        hoverFrameRef.current = null;
+        pendingHoverRef.current = null;
+        setHoveredZone(null);
+    }, []);
     const orbitFrameRef = useRef<number | null>(null);
     const orbitingRef = useRef(false);
     const orbitMoveEndRef = useRef<(() => void) | null>(null);
     const chatComposerRef = useRef<HTMLDivElement>(null);
     const bottomSheetStateRef = useRef(bottomSheetState);
     const state = useZoneIntelligence(!onboardingActive);
+    const zonesById = useMemo(() => new Map(state.catalog.zones.map((zone) => [zone.zone_id, zone])), [state.catalog.zones]);
     const selectedId = state.selectedZone?.zone_id;
     const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
     const selectedResult = selectedId ? state.results[selectedId] : undefined;
@@ -66,12 +76,13 @@ export default function JejakMap() {
         };
         return createZoneLayerData(geometry, state.results, category ?? "summary");
     }, [state.geometryByZone, state.results, category]);
+    const propertiesByZone = useMemo(() => new Map(layerData.features.map((feature) => [feature.properties.zone_id, feature.properties])), [layerData]);
     const metricRange = useMemo(() => getMetricRange(layerData.features.map((feature) => feature.properties.value)), [layerData]);
     const visibleZoneIds = useMemo(() => [...new Set(layerData.features.map((feature) => feature.properties.zone_id))], [layerData]);
     // H3 cells of the selected district, for categories that have cell layers.
-    const cells = useMapCells(selectedId ?? null, category);
     const cellOptions = useMemo(() => (category ? cellLayers[category] : undefined) ?? [], [category]);
     const activeCellLayer = cellOptions.find((layer) => layer.id === cellLayerId) ?? cellOptions[0] ?? null;
+    const cells = useMapCells(selectedId ?? null, category, activeCellLayer?.kind === "fill");
     const cellList = useMemo(() => cells.data?.cells ?? [], [cells.data]);
     const cellGlowData = useMemo(() => activeCellLayer?.kind === "glow" ? createCellGlowData(cellList, activeCellLayer.metric) : null, [cellList, activeCellLayer]);
     const cellFillData = useMemo(() => activeCellLayer?.kind === "fill" ? createCellFillData(cellList, activeCellLayer.metric) : null, [cellList, activeCellLayer]);
@@ -79,6 +90,12 @@ export default function JejakMap() {
     const cellSummary = useMemo(() => activeCellLayer ? summarizeCells(cellList, activeCellLayer) : null, [cellList, activeCellLayer]);
     // Filled cells replace the selected district's own fill instead of blending with it.
     const showCellFill = !!selectedId && cellRange !== null;
+    // In the Pekerjaan lens, the selected district's located companies (behind its
+    // company count) get a point at the district centre.
+    const companyPointActive = category === "employment" && !onboardingActive && !!selectedId;
+    const selectedCityId = zonesById.get(selectedId ?? "")?.city_id ?? null;
+    const locatedEvidence = useLocatedEvidence(companyPointActive ? selectedCityId : null, selectedId ?? null);
+    const companyPointData = useMemo(() => createCompanyPointData(locatedEvidence), [locatedEvidence]);
     const mapStyle = useMemo(() => {
         const style = structuredClone(jejakStyle) as StyleSpecification;
         for (const layer of style.layers) {
@@ -161,13 +178,13 @@ export default function JejakMap() {
 
     const handleOnboardingMapPickingChange = useCallback((picking: boolean) => {
         setOnboardingMapPicking(picking);
-        if (picking) setHoveredZone(null);
-    }, []);
+        if (picking) clearHover();
+    }, [clearHover]);
 
     const handleOnboardingActiveChange = useCallback((active: boolean) => {
         setOnboardingActive(active);
-        if (active) setHoveredZone(null);
-    }, []);
+        if (active) clearHover();
+    }, [clearHover]);
 
     function cancelPendingSearchFly() {
         pendingSearchFlyRef.current = null;
@@ -181,7 +198,7 @@ export default function JejakMap() {
 
     function selectZone(zone: Zone) {
         bottomSheetRef.current?.collapse();
-        setHoveredZone(null);
+        clearHover();
         cancelPendingSearchFly();
         const mobile = window.matchMedia("(max-width: 767px)").matches;
         if (mobile) {
@@ -222,7 +239,7 @@ export default function JejakMap() {
 
             if (previousTime !== null) {
                 const elapsed = Math.min(time - previousTime, 50);
-                map.setBearing(map.getBearing() + elapsed * -0.003);
+                map.setBearing(map.getBearing() + elapsed * -0.0025);
             }
 
             previousTime = time;
@@ -282,6 +299,14 @@ export default function JejakMap() {
 
     useEffect(() => () => stopOrbit(), [stopOrbit]);
 
+    useEffect(() => () => {
+        if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+    }, []);
+
+    const handleSheetHeightChange = useCallback((height: number) => {
+        mapContainerRef.current?.style.setProperty("--map-sheet-height", `${height}px`);
+    }, []);
+
     useEffect(() => {
         if (!mapLoaded || !onboardingMapPicking) return;
         stopOrbit();
@@ -312,11 +337,12 @@ export default function JejakMap() {
         const feature = event.features?.[0] ?? mapRef.current?.queryRenderedFeatures([
             [event.point.x - 6, event.point.y - 6], [event.point.x + 6, event.point.y + 6],
         ], { layers: [ZONE_FILL_LAYER.id] })[0];
-        return state.catalog.zones.find((zone) => zone.zone_id === feature?.properties?.zone_id);
+        return zonesById.get(feature?.properties?.zone_id);
     }
 
-    const hoveredMetadata = state.catalog.zones.find((zone) => zone.zone_id === hoveredZone?.id);
-    const hoveredValue = hoveredZone ? layerData.features.find((feature) => feature.properties.zone_id === hoveredZone.id)?.properties.value : null;
+    const hoveredMetadata = zonesById.get(hoveredZone?.id ?? "");
+    const hoveredProperties = hoveredZone ? propertiesByZone.get(hoveredZone.id) : undefined;
+    const hoveredValue = hoveredProperties?.value ?? null;
 
     return (
         <div ref={mapContainerRef} data-hci-region="map" className="relative h-full min-h-0 overflow-hidden">
@@ -334,7 +360,7 @@ export default function JejakMap() {
                         bottomSheetRef.current?.collapse();
                         cancelPendingSearchFly();
                         setMobilePanelOpen(true);
-                        setHoveredZone(null);
+                        clearHover();
                         void state.selectZone(zone);
                     }
                 }}
@@ -342,8 +368,24 @@ export default function JejakMap() {
                 onTouchStart={() => stopOrbit()}
                 onMouseMove={(event) => {
                     if (onboardingActive) return;
-                    const zone = getEventZone(event);
-                    setHoveredZone(zone ? { id: zone.zone_id, longitude: event.lngLat.lng, latitude: event.lngLat.lat } : null);
+                    pendingHoverRef.current = {
+                        zoneId: typeof event.features?.[0]?.properties?.zone_id === "string" ? event.features[0].properties.zone_id : null,
+                        x: event.point.x, y: event.point.y,
+                        longitude: event.lngLat.lng, latitude: event.lngLat.lat,
+                    };
+                    if (hoverFrameRef.current === null) {
+                        hoverFrameRef.current = requestAnimationFrame(() => {
+                            hoverFrameRef.current = null;
+                            const pending = pendingHoverRef.current;
+                            if (!pending) return;
+                            const id = pending.zoneId ?? mapRef.current?.queryRenderedFeatures([
+                                [pending.x - 6, pending.y - 6], [pending.x + 6, pending.y + 6],
+                            ], { layers: [ZONE_FILL_LAYER.id] })[0]?.properties?.zone_id;
+                            const zone = zonesById.get(id);
+                            setHoveredZone((current) => !zone && current === null ? current : zone
+                                ? { id: zone.zone_id, longitude: pending.longitude, latitude: pending.latitude } : null);
+                        });
+                    }
                 }}
                 onMoveEnd={() => {
                     const pending = pendingSearchFlyRef.current
@@ -358,7 +400,7 @@ export default function JejakMap() {
                         setMobilePanelOpen(true);
                     }, 120)
                 }}
-                onMouseLeave={() => setHoveredZone(null)}>
+                onMouseLeave={clearHover}>
                  <AttributionControl position="bottom-left" compact customAttribution="Boundaries: BIG RBI / DKI Jakarta GIS" />
                 {onboardingMapPicking && officeLocations.map((office) => (
                     <Marker key={office.name} longitude={office.longitude} latitude={office.latitude} anchor="bottom">
@@ -395,6 +437,9 @@ export default function JejakMap() {
                     {category === "education" && <Source id="region-campuses" type="geojson" data={campusData}>
                         <Layer id="region-campus-points" type="circle" paint={{ "circle-radius": 7, "circle-color": "#006AD8", "circle-stroke-width": 2, "circle-stroke-color": "#21297C" }} />
                     </Source>}
+                    {companyPointActive && companyPointData.features.length > 0 && <Source id="company-point" type="geojson" data={companyPointData}>
+                        <Layer {...COMPANY_POINT_LAYER} />
+                    </Source>}
                 </>}
                 {!onboardingActive && hoveredZone && hoveredMetadata && hoveredZone.id !== selectedId && <Popup longitude={hoveredZone.longitude} latitude={hoveredZone.latitude}
                     anchor="bottom" offset={12} closeButton={false} closeOnClick={false} className="zone-hover-popup">
@@ -402,13 +447,14 @@ export default function JejakMap() {
                         <p className="font-sans text-base font-bold text-on-ink">{hoveredMetadata.zone_name}</p>
                         <p className="mt-1 text-xs text-on-ink-muted">{hoveredMetadata.is_sample ? "Sample data" : "Region data"}</p>
                         {category === "summary" && <p className="mt-3 text-sm">{mapCategories.summary.popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredMetadata.wage_to_rent_ratio === null ? "Unavailable" : mapCategories.summary.format(hoveredMetadata.wage_to_rent_ratio)}</span></p>}
-                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel} (district): <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Unavailable" : mapCategories[category].format(hoveredValue)}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel} (district): <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Unavailable" : `${hoveredProperties?.approximate ? "approx. " : ""}${mapCategories[category].format(hoveredValue)}`}</span></p>}
                         <p className="mt-2 text-xs text-on-ink-muted">Select the zone for details</p>
                     </div>
                 </Popup>}
             </MapView>
 
             {!onboardingActive && <MapControls
+                sidebarWidth={desktopPanelWidth}
                 zones={state.catalog.zones}
                 loading={state.catalogLoading}
                 error={state.catalogError}
@@ -428,26 +474,27 @@ export default function JejakMap() {
                 }}
                 onSelect={selectZone}
                 onReset={() => {
-                    setHoveredZone(null);
+                    clearHover();
                     cancelPendingSearchFly();
                     setMobilePanelOpen(false);
                     setCategory(null);
                     state.resetMap();
                 }} />}
-            {!onboardingActive && <div className="absolute bottom-8 left-4 z-100 flex items-center gap-2 font-body">
+            {!onboardingActive && <div className="absolute bottom-8 left-4 z-100 flex w-11 flex-col gap-2 font-body">
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
                 {(layerData.features.length > 0 || cellSummary) && <MapLegend category={category ?? "summary"} range={metricRange}
                     detailsByZone={state.results} visibleZoneIds={visibleZoneIds} selectedZoneName={state.selectedZone?.zone_name ?? null}
                     cellLayerOptions={selectedId ? cellOptions : []} activeCellLayer={selectedId ? activeCellLayer : null}
                     cellSummary={cellSummary} cellsLoading={cells.loading} cellsError={cells.error}
-                    onCellLayerChange={setCellLayerId} />}
+                    onCellLayerChange={setCellLayerId}
+                    companyPointShown={companyPointActive && companyPointData.features.length > 0} />}
             </div>}
             {!onboardingActive && state.selectedZone && (
                 <ZoneIntelligencePanel
                     zoneName={state.selectedZone.zone_name}
                     details={selectedResult ?? null}
                     category={category ?? "summary"}
-                    isSample={selectedResult?.is_sample ?? state.catalog.zones.find((zone) => zone.zone_id === selectedId)?.is_sample ?? false}
+                    isSample={selectedResult?.is_sample ?? zonesById.get(selectedId ?? "")?.is_sample ?? false}
                     loading={state.loading}
                     error={state.error}
                     geometryMissing={selectedGeometry?.features.length === 0}
@@ -468,6 +515,7 @@ export default function JejakMap() {
                 zones={state.catalog.zones}
                 onSelect={selectZone}
                 onStateChange={handleBottomSheetStateChange}
+                onHeightChange={handleSheetHeightChange}
             />}
             <MapChatComposer
                 containerRef={chatComposerRef}

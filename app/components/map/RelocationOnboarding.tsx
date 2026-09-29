@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
 import type { LF05ProposedProfile } from "../../engine/lib/lf05Validation";
+import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
+import { useUserProfileStore } from "../../stores/userStores";
 
 const DRAFT_KEY = "jejak:relocation-onboarding";
 const MAX_STORY_LENGTH = 1000;
@@ -229,8 +231,13 @@ export default function RelocationOnboarding({
   const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
   const [proposal, setProposal] = useState<LF05ProposedProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [savedProfileLoaded, setSavedProfileLoaded] = useState(false);
+  const savedProfile = useUserProfileStore((state) => state.relocationProfile);
+  const setSavedProfile = useUserProfileStore((state) => state.setRelocationProfile);
   const extractedProfile = extractUserProfile(story);
   const profileRows = proposal ? getProfileRows(proposal) : [];
   const clarificationQuestions = proposal?.clarification_questions ?? [];
@@ -239,9 +246,41 @@ export default function RelocationOnboarding({
   const canConfirmProfile = !!proposal && proposal.inferred_fields.every((field) => confirmedFields[field]);
 
   useEffect(() => {
+    let active = true;
+    void fetch("/api/user/relocation-profile", { cache: "no-store" })
+      .then(async (response) => {
+        if (response.status === 401) return null;
+        if (!response.ok) throw new Error("Unable to load saved profile");
+        const result: unknown = await response.json();
+        if (!isRecord(result) || (result.profile !== null && !isRecord(result.profile))) {
+          throw new Error("Invalid saved profile response");
+        }
+        return result.profile as StoredRelocationProfile | null;
+      })
+      .then((profile) => {
+        if (active) setSavedProfile(profile);
+      })
+      .catch(() => {
+        if (active) setSavedProfile(null);
+      })
+      .finally(() => {
+        if (active) setSavedProfileLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [setSavedProfile]);
+
+  useEffect(() => {
+    if (hydrated) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("welcome") === "1" || params.get("onboarding") === "demo";
+    if (requested && !savedProfileLoaded) return;
+
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-      const requested = params.get("welcome") === "1" || params.get("onboarding") === "demo";
+      const alreadyOnboarded = requested && savedProfile !== null;
       const draft = requested ? null : readDraft();
 
       if (draft) {
@@ -251,7 +290,7 @@ export default function RelocationOnboarding({
         setTransport(draft.transport);
         setConfirmedFields(draft.confirmedFields ?? {});
         setProposal(draft.proposal ?? null);
-      } else if (requested) {
+      } else if (requested && !alreadyOnboarded) {
         setStep(1);
       }
 
@@ -270,7 +309,7 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [onOfficeChange]);
+  }, [hydrated, onOfficeChange, savedProfile, savedProfileLoaded]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -377,10 +416,41 @@ export default function RelocationOnboarding({
     if (result) setStep(3);
   }
 
+  async function saveProfile() {
+    if (!proposal || !canConfirmProfile || isSaving) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const response = await fetch("/api/user/relocation-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposal,
+          confirmed_fields: Object.entries(confirmedFields)
+            .filter(([, confirmed]) => confirmed)
+            .map(([field]) => field),
+        }),
+      });
+      const result: unknown = await response.json();
+      if (!response.ok || !isRecord(result) || !isRecord(result.profile)) {
+        throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Profil belum tersimpan. Coba lagi.");
+      }
+
+      setSavedProfile(result.profile as unknown as StoredRelocationProfile);
+      dismiss();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Coba lagi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function updateStory(value: string) {
     setStory(value);
     setProposal(null);
     setConfirmedFields({});
+    setSaveError(null);
     setOfficeSearchOpen(false);
     setRequestError(null);
   }
@@ -389,12 +459,14 @@ export default function RelocationOnboarding({
     setLanguage(value);
     setProposal(null);
     setConfirmedFields({});
+    setSaveError(null);
     setOfficeSearchOpen(false);
     setRequestError(null);
   }
 
   function toggleFieldConfirmation(field: string) {
     setConfirmedFields((current) => ({ ...current, [field]: !current[field] }));
+    setSaveError(null);
   }
 
   function chooseOffice(office: OfficeChoice) {
@@ -413,15 +485,15 @@ export default function RelocationOnboarding({
         <aside
           aria-labelledby="onboarding-step-two-title"
           data-hci-region="relocation-onboarding-step-2"
-          className="absolute inset-x-2 bottom-2 z-[400] flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
+          className="absolute inset-x-2 bottom-2 z-400 flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rule px-4 py-3 md:px-5">
             <div className="flex min-w-0 items-center gap-3 text-xs font-semibold text-ink">
               <span className="shrink-0">Langkah 2 dari 3</span>
               <span className="flex w-20 gap-1" aria-hidden="true">
-                <span className="h-[3px] flex-1 rounded-full bg-primary" />
-                <span className="h-[3px] flex-1 rounded-full bg-primary" />
-                <span className="h-[3px] flex-1 rounded-full bg-base-300" />
+                <span className="h-0.75 flex-1 rounded-full bg-primary" />
+                <span className="h-0.75 flex-1 rounded-full bg-primary" />
+                <span className="h-0.75 flex-1 rounded-full bg-base-300" />
               </span>
             </div>
             <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 shrink-0 gap-1 px-1 text-ink">
@@ -615,9 +687,9 @@ export default function RelocationOnboarding({
               <div className="flex items-center gap-3">
                 <span>Langkah 1 dari 3</span>
                 <span className="flex w-20 gap-1" aria-hidden="true">
-                  <span className="h-[3px] flex-1 rounded-full bg-primary" />
-                  <span className="h-[3px] flex-1 rounded-full bg-base-300" />
-                  <span className="h-[3px] flex-1 rounded-full bg-base-300" />
+                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
+                  <span className="h-0.75 flex-1 rounded-full bg-base-300" />
+                  <span className="h-0.75 flex-1 rounded-full bg-base-300" />
                 </span>
               </div>
               <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 gap-1 px-1 text-ink">
@@ -629,6 +701,7 @@ export default function RelocationOnboarding({
             <h1 id="onboarding-step-one-title" className="mt-1 font-sans text-2xl font-bold leading-tight tracking-tight text-ink md:text-[1.75rem]">
               Ceritakan rencana pindahmu
             </h1>
+            {savedProfile && <p role="status" className="mt-1 text-xs text-ink-muted">Profil tersimpan · revisi {savedProfile.revision}</p>}
             <p className="mt-1 text-sm leading-relaxed text-ink-muted">
               Tulis seperti bercerita ke teman. Kamu bisa memeriksa ringkasannya sebelum peta disesuaikan.
             </p>
@@ -644,7 +717,7 @@ export default function RelocationOnboarding({
                 placeholder={placeholderStory}
                 disabled={isSubmitting}
                 required
-                className="textarea min-h-24 w-full resize-y border-0 bg-transparent p-0 text-sm leading-relaxed text-ink outline-none focus:border-0 focus:outline-none md:min-h-28 md:text-base"
+                className="textarea min-h-40 w-full resize-y border-0 bg-transparent p-0 text-sm leading-relaxed text-ink outline-none focus:border-0 focus:outline-none md:min-h-52 md:text-base"
               />
               <div className="mt-2 flex items-center justify-between gap-3">
                 <label className="flex items-center gap-2 text-xs text-ink-muted">
@@ -701,9 +774,9 @@ export default function RelocationOnboarding({
               <div className="flex items-center gap-3">
                 <span>Langkah 3 dari 3</span>
                 <span className="flex w-24 gap-1" aria-hidden="true">
-                  <span className="h-[3px] flex-1 rounded-full bg-primary" />
-                  <span className="h-[3px] flex-1 rounded-full bg-primary" />
-                  <span className="h-[3px] flex-1 rounded-full bg-primary" />
+                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
+                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
+                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
                 </span>
               </div>
               <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 gap-1 px-1 text-ink">
@@ -765,10 +838,11 @@ export default function RelocationOnboarding({
               <button type="button" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
                 <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
               </button>
-              <button type="button" disabled={!canConfirmProfile} onClick={dismiss} className="btn btn-primary min-h-11 rounded-xl px-4">
-                Selesaikan tinjauan <ArrowRight aria-hidden="true" className="size-4" />
+              <button type="button" disabled={!canConfirmProfile || isSaving} onClick={() => void saveProfile()} className="btn btn-primary min-h-11 rounded-xl px-4">
+                {isSaving ? "Menyimpan profil…" : "Simpan dan selesaikan"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
               </button>
             </footer>
+            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError} Draf tetap tersimpan di sesi ini.</div>}
           </section>
         )}
         {step !== 1 && step !== 3 && <span className="sr-only">Dialog ditutup</span>}

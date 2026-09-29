@@ -5,7 +5,7 @@ function isNullableNumber(value: unknown): value is number | null {
     return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
-async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
+export async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
     const timeout = AbortSignal.timeout(20000);
     let res: Response;
     try {
@@ -57,12 +57,13 @@ function isCellFact(fact: unknown): boolean {
         typeof fact.is_sample === "boolean";
 }
 
-export async function getMapCells(zoneId: string, category: MapCategory, signal: AbortSignal): Promise<MapCellsResponse> {
-    const data = await getJson(`/api/heatmap?${new URLSearchParams({ zone_id: zoneId, category })}`, signal);
+export async function getMapCells(zoneId: string, category: MapCategory, signal: AbortSignal, includeGeometry = true): Promise<MapCellsResponse> {
+    const data = await getJson(`/api/heatmap?${new URLSearchParams({ zone_id: zoneId, category, geometry: includeGeometry ? "1" : "0" })}`, signal);
     if (!isRecord(data) || typeof data.is_sample !== "boolean" || data.zone_id !== zoneId || data.category !== category ||
         !Array.isArray(data.cells) ||
         !data.cells.every((cell) => isRecord(cell) && typeof cell.cell_code === "string" && cell.parent_code === zoneId &&
-            isBoundary(cell.geometry) && Array.isArray(cell.centroid) && cell.centroid.length === 2 &&
+            (includeGeometry ? isBoundary(cell.geometry) : cell.geometry === null) &&
+            Array.isArray(cell.centroid) && cell.centroid.length === 2 &&
             Math.abs(Number(cell.centroid[0])) <= 180 && Math.abs(Number(cell.centroid[1])) <= 90 &&
             isRecord(cell.facts) && Object.values(cell.facts).every(isCellFact) &&
             typeof cell.is_sample === "boolean")) throw new Error("Invalid heatmap data");
@@ -98,7 +99,8 @@ function parseDetails(data: unknown): ZoneDetailResult {
             (fact.period_end === null || typeof fact.period_end === "string") &&
             (fact.confidence == null || (typeof fact.confidence === "number" && fact.confidence >= 0 && fact.confidence <= 1)) &&
             ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
-            (fact.limitations === null || typeof fact.limitations === "string") && typeof fact.is_sample === "boolean") ||
+            (fact.limitations === null || typeof fact.limitations === "string") && typeof fact.is_sample === "boolean" &&
+            (fact.approximate === undefined || typeof fact.approximate === "boolean")) ||
         !data.places.every((place) => isRecord(place) && typeof place.id === "number" &&
             typeof place.name === "string" && typeof place.category === "string" &&
             typeof place.latitude === "number" && Number.isFinite(place.latitude) && Math.abs(place.latitude) <= 90 &&

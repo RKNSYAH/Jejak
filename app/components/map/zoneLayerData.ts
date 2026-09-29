@@ -1,22 +1,38 @@
 import type { FeatureCollection, MultiPolygon, Point, Polygon } from "geojson";
-import type { MapCategory, MapCell, ZoneDetailResult, ZoneGeometry } from "@/app/engine/types";
+import type { EvidenceCluster, MapCategory, MapCell, ZoneDetailResult, ZoneGeometry } from "@/app/engine/types";
 import { type CellLayer, mapCategories } from "./mapMetrics";
 
 export function createZoneLayerData(
     geometry: ZoneGeometry,
     detailsByZone: Record<string, ZoneDetailResult | undefined>,
     category: MapCategory,
-): FeatureCollection<Polygon | MultiPolygon, { zone_id: string; zone_name: string; value: number | null }> {
+): FeatureCollection<Polygon | MultiPolygon, { zone_id: string; zone_name: string; value: number | null; approximate: boolean }> {
     const metric = mapCategories[category].metric;
     return {
         type: "FeatureCollection",
-        features: geometry.features.map((feature) => ({
-            ...feature,
-            properties: {
-                ...feature.properties,
-                value: metric ? detailsByZone[feature.properties.zone_id]?.facts.find((fact) => fact.metric === metric && fact.evidence_type !== "unavailable")?.value ?? null : null,
-            },
-        })),
+        features: geometry.features.map((feature) => {
+            const fact = metric ? detailsByZone[feature.properties.zone_id]?.facts.find((item) => item.metric === metric && item.evidence_type !== "unavailable") : undefined;
+            return {
+                ...feature,
+                properties: { ...feature.properties, value: fact?.value ?? null, approximate: fact?.approximate ?? false },
+            };
+        }),
+    };
+}
+
+// A point for the selected district's located companies (the evidence behind its
+// company_count), placed at the district centre rather than any exact address.
+export function createCompanyPointData(
+    cluster: EvidenceCluster | null,
+): FeatureCollection<Point, { zone_id: string; companies: number }> {
+    const companies = cluster?.counts.office_presence?.organizations ?? 0;
+    return {
+        type: "FeatureCollection",
+        features: cluster && companies > 0 ? [{
+            type: "Feature",
+            geometry: { type: "Point", coordinates: cluster.centroid },
+            properties: { zone_id: cluster.zone_id, companies },
+        }] : [],
     };
 }
 
@@ -44,11 +60,11 @@ export function createCellFillData(
 ): FeatureCollection<Polygon | MultiPolygon, { cell_code: string; value: number | null }> {
     return {
         type: "FeatureCollection",
-        features: cells.map((cell) => ({
+        features: cells.flatMap((cell) => cell.geometry ? [{
             type: "Feature",
             geometry: cell.geometry,
             properties: { cell_code: cell.cell_code, value: cell.facts[metric]?.value ?? null },
-        })),
+        } as const] : []),
     };
 }
 

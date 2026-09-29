@@ -119,6 +119,9 @@ export function buildEvidenceRow(input: {
     confidence: number;
     runId: string;
     sector: SectorClassification | null;
+    // "company_office" when a posting was placed by its company's office address.
+    locationBasis?: "stated_address" | "company_office";
+    officeSourceUrl?: string | null;
 }): EvidenceRow {
     const { candidate, type } = input;
     const value = candidate.normalizedValue;
@@ -146,6 +149,8 @@ export function buildEvidenceRow(input: {
             prompt_version: candidate.promptVersion,
             confidence_version: CONFIDENCE_VERSION,
             sector_classification: input.sector,
+            location_basis: input.locationBasis ?? "stated_address",
+            ...(input.officeSourceUrl ? { office_source_url: input.officeSourceUrl } : {}),
         },
         publisher: candidate.publisher,
         content_hash: candidate.contentHash,

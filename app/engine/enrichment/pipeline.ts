@@ -1,10 +1,11 @@
 import { LANGFLOW_FLOWS, LangflowError, type RunFlowOptions } from "../lib/langflow";
-import { MAX_LF01_SOURCES, validateLF01Input } from "../lib/lf01Validation";
+import { MAX_COMPANY_NAMES, MAX_LF01_SOURCES, validateLF01Input } from "../lib/lf01Validation";
 import { ACCEPTANCE_THRESHOLD, agreementKey, buildEvidenceRow, checkClaimValue, publishedConfidence, type EvidenceRow } from "./acceptance";
-import { GeocodeBudgetError, type GeocodeResult, type Geocoder } from "./geocoder";
-import { parseLF01Output, type LF01Candidate } from "./lf01Contract";
+import { companyKey, needsCompanyOffice, officeForPosting, officesByCompany, officesFor, sameCompany } from "./companies";
+import { addressQueries, GeocodeBudgetError, type AddressQuery, type GeocodeResult, type Geocoder } from "./geocoder";
+import { parseLF01Output, type LF01Candidate, type Precision } from "./lf01Contract";
 import { buildLF02Input, parseLF02Output, type SectorClassification } from "./lf02Contract";
-import { resolveLocality, type LocalityTier } from "./locality";
+import { coarserPrecision, regionKey, resolveLocality, type LocalityTier } from "./locality";
 import { evidenceTypeForClaim, lf01EvidenceByType, snapshotScope, type EnrichmentScope, type EvidenceType } from "./scopes";
 import { buildSnapshot, type SnapshotDraft, type StoredEvidence } from "./snapshot";
 
@@ -55,6 +56,21 @@ export type EnrichmentOutcome = {
 };
 
 const LF02_SECTOR_CONFIDENCE = 0.8;
+// Postings (and their pay) can borrow their company's office location.
+const POSTING_TYPES = new Set<EvidenceType>(["active_opening", "salary_observation"]);
+// Time guards inside the enrich route's 300 s limit: the company-office pass only
+// starts early enough to finish, and geocoding stops before completion is at risk.
+const COMPANY_PASS_BEFORE_MS = 150_000;
+const GEOCODE_UNTIL_MS = 270_000;
+
+type LocationPlan = {
+    queries: AddressQuery[];
+    statedPrecision: Precision;
+    // Finest precision the plan may claim: a company office places a posting at district level.
+    cap: Precision | null;
+    basis: "stated_address" | "company_office";
+    officeSourceUrl: string | null;
+};
 
 function errorCode(error: unknown): string {
     if (error instanceof LangflowError) return `langflow_${error.code}`;
@@ -62,14 +78,8 @@ function errorCode(error: unknown): string {
     return "internal_error";
 }
 
-// The address is geocoded as the source wrote it; the geocoder's viewbox prefers
-// the zone's area without rewriting an address that names another city.
-function geocodeQuery(candidate: LF01Candidate): string | null {
-    const parts = [candidate.buildingName, candidate.rawAddress].filter((part): part is string => !!part);
-    return parts.length ? parts.join(", ") : null;
-}
-
-// LF-01 → LF-02 (best effort) → geocoding → boundary tiers → acceptance →
+// LF-01 → LF-02 and a company-office LF-01 pass (both best effort) → geocoding →
+// boundary tiers → acceptance →
 // evidence upsert → snapshot publication → run completion. The database stays
 // the authority for claims, leases, and publication; failures keep the
 // previous accepted snapshot.
@@ -82,6 +92,7 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
     const completed = new Set<number>();
     const reject = (reason: string) => { rejected[reason] = (rejected[reason] ?? 0) + 1; };
     const report: Record<string, unknown> = { lf01_run_id: job.jobId };
+    const startedAt = deps.now().getTime();
 
     async function complete(runId: number, status: RunStatus, output: Record<string, unknown>, code: string | null) {
         try {
@@ -115,29 +126,69 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
         lf01.skipped.forEach(({ reason }) => reject(`lf01_${reason}`));
 
         const pending: { candidate: LF01Candidate; type: EvidenceType }[] = [];
-        for (const candidate of lf01.candidates) {
+        const admit = (candidate: LF01Candidate) => {
             const type = evidenceTypeForClaim(candidate.claimType, candidate.claimScope);
-            if (!type) reject(candidate.claimType.endsWith("_rent_summary") ? "rent_summary_not_ingested" : "unsupported_claim");
+            if (!type) {
+                // A company-wide (national or global) headcount says nothing about local employment.
+                reject(candidate.claimType === "headcount" ? "non_local_headcount"
+                    : candidate.claimType.endsWith("_rent_summary") ? "rent_summary_not_ingested" : "unsupported_claim");
+            }
             else if (!requested.has(type)) reject("not_requested");
             else {
                 const problem = checkClaimValue(candidate, type);
                 if (problem) reject(problem);
                 else pending.push({ candidate, type });
             }
+        };
+        lf01.candidates.forEach(admit);
+
+        // Postings that can't be placed below city level borrow their company's office.
+        // Offices LF-01 already found are reused; the rest get one targeted LF-01 pass.
+        const offices = officesByCompany(lf01.candidates);
+        const lookups = new Map<string, string>();
+        for (const { candidate, type } of pending) {
+            if (!POSTING_TYPES.has(type) || !needsCompanyOffice(candidate)) continue;
+            const key = companyKey(candidate.subjectName);
+            if (key && !officesFor(offices, key).length && lookups.size < MAX_COMPANY_NAMES) lookups.set(key, candidate.subjectName!);
         }
 
-        // LF-02 only adds sector labels here; losing it must not lose the run.
-        let sectors = new Map<string, SectorClassification>();
+        const runLf02 = job.scope === "career" && pending.length > 0;
+        const runOffices = lookups.size > 0 && deps.now().getTime() - startedAt < COMPANY_PASS_BEFORE_MS;
         report.lf02_status = "skipped";
-        if (job.scope === "career" && pending.length) {
-            await db.markRunStage(runIds, "lf02");
-            try {
-                sectors = parseLF02Output(await deps.runFlow(LANGFLOW_FLOWS.lf02, buildLF02Input(job.jobId, pending.map((item) => item.candidate)), {
+        report.company_lookup = { companies: lookups.size, status: lookups.size ? "skipped_time" : "none", offices_found: 0 };
+        if (runLf02 || runOffices) await db.markRunStage(runIds, runLf02 ? "lf02" : "company_offices");
+
+        const officesRunId = `${job.jobId}-offices`;
+        const [lf02Result, officesResult] = await Promise.allSettled([
+            // LF-02 only adds sector labels here; losing it must not lose the run.
+            runLf02
+                ? deps.runFlow(LANGFLOW_FLOWS.lf02, buildLF02Input(job.jobId, pending.map((item) => item.candidate)), {
                     timeoutMs: 45_000, maxBytes: 2_000_000, contract: "lf02-v2", sessionId: job.jobId,
-                }), job.jobId);
+                }).then((output) => parseLF02Output(output, job.jobId))
+                : Promise.resolve(new Map<string, SectorClassification>()),
+            runOffices
+                ? deps.runFlow(LANGFLOW_FLOWS.lf01, validateLF01Input({
+                    run_id: officesRunId,
+                    zone_id: job.zone.code,
+                    zone_name: job.zone.name,
+                    city_name: job.zone.cityName,
+                    requested_at: job.requestedAt,
+                    missing_evidence: ["company_presence"],
+                    maximum_sources: Math.min(MAX_LF01_SOURCES, lookups.size * 2),
+                    company_names: [...lookups.values()],
+                    ...(job.zone.boundingBox ? { bounding_box: job.zone.boundingBox } : {}),
+                }), { timeoutMs: 90_000, maxBytes: 2_000_000, contract: "lf01-v2", sessionId: job.jobId })
+                    .then((output) => parseLF01Output(output, officesRunId).candidates)
+                : Promise.resolve([] as LF01Candidate[]),
+        ]);
+
+        let sectors = new Map<string, SectorClassification>();
+        if (runLf02) {
+            if (lf02Result.status === "fulfilled") {
+                sectors = lf02Result.value;
                 report.lf02_status = "classified";
-            } catch (error) {
-                report.lf02_status = `failed:${errorCode(error)}`;
+            } else {
+                report.lf02_status = `failed:${errorCode(lf02Result.reason)}`;
             }
         }
         const onSector = pending.filter(({ candidate }) => {
@@ -148,24 +199,67 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
             }
             return true;
         });
+        if (runOffices) {
+            if (officesResult.status === "fulfilled") {
+                // Only offices of the companies asked about; a contact page may list partners too.
+                const asked = [...lookups.keys()];
+                const found = officesByCompany(officesResult.value.filter((candidate) => {
+                    const key = companyKey(candidate.subjectName);
+                    return !!key && asked.some((lookup) => sameCompany(lookup, key));
+                }));
+                for (const [key, list] of found) offices.set(key, list);
+                report.company_lookup = { companies: lookups.size, status: "ok", offices_found: [...found.values()].reduce((sum, list) => sum + list.length, 0) };
+                // The offices found are office evidence in their own right.
+                const before = pending.length;
+                officesResult.value.filter((candidate) => candidate.claimType === "office_location").forEach(admit);
+                onSector.push(...pending.slice(before));
+            } else {
+                report.company_lookup = { companies: lookups.size, status: `failed:${errorCode(officesResult.reason)}`, offices_found: 0 };
+            }
+        }
+
+        function planLocation(candidate: LF01Candidate, type: EvidenceType): LocationPlan | string {
+            if (POSTING_TYPES.has(type) && needsCompanyOffice(candidate)) {
+                const key = companyKey(candidate.subjectName);
+                const office = key ? officeForPosting(officesFor(offices, key), candidate.rawAddress, job.zone.cityName) : null;
+                // A posting placed by its company's office is only a district-level association.
+                if (office) {
+                    return { queries: addressQueries(office.buildingName, office.rawAddress), statedPrecision: office.precision,
+                        cap: "district", basis: "company_office", officeSourceUrl: office.sourceUrl };
+                }
+                if (!candidate.rawAddress && !candidate.buildingName) return "company_office_not_found";
+            }
+            const queries = addressQueries(candidate.buildingName, candidate.rawAddress);
+            return queries.length
+                ? { queries, statedPrecision: candidate.precision, cap: null, basis: "stated_address", officeSourceUrl: null }
+                : "missing_address";
+        }
 
         await db.markRunStage(runIds, "geocoding");
         let geocoderStatus = "ok";
-        const located: { candidate: LF01Candidate; type: EvidenceType; geocode: GeocodeResult }[] = [];
+        const located: { candidate: LF01Candidate; type: EvidenceType; geocode: GeocodeResult; plan: LocationPlan; cap: Precision | null }[] = [];
         for (const item of onSector) {
-            const query = geocodeQuery(item.candidate);
-            if (!query) {
-                reject("missing_address");
+            const plan = planLocation(item.candidate, item.type);
+            if (typeof plan === "string") {
+                reject(plan);
                 continue;
             }
+            if (geocoderStatus === "ok" && deps.now().getTime() - startedAt > GEOCODE_UNTIL_MS) geocoderStatus = "time_spent";
             if (geocoderStatus !== "ok") {
                 reject(`geocoder_${geocoderStatus}`);
                 continue;
             }
             try {
-                const geocode = await geocoder.geocode(query);
-                if (geocode) located.push({ ...item, geocode });
-                else reject("address_not_found");
+                let match: { geocode: GeocodeResult; cap: Precision | null } | null = null;
+                for (const { query, cap } of plan.queries) {
+                    const geocode = await geocoder.geocode(query);
+                    if (geocode) {
+                        match = { geocode, cap: cap && plan.cap ? coarserPrecision(cap, plan.cap) : cap ?? plan.cap };
+                        break;
+                    }
+                }
+                if (match) located.push({ ...item, ...match, plan });
+                else reject(plan.basis === "company_office" ? "office_address_not_found" : "address_not_found");
             } catch (error) {
                 geocoderStatus = error instanceof GeocodeBudgetError ? "budget_spent" : "unavailable";
                 reject(`geocoder_${geocoderStatus}`);
@@ -184,17 +278,17 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
             pages.set(key, (pages.get(key) ?? new Set()).add(candidate.canonicalUrl));
         }
 
-        // The zone's own state is only needed when no trusted boundary covers a point.
-        let zoneState: Promise<string | null> | null = null;
+        // The zone's own province is only needed when no trusted boundary covers a point.
+        let zoneRegion: Promise<string | null> | null = null;
         const rowsByType = new Map<EvidenceType, EvidenceRow[]>();
-        for (const [index, { candidate, type, geocode }] of located.entries()) {
+        for (const [index, { candidate, type, geocode, plan, cap }] of located.entries()) {
             const boundaryTier = tiers.get(index) ?? null;
-            if (!boundaryTier && !zoneState) {
-                zoneState = geocoder.geocode(`${job.zone.name}, ${job.zone.cityName}`).then((result) => result?.state ?? null, () => null);
+            if (!boundaryTier && !zoneRegion) {
+                zoneRegion = geocoder.geocode(`${job.zone.name}, ${job.zone.cityName}`).then((result) => result ? regionKey(result) : null, () => null);
             }
             const locality = resolveLocality({
-                statedPrecision: candidate.precision, geocode, boundaryTier,
-                cityName: job.zone.cityName, zoneState: boundaryTier ? null : await zoneState,
+                statedPrecision: plan.statedPrecision, geocode, boundaryTier, capPrecision: cap,
+                cityName: job.zone.cityName, zoneRegion: boundaryTier ? null : await zoneRegion,
             });
             if ("reason" in locality) {
                 reject(locality.reason);
@@ -211,6 +305,7 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
                 candidate, type, latitude: geocode.latitude, longitude: geocode.longitude,
                 precision: locality.precision, tier: locality.tier, confidence, runId: job.jobId,
                 sector: sectors.get(candidate.evidenceId) ?? null,
+                locationBasis: plan.basis, officeSourceUrl: plan.officeSourceUrl,
             }));
             rowsByType.set(type, rows);
         }

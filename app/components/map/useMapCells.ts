@@ -8,15 +8,18 @@ import { cellLayers } from "./mapMetrics";
 type Entry = { data: MapCellsResponse } | { error: string };
 
 // Loads the H3 cells of the selected district once per category that has cell layers.
-export function useMapCells(zoneId: string | null, category: MapCategory | null) {
-    const key = zoneId && category && cellLayers[category]?.length ? `${zoneId}:${category}` : null;
+export function useMapCells(zoneId: string | null, category: MapCategory | null, includeGeometry: boolean) {
+    const baseKey = zoneId && category && cellLayers[category]?.length ? `${zoneId}:${category}` : null;
+    const key = baseKey ? `${baseKey}:${includeGeometry ? "full" : "points"}` : null;
     const [entries, setEntries] = useState<Record<string, Entry>>({});
-    const entry = key ? entries[key] : undefined;
+    // A full response also supplies every centroid needed by a glow layer.
+    const fullEntry = baseKey ? entries[`${baseKey}:full`] : undefined;
+    const entry = key ? entries[key] ?? (!includeGeometry && fullEntry && "data" in fullEntry ? fullEntry : undefined) : undefined;
 
     useEffect(() => {
         if (!key || !zoneId || !category || entry) return;
         const controller = new AbortController();
-        getMapCells(zoneId, category, controller.signal).then((data) => {
+        getMapCells(zoneId, category, controller.signal, includeGeometry).then((data) => {
             if (!controller.signal.aborted) setEntries((current) => ({ ...current, [key]: { data } }));
         }).catch((error: unknown) => {
             if (!controller.signal.aborted) setEntries((current) => ({
@@ -24,7 +27,7 @@ export function useMapCells(zoneId: string | null, category: MapCategory | null)
             }));
         });
         return () => controller.abort();
-    }, [key, zoneId, category, entry]);
+    }, [key, zoneId, category, includeGeometry, entry]);
 
     return {
         enabled: key !== null,
