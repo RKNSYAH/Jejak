@@ -1,10 +1,22 @@
 import JejakMap from '../components/map/JejakMap';
+import { redirect } from "next/navigation";
+import { getAuthenticatedUserId } from "../engine/controller/userServerController";
+import { loginPath } from "../engine/lib/authDestination";
 
-export default function MapPage() {
+export default async function MapPage({ searchParams }: PageProps<"/map">) {
+  const userId = await getAuthenticatedUserId().catch(() => null);
+  if (!userId) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(await searchParams)) {
+      if (Array.isArray(value)) value.forEach((entry) => query.append(key, entry));
+      else if (value !== undefined) query.set(key, value);
+    }
+    redirect(loginPath(`/map${query.size ? `?${query}` : ""}`));
+  }
 
   return (
     <main className="min-h-0 flex-1 overflow-hidden">
-      <JejakMap />
+      <JejakMap key={userId} userId={userId} />
     </main>
   );
 }

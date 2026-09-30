@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,7 +14,9 @@ import {
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
 import type { LF05ProposedProfile } from "../../engine/lib/lf05Validation";
 import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
-import { useUserProfileStore } from "../../stores/userStores";
+import { isStoredRelocationProfile } from "../../engine/lib/relocationProfileCache";
+import { handleAuthFailure } from "../../engine/lib/authRedirect";
+import type { FormSession } from "../../engine/onboarding/types";
 
 const DRAFT_KEY = "jejak:relocation-onboarding";
 const MAX_STORY_LENGTH = 1000;
@@ -42,11 +45,18 @@ type Draft = {
 export type MapPoint = { longitude: number; latitude: number };
 
 type RelocationOnboardingProps = {
+  savedProfile: StoredRelocationProfile | null;
+  savedProfileLoaded: boolean;
+  onSaveProfile: (profile: StoredRelocationProfile) => void;
   mapPoint: MapPoint | null;
   selectedOffice: OfficeChoice;
   onOfficeChange: (office: OfficeChoice) => void;
   onMapPickingChange: (picking: boolean) => void;
   onOnboardingActiveChange: (active: boolean) => void;
+  formSession: FormSession | null;
+  formReady: boolean;
+  storyOpenRequest: number;
+  onOpenForm: () => void;
 };
 
 const profileFieldLabels: Record<string, string> = {
@@ -214,11 +224,18 @@ function readDraft(): Draft | null {
 }
 
 export default function RelocationOnboarding({
+  savedProfile,
+  savedProfileLoaded,
+  onSaveProfile,
   mapPoint,
   selectedOffice,
   onOfficeChange,
   onMapPickingChange,
   onOnboardingActiveChange,
+  formSession,
+  formReady,
+  storyOpenRequest,
+  onOpenForm,
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const ignoreCloseRef = useRef(false);
@@ -235,9 +252,6 @@ export default function RelocationOnboarding({
   const [requestError, setRequestError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [savedProfileLoaded, setSavedProfileLoaded] = useState(false);
-  const savedProfile = useUserProfileStore((state) => state.relocationProfile);
-  const setSavedProfile = useUserProfileStore((state) => state.setRelocationProfile);
   const extractedProfile = extractUserProfile(story);
   const profileRows = proposal ? getProfileRows(proposal) : [];
   const clarificationQuestions = proposal?.clarification_questions ?? [];
@@ -246,51 +260,26 @@ export default function RelocationOnboarding({
   const canConfirmProfile = !!proposal && proposal.inferred_fields.every((field) => confirmedFields[field]);
 
   useEffect(() => {
-    let active = true;
-    void fetch("/api/user/relocation-profile", { cache: "no-store" })
-      .then(async (response) => {
-        if (response.status === 401) return null;
-        if (!response.ok) throw new Error("Unable to load saved profile");
-        const result: unknown = await response.json();
-        if (!isRecord(result) || (result.profile !== null && !isRecord(result.profile))) {
-          throw new Error("Invalid saved profile response");
-        }
-        return result.profile as StoredRelocationProfile | null;
-      })
-      .then((profile) => {
-        if (active) setSavedProfile(profile);
-      })
-      .catch(() => {
-        if (active) setSavedProfile(null);
-      })
-      .finally(() => {
-        if (active) setSavedProfileLoaded(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [setSavedProfile]);
-
-  useEffect(() => {
-    if (hydrated) return;
+    if (hydrated || !formReady) return;
 
     const params = new URLSearchParams(window.location.search);
-    const requested = params.get("welcome") === "1" || params.get("onboarding") === "demo";
+    const demoRequested = params.get("onboarding") === "demo";
+    const requested = params.get("welcome") === "1" || demoRequested;
     if (requested && !savedProfileLoaded) return;
 
     const timer = window.setTimeout(() => {
-      const alreadyOnboarded = requested && savedProfile !== null;
-      const draft = requested ? null : readDraft();
+      const alreadyOnboarded = !demoRequested && savedProfile !== null;
+      const draft = readDraft();
 
       if (draft) {
-        setStep(draft.step);
+        const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
+        setStep(keepMap ? 0 : draft.step);
         setStory(draft.story);
         onOfficeChange(draft.office);
         setTransport(draft.transport);
         setConfirmedFields(draft.confirmedFields ?? {});
         setProposal(draft.proposal ?? null);
-      } else if (requested && !alreadyOnboarded) {
+      } else if (requested && !alreadyOnboarded && formSession?.status !== "active" && formSession?.status !== "completed") {
         setStep(1);
       }
 
@@ -309,21 +298,27 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [hydrated, onOfficeChange, savedProfile, savedProfileLoaded]);
+  }, [formReady, formSession, hydrated, onOfficeChange, savedProfile, savedProfileLoaded]);
+
+  useEffect(() => {
+    if (!storyOpenRequest) return;
+    const timer = window.setTimeout(() => setStep(1), 0);
+    return () => window.clearTimeout(timer);
+  }, [storyOpenRequest]);
 
   useEffect(() => {
     if (!hydrated) return;
     if (step === 0) {
-      sessionStorage.removeItem(DRAFT_KEY);
+      if (!formSession) sessionStorage.removeItem(DRAFT_KEY);
       return;
     }
 
     const draft: Draft = { step, story, office: selectedOffice, transport, confirmedFields, proposal };
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }, [confirmedFields, hydrated, proposal, selectedOffice, step, story, transport]);
+  }, [confirmedFields, formSession, hydrated, proposal, selectedOffice, step, story, transport]);
 
   useEffect(() => {
-    const shouldShowDialog = step === 1 || step === 3;
+    const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
     const dialog = dialogRef.current;
 
     onMapPickingChange(step === 2 && officeQuestionIndex >= 0);
@@ -335,11 +330,11 @@ export default function RelocationOnboarding({
       ignoreCloseRef.current = true;
       dialog.close();
     }
-  }, [officeQuestionIndex, onMapPickingChange, step]);
+  }, [formSession, officeQuestionIndex, onMapPickingChange, step]);
 
   useEffect(() => {
-    onOnboardingActiveChange(!hydrated || step > 0);
-  }, [hydrated, onOnboardingActiveChange, step]);
+    onOnboardingActiveChange(!hydrated || step > 0 || formSession?.status === "active");
+  }, [formSession, hydrated, onOnboardingActiveChange, step]);
 
   useEffect(() => {
     if (mapPoint) onOfficeChange("Dipilih di peta");
@@ -348,6 +343,7 @@ export default function RelocationOnboarding({
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
   function dismiss() {
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* Closing works without browser storage. */ }
     setStep(0);
     setOfficeSearchOpen(false);
     onMapPickingChange(false);
@@ -389,6 +385,10 @@ export default function RelocationOnboarding({
         }),
       });
       const result: unknown = await response.json();
+      if (handleAuthFailure(response)) {
+        setRequestError("Masuk untuk menganalisis rencanamu. Draf tetap tersimpan di perangkat ini.");
+        return null;
+      }
       if (!response.ok || !isRecord(result) || !isRecord(result.profile)) {
         throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Gagal membaca rencana. Coba lagi.");
       }
@@ -433,11 +433,15 @@ export default function RelocationOnboarding({
         }),
       });
       const result: unknown = await response.json();
-      if (!response.ok || !isRecord(result) || !isRecord(result.profile)) {
+      if (handleAuthFailure(response)) {
+        setSaveError("Masuk untuk menyimpan profil. Draf tetap tersimpan di perangkat ini.");
+        return;
+      }
+      if (!response.ok || !isRecord(result) || !isStoredRelocationProfile(result.profile)) {
         throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Profil belum tersimpan. Coba lagi.");
       }
 
-      setSavedProfile(result.profile as unknown as StoredRelocationProfile);
+      onSaveProfile(result.profile);
       dismiss();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Coba lagi.");
@@ -487,7 +491,7 @@ export default function RelocationOnboarding({
           data-hci-region="relocation-onboarding-step-2"
           className="absolute inset-x-2 bottom-2 z-400 flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
         >
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rule px-4 py-3 md:px-5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-rule px-4 py-3 md:px-5">
             <div className="flex min-w-0 items-center gap-3 text-xs font-semibold text-ink">
               <span className="shrink-0">Langkah 2 dari 3</span>
               <span className="flex w-20 gap-1" aria-hidden="true">
@@ -522,13 +526,13 @@ export default function RelocationOnboarding({
 
             <dl className="mt-3 divide-y divide-rule border-y border-rule">
               {profileRows.map((row) => (
-                <div key={row.key} className="grid grid-cols-[5.25rem_minmax(0,1fr)_auto] items-center gap-2 py-2 text-xs md:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
+                <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
                   <dt className="text-ink-muted">{row.label}</dt>
                   <dd className="min-w-0 font-semibold text-ink">
                     {row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
                   </dd>
                   <dd>
-                    <span className={`badge badge-sm whitespace-nowrap ${row.inferred ? "badge-outline border-ink-muted text-ink" : "badge-neutral"}`}>
+                    <span className={`badge badge-sm col-start-2 max-w-full text-center whitespace-normal sm:col-start-auto ${row.inferred ? "badge-outline border-ink-muted text-ink" : "badge-neutral"}`}>
                       {row.inferred ? "Disimpulkan" : "Terbaca"}
                     </span>
                   </dd>
@@ -538,6 +542,7 @@ export default function RelocationOnboarding({
               {proposal && !profileRows.length && <div className="py-3 text-xs text-ink-muted">Belum ada batasan atau preferensi yang bisa ditampilkan.</div>}
             </dl>
             {requestError && <p role="alert" className="mt-3 text-sm font-semibold text-error">{requestError}</p>}
+            {requestError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
 
             <section className="mt-3 border-t-2 border-ink pt-3" aria-label="Pertanyaan lanjutan">
               <div className="flex items-center justify-between gap-3">
@@ -656,7 +661,7 @@ export default function RelocationOnboarding({
             </section>
           </div>
 
-          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-rule bg-base-100 px-4 py-3 md:px-5">
+          <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-rule bg-base-100 px-4 py-3 md:px-5">
             <button type="button" onClick={() => goToStep(1)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
               <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
             </button>
@@ -676,14 +681,14 @@ export default function RelocationOnboarding({
       >
         {step === 1 && (
           <form
-            className="modal-box flex max-h-[calc(100dvh-1.5rem)] w-[min(42.75rem,calc(100vw-1.5rem))] max-w-none flex-col overflow-y-auto rounded-2xl border border-rule bg-base-100 p-5 text-ink shadow-overlay md:p-6"
+            className="modal-box flex max-h-[calc(100dvh-1.5rem)] w-[min(42.75rem,calc(100vw-1.5rem))] max-w-none flex-col overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-4 text-ink shadow-overlay md:p-6"
             onSubmit={(event) => {
               event.preventDefault();
               void handleStorySubmit();
             }}
             aria-busy={isSubmitting}
           >
-            <header className="flex items-center justify-between gap-3 text-xs font-semibold">
+            <header className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
               <div className="flex items-center gap-3">
                 <span>Langkah 1 dari 3</span>
                 <span className="flex w-20 gap-1" aria-hidden="true">
@@ -753,10 +758,11 @@ export default function RelocationOnboarding({
             </section>
 
             {requestError && <p role="alert" className="mt-3 text-sm font-semibold text-error">{requestError}</p>}
+            {requestError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
 
             <footer className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-4">
               <div className="flex items-center gap-2">
-                <button type="button" disabled={isSubmitting} onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
+                <button type="button" disabled={isSubmitting} onClick={() => { onOpenForm(); setStep(0); }} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
                   <CheckSquare aria-hidden="true" className="size-4" /> Isi formulir
                 </button>
                 <p className="hidden max-w-32 text-[11px] leading-snug text-ink-muted sm:block">Jangan tulis NIK, alamat rumah, atau data kesehatan.</p>
@@ -769,8 +775,8 @@ export default function RelocationOnboarding({
         )}
 
         {step === 3 && (
-          <section className="modal-box max-h-[calc(100dvh-1.5rem)] w-[min(45rem,calc(100vw-1.5rem))] max-w-none overflow-y-auto rounded-2xl border border-rule bg-base-100 p-5 text-ink shadow-overlay md:p-6">
-            <header className="flex items-center justify-between gap-3 text-xs font-semibold">
+          <section className="modal-box max-h-[calc(100dvh-1.5rem)] w-[min(45rem,calc(100vw-1.5rem))] max-w-none overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-4 text-ink shadow-overlay md:p-6">
+            <header className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
               <div className="flex items-center gap-3">
                 <span>Langkah 3 dari 3</span>
                 <span className="flex w-24 gap-1" aria-hidden="true">
@@ -842,7 +848,8 @@ export default function RelocationOnboarding({
                 {isSaving ? "Menyimpan profil…" : "Simpan dan selesaikan"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
               </button>
             </footer>
-            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError} Draf tetap tersimpan di sesi ini.</div>}
+            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}{!saveError.startsWith("Masuk") && " Draf tetap tersimpan di sesi ini."}</div>}
+            {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
           </section>
         )}
         {step !== 1 && step !== 3 && <span className="sr-only">Dialog ditutup</span>}
@@ -865,13 +872,13 @@ function ConfirmationRow({
   onEdit: () => void;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2">
-      <p className="min-w-0 leading-snug">{value ? <><span className="font-semibold">{label}:</span> {value}</> : label}</p>
-      <div className="flex shrink-0 items-center gap-1">
-        <button type="button" onClick={onConfirm} aria-pressed={confirmed} className={`btn btn-xs min-h-9 rounded-lg px-2 ${confirmed ? "btn-primary" : "btn-outline border-ink-muted text-ink"}`}>
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+      <p className="min-w-0 leading-snug wrap-break-word">{value ? <><span className="font-semibold">{label}:</span> {value}</> : label}</p>
+      <div className="flex flex-wrap items-center gap-1">
+        <button type="button" onClick={onConfirm} aria-pressed={confirmed} className={`btn btn-xs min-h-11 rounded-lg px-2 ${confirmed ? "btn-primary" : "btn-outline border-ink-muted text-ink"}`}>
           <Check aria-hidden="true" className="size-3" /> {confirmed ? "Dikonfirmasi" : "Benar"}
         </button>
-        <button type="button" onClick={onEdit} className="btn btn-ghost btn-xs min-h-9 px-1 text-primary">Ubah</button>
+        <button type="button" onClick={onEdit} className="btn btn-ghost btn-xs min-h-11 px-2 text-primary">Ubah</button>
       </div>
     </div>
   );

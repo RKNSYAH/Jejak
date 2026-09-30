@@ -15,12 +15,12 @@ export async function getAuthenticatedUserId() {
         : null;
 }
 
-export async function registerUser(email: string, password: string, name: string) {
+export async function registerUser(email: string, password: string, name: string, emailRedirectTo: string) {
     const supabase = await createClient();
     return supabase.auth.signUp({
         email,
         password,
-        options: { data: { name } },
+        options: { data: { name }, emailRedirectTo },
     });
 }
 

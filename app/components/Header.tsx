@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAuthenticatedClaims } from "../engine/controller/userServerController";
+import BrandLogo from "./BrandLogo";
 
 export default async function Header({ activeHref = "/" }: { activeHref?: string }) {
   const claims = await getAuthenticatedClaims();
@@ -11,11 +12,9 @@ export default async function Header({ activeHref = "/" }: { activeHref?: string
   ];
 
   return (
-    <header className="navbar sticky top-0 z-50 flex-wrap gap-x-8 border-b border-rule bg-base-100 px-2 font-body sm:flex-nowrap md:px-4 lg:px-6">
-      <Link href="/" className="font-sans text-xl font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
-        jejak<span className="text-primary"> |</span>
-      </Link>
-      <nav aria-label="Navigasi utama" className="order-3 w-full overflow-x-auto sm:order-0 sm:w-auto">
+    <header className="navbar sticky top-0 z-50 flex-wrap gap-x-4 border-b border-rule bg-base-100 px-4 font-body sm:gap-x-6 md:px-6">
+      <BrandLogo border={false} />
+      <nav aria-label="Navigasi utama" className="order-3 w-full min-w-0 overflow-x-auto overscroll-x-contain lg:order-0 lg:w-auto">
         <ul className="flex min-w-max items-center gap-5 text-sm sm:gap-6">
           {links.map((link) => (
             <li key={link.href}>

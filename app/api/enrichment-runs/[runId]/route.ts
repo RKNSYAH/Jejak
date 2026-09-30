@@ -1,7 +1,10 @@
 import { getRunStatus } from "@/app/engine/controller/enrichmentController";
 import { isAdminConfigured } from "@/app/engine/lib/admin";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(_req: Request, context: { params: Promise<{ runId: string }> }) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     const { runId } = await context.params;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(runId)) {
         return Response.json({ error: "Unsupported run_id" }, { status: 400 });

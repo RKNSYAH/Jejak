@@ -29,22 +29,50 @@ export function isBoundary(value: unknown): value is Polygon | MultiPolygon {
         value.coordinates.length > 0 && value.coordinates.every(isPolygonCoordinates);
 }
 
+// "Kota Administrasi Jakarta Selatan", "Kota Adm. Jakarta Selatan" and "Jakarta Selatan" share a key.
+// "Kota " stays otherwise, so Kota Bekasi and Kabupaten Bekasi (BIG: "Bekasi") remain distinct.
+export function cityKey(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, " ")
+        .replace(/^((kota|kabupaten|kab\.)\s+)?(administrasi|adm\.)\s+/, "")
+        .replace(/^(kabupaten|kab\.)\s+/, "");
+}
+
+// BIG spaces and punctuates district names differently ("Asem Rowo", "Pal Merah", "Kepulauan Seribu Selatan.").
+export function districtKey(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function matchesCity(providerCity: string, requestedCity: string): boolean {
+    const providerKey = cityKey(providerCity);
+    const requestedKey = cityKey(requestedCity);
+    if (providerKey === requestedKey) return true;
+    // Catalogue shorthand like "Bandung" may mean BIG's "Kota Bandung".
+    // Never apply this alias to an explicitly named kabupaten or kota.
+    const explicitType = /^(kota|kabupaten|kab\.)\s+/i.test(requestedCity.trim());
+    return !explicitType && providerKey === `kota ${requestedKey}`;
+}
+
 export function normalizeGeometry(value: unknown, zone: Zone): ZoneGeometry {
     if (!isRecord(value) || value.type !== "FeatureCollection" || !Array.isArray(value.features)) {
         throw new Error("Invalid boundary response");
     }
+    const zoneName = districtKey(zone.zone_name);
+    const matches = value.features.map((feature) => {
+        if (!isRecord(feature) || feature.type !== "Feature" || !isBoundary(feature.geometry) || !isRecord(feature.properties)) {
+            throw new Error("Invalid zone boundary");
+        }
+        return { geometry: feature.geometry, properties: feature.properties };
+    }).filter(({ properties }) => districtKey(String(properties.WADMKC ?? "")) === zoneName &&
+        matchesCity(String(properties.WADMKK ?? ""), zone.city_name));
+    if (value.features.length === 0) throw new Error("No boundary found for the requested zone");
+    if (matches.length === 0) throw new Error("Boundary does not match the requested zone");
+    // A shorthand must not silently combine a kota and kabupaten of the same name.
+    const cities = new Set(matches.map(({ properties }) => cityKey(String(properties.WADMKK ?? ""))));
+    if (cities.size > 1) throw new Error("Boundary matches multiple administrative areas");
     return {
         type: "FeatureCollection",
-        features: value.features.map((feature, index) => {
-            if (!isRecord(feature) || feature.type !== "Feature" || !isBoundary(feature.geometry) || !isRecord(feature.properties)) {
-                throw new Error("Invalid zone boundary");
-            }
+        features: matches.map((feature, index) => {
             const properties = feature.properties;
-            const name = String(properties.WADMKC ?? "").trim().toLowerCase();
-            const city = String(properties.WADMKK ?? "").replace(/^kota (administrasi|adm\.)\s+/i, "").trim().toLowerCase();
-            if (name !== zone.zone_name.toLowerCase() || city !== zone.city_name.toLowerCase()) {
-                throw new Error("Boundary does not match the requested zone");
-            }
             return {
                 type: "Feature",
                 id: `${zone.zone_id}-${index}`,

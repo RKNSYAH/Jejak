@@ -1,7 +1,10 @@
 import { getZoneRow } from "@/app/engine/controller/zoneController";
 import { getZoneBoundary } from "@/app/engine/lib/zoneBoundary";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(req: Request) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     const zoneId = new URL(req.url).searchParams.get("zone_id");
     if (!zoneId) return Response.json({ error: "Missing zone_id" }, { status: 400 });
     let row;

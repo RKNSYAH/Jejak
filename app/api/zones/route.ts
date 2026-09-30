@@ -1,6 +1,9 @@
 import { getZones, validateZoneQuery } from "@/app/engine/controller/zoneController";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(req: Request) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     try {
         const { cityId } = validateZoneQuery(new URL(req.url).searchParams);
         return Response.json(await getZones(cityId));

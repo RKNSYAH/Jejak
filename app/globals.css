@@ -131,12 +131,39 @@
   background: color-mix(in oklab, var(--color-base-content) 42%, transparent);
 }
 
+/* Non-modal onboarding sheet: keeps the map available for destination picking. */
+.onboarding-form-panel:not([open]) {
+  display: none;
+}
+
+.onboarding-hatch-swatch {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--color-ink-muted) 3px 4px, transparent 4px 7px);
+}
+
+.onboarding-sample-popup .maplibregl-popup-content {
+  @apply bg-base-100 p-4 shadow-overlay;
+  border: 1px solid var(--color-rule);
+  border-radius: 12px;
+}
+
+.onboarding-sample-popup .maplibregl-popup-close-button {
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--color-ink);
+}
+
 /* Without CSS anchor positioning, pin the legend above the bottom-left map
    controls rather than daisyUI's fallback of centering it over the map. */
 @supports not (position-area: block-start) {
   .map-legend-popover {
-    inset: auto auto 6rem 1rem;
+    inset: auto auto max(1rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
     margin: 0;
+  }
+
+  @media (min-width: 768px) {
+    .map-legend-popover {
+      inset: auto auto 6rem 1rem;
+    }
   }
 }
 

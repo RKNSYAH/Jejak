@@ -1,5 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { authCookieOptions, SESSION_ONLY_COOKIE } from "./app/engine/lib/authSession";
+import { loginPath } from "./app/engine/lib/authDestination";
 
 
 export async function proxy(req: NextRequest) {
@@ -13,10 +15,11 @@ export async function proxy(req: NextRequest) {
                     return req.cookies.getAll();
                 },
                 setAll(cookiesToSet, headers) {
+                    const sessionOnly = req.cookies.get(SESSION_ONLY_COOKIE)?.value === "1";
                     cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
                     response = NextResponse.next({ request: req });
                     cookiesToSet.forEach(({ name, value, options }) =>
-                        response.cookies.set(name, value, options)
+                        response.cookies.set(name, value, authCookieOptions(options, sessionOnly))
                     );
                     Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
                 },
@@ -24,7 +27,18 @@ export async function proxy(req: NextRequest) {
         }
     );
 
-    await supabase.auth.getClaims();
+    const result = await supabase.auth.getClaims().catch(() => null);
+    const claims = result?.error ? null : result?.data?.claims;
+    if (!claims && req.nextUrl.pathname === "/map") {
+        const redirect = NextResponse.redirect(new URL(loginPath(`${req.nextUrl.pathname}${req.nextUrl.search}`), req.url));
+        response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+        for (const header of ["cache-control", "expires", "pragma"]) {
+            const value = response.headers.get(header);
+            if (value) redirect.headers.set(header, value);
+        }
+        redirect.headers.set("Cache-Control", "no-store");
+        return redirect;
+    }
     return response;
 }
 

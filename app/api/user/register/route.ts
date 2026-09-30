@@ -21,11 +21,17 @@ export async function POST(request: Request) {
         return Response.json({ error: "Email, password, and name are required." }, { status: 400 });
     }
 
-    const { data, error } = await registerUser(email.trim(), password, name.trim());
+    const callback = new URL("/auth/callback", request.url);
+    callback.searchParams.set("next", "/map?welcome=1");
+    const { data, error } = await registerUser(email.trim(), password, name.trim(), callback.toString());
 
     if (error) {
         return Response.json({ error: error.message }, { status: 400 });
     }
 
-    return Response.json({ message: "User registered successfully", userId: data.user?.id }, { status: 201 });
+    return Response.json({
+        message: data.session ? "User registered successfully" : "Check your email to confirm your account",
+        userId: data.user?.id,
+        requiresConfirmation: !data.session,
+    }, { status: 201 });
 }

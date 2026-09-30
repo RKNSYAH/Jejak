@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     "test-results/**",
     "blob-report/**",
+    // Local scratch files, also excluded by .gitignore.
+    "**/.temp/**",
   ]),
 ]);
 

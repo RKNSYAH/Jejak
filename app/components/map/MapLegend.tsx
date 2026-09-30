@@ -74,7 +74,7 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
                     {layer.shortLabel}
                 </button>)}
             </div>}
-            <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 w-72 rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
+             <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 max-h-[min(65dvh,32rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
                 <h2 className="font-semibold">{config.label}</h2>
                 {category === "summary" ? <p className="mt-2">Light blue: ranked or opened region. Selected region has a darker outline.</p> : <>
                     <p className="mt-1 text-xs text-ink-muted">District fill · {describe(sources, "Source unavailable", "Multiple sources")} · {describe(periods, "Period unavailable", "Multiple periods")}</p>

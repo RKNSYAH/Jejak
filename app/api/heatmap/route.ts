@@ -1,6 +1,9 @@
 import { getMapCells, validateCellQuery } from "@/app/engine/controller/zoneController";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(req: Request) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     let query: ReturnType<typeof validateCellQuery>;
     try {
         query = validateCellQuery(new URL(req.url).searchParams);

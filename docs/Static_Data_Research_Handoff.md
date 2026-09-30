@@ -23,6 +23,8 @@ claims. Those belong to the dynamic LF-01 enrichment flow.
 - Leave unknown values blank. Do not use `N/A`, `-`, or invented values.
 - Use stable lowercase codes for regions, institutions, and sectors.
 - Use complete `https://` URLs.
+- `source_name` supports up to 255 characters in Supabase; include enough
+  detail to identify the publisher, release, and table when available.
 - Preserve the original source file and page/table reference for audit.
 - Record each value only for the region the source publishes it for. See
   [Geographic levels](#geographic-levels).
@@ -69,23 +71,31 @@ larger area.
 
 | Sheet | Database table | Import behavior |
 |---|---|---|
-| `regions` | `public.regions` | One row becomes one region |
-| `population` | `public.region_data` | Each populated statistic becomes a metric row |
-| `labor_force` | `public.region_data` | Each labor statistic becomes a metric row |
-| `sector_employment` | `public.region_data` | Each sector statistic becomes a metric row |
-| `wages_income` | `public.region_data` | Each wage/income statistic becomes a metric row |
-| `institutions` | `public.institutions` | One row becomes one institution |
-| `campuses` | `public.places` | One row becomes a campus place |
-| `student_enrollment` | `public.institution_data` | One row becomes one enrollment observation |
-| `education_facilities` | `public.region_data` | Facility counts become metric rows |
-| `healthcare_facilities` | `public.region_data` | Healthcare counts become metric rows |
-| `transport_infrastructure` | `public.region_data` | Transport values become metric rows |
-| `public_places` | `public.places` | One row becomes one public place |
-| `housing_statistics` | `public.region_data` | Housing aggregates become metric rows |
-| `cost_of_living` | `public.region_data` | Cost values become metric rows |
-| `sector_mapping` | None (reference) | Links KBLI codes to Jejak sector IDs |
-| `geospatial_sources` + `map_data/` files | `regions`, `region_data`, `places` | The ETL loads boundaries, generates grid cells, and computes per-cell values |
-| `estimation_parameters` | None (reference) | Inputs to the ETL's office-worker estimate |
+| `regions` | `public.regions` | One row becomes one region; workbook columns are present alongside internal IDs and legacy read aliases |
+| `population` | `public.population` | One row preserves all population measures and their shared provenance |
+| `labor_force` | `public.labor_force` | One row preserves all labor-force measures and sample details |
+| `sector_employment` | `public.sector_employment` | One row per region, KBLI section, reporting period, and source |
+| `wages_income` | `public.wages_income` | One row preserves the wage and income measures reported together |
+| `institutions` | `public.institutions` | One row becomes one institution; workbook columns coexist with internal IDs and legacy read aliases |
+| `campuses` | `public.campuses` | One row becomes one campus, identified by its OSM identity when available |
+| `student_enrollment` | `public.student_enrollment` | One row becomes one institution/campus/program enrollment observation |
+| `education_facilities` | `public.education_facilities` | One row preserves education facility counts and provenance |
+| `healthcare_facilities` | `public.healthcare_facilities` | One row preserves healthcare facility counts and provenance |
+| `transport_infrastructure` | `public.transport_infrastructure` | One row preserves transport values and provenance |
+| `public_places` | `public.public_places` | One row becomes one public place |
+| `housing_statistics` | `public.housing_statistics` | One row per region, housing type, reporting period, and source |
+| `cost_of_living` | `public.cost_of_living` | One row preserves cost and price-index measures with shared provenance |
+| `sector_mapping` | `public.sector_mapping` | Reference rows link KBLI codes to Jejak sector IDs |
+| `geospatial_sources` + `map_data/` files | `public.geospatial_sources`, then `regions`, `region_data`, and `places` | The ETL records each source, loads boundaries, generates grid cells, and computes per-cell values |
+| `estimation_parameters` | `public.estimation_parameters` | Reference rows provide low/high inputs to the ETL's office-worker estimate |
+
+The sheet-backed database tables use the sheet's exact column names. `id` columns
+are internal database keys; `regions` and `institutions` also retain synchronized
+legacy aliases for existing RPCs. Statistical rows are stored wide in their
+matching tables. The map API exposes them as one metric per fact and includes the
+source, period, sample marker, and housing-type/KBLI dimension where applicable.
+The separate `region_data` table remains for ETL-generated grid facts and older
+application data; it is not the import target for workbook statistics.
 
 ## 1. Regions
 
@@ -126,8 +136,9 @@ Allowed region types: `country`, `province`, `regency`, `city`, `district`,
 - `bps_code` is the BPS region code. Fill it when a BPS table you deliver uses
   it. BIG's layers usually leave it empty, and BPS codes differ from Kemendagri
   codes in DKI Jakarta.
-- `regions` has no columns for these two codes yet; they are added in the next
-  schema update. Collect them now.
+- `regions` stores both official-code columns. `kemendagri_code` is required for
+  the administrative rows listed above; leave `bps_code` blank unless the BPS
+  source you deliver provides it.
 - Kelurahan names repeat across kecamatan, so prefix a neighborhood code with its
   district code (`setiabudi-karet-kuningan`).
 - Boundaries do not go in this sheet. Deliver them as map files (section 16).
@@ -136,7 +147,7 @@ Allowed region types: `country`, `province`, `regency`, `city`, `district`,
 ## 2. Population and demographics
 
 **Sheet:** `population`  
-**Database:** `public.region_data`
+**Database:** `public.population`
 
 ### Columns
 
@@ -168,14 +179,15 @@ is_sample
 |---|---:|---:|---:|---:|---:|---:|---|---|---|---:|---|
 | pancoran | 96000 | 48200 | 47800 | 71000 | 28400 | 11200 | 2025-12-31 | BPS Kecamatan Dalam Angka | observed | 1.0000 | TRUE |
 
-Each populated statistic becomes a separate `region_data` metric such as
-`population`, `households`, or `population_density`. Kecamatan and kelurahan
+Import one wide row to `public.population` for each region, source, and reporting
+period. The map API exposes each populated value (`population`, `households`,
+`population_density`, and so on) as a separate fact. Kecamatan and kelurahan
 rows are both welcome when the source reports them.
 
 ## 3. Labor force and unemployment
 
 **Sheet:** `labor_force`  
-**Database:** `public.region_data`
+**Database:** `public.labor_force`
 
 ### Columns
 
@@ -212,7 +224,7 @@ kelurahan labor-force rows from it.
 ## 4. Sector employment
 
 **Sheet:** `sector_employment`  
-**Database:** `public.region_data`
+**Database:** `public.sector_employment`
 
 ### Columns
 
@@ -247,13 +259,14 @@ table merges sections, join the letters with underscores (`d_e`). Do not invent
 Jejak-specific sector codes here; `sector_mapping` (section 15) links KBLI
 sections to Jejak sectors.
 
-The importer creates metrics such as `sector_employment:kbli_j` and
-`sector_employment_percentage:kbli_j`.
+The map API exposes metrics such as `employed_people:kbli_j` and
+`employment_percentage:kbli_j`, retaining `kbli_2020_code = j` as the fact
+dimension. The source sheet remains one row per region and KBLI section.
 
 ## 5. Wages and income
 
 **Sheet:** `wages_income`  
-**Database:** `public.region_data`
+**Database:** `public.wages_income`
 
 ### Columns
 
@@ -315,7 +328,7 @@ Allowed types: `university`, `polytechnic`, `school`, `training_provider`,
 ## 7. Campuses
 
 **Sheet:** `campuses`  
-**Database:** `public.places` with `category = campus`
+**Database:** `public.campuses`
 
 ### Columns
 
@@ -325,6 +338,7 @@ region_code
 campus_name
 osm_type
 osm_id
+osm_tags
 latitude
 longitude
 address
@@ -346,7 +360,7 @@ is_active
 ## 8. Student enrollment
 
 **Sheet:** `student_enrollment`  
-**Database:** `public.institution_data`
+**Database:** `public.student_enrollment`
 
 ### Columns
 
@@ -393,7 +407,7 @@ enrollment requires campus-specific evidence.
 ## 9. Education facilities
 
 **Sheet:** `education_facilities`  
-**Database:** `public.region_data`
+**Database:** `public.education_facilities`
 
 ### Columns
 
@@ -426,7 +440,7 @@ is_sample
 ## 10. Healthcare facilities
 
 **Sheet:** `healthcare_facilities`  
-**Database:** `public.region_data`
+**Database:** `public.healthcare_facilities`
 
 ### Columns
 
@@ -459,7 +473,7 @@ is_sample
 ## 11. Transport infrastructure
 
 **Sheet:** `transport_infrastructure`  
-**Database:** `public.region_data`
+**Database:** `public.transport_infrastructure`
 
 ### Columns
 
@@ -495,7 +509,7 @@ These are counts per region. Individual stops and stations belong in
 ## 12. Public places
 
 **Sheet:** `public_places`  
-**Database:** `public.places`
+**Database:** `public.public_places`
 
 ### Columns
 
@@ -506,6 +520,7 @@ place_name
 category
 osm_type
 osm_id
+osm_tags
 latitude
 longitude
 address
@@ -529,10 +544,77 @@ Allowed categories: `campus`, `transit_stop`, `station`, `hospital`,
 hundreds of stops as an OSM extract or GTFS feed in `map_data/` instead of
 typing rows.
 
+### Getting OSM data
+
+Pick the tool by volume:
+
+| Need | Tool | Output |
+|---|---|---|
+| Up to a few hundred hand-checked rows for this sheet | [Overpass Turbo](https://overpass-turbo.eu) | Export as GeoJSON or CSV |
+| Bulk extracts for `map_data/` (buildings, transit) | [Geofabrik Java extract](https://download.geofabrik.de/asia/indonesia/java.html), filtered with `osmium tags-filter` | `.osm.pbf` |
+| A drawn area without writing queries | [HOT Export Tool](https://export.hotosm.org) | GeoPackage or Shapefile |
+
+This Overpass query returns every category for DKI Jakarta:
+
+```text
+[out:json][timeout:120];
+area["ISO3166-2"="ID-JK"]->.jkt;
+(
+  nwr["amenity"="hospital"](area.jkt);
+  nwr["amenity"~"^(university|college)$"](area.jkt);
+  nwr["railway"~"^(station|halt)$"](area.jkt);
+  nwr["public_transport"="station"](area.jkt);
+  nwr["highway"="bus_stop"](area.jkt);
+  nwr["public_transport"="platform"]["bus"="yes"](area.jkt);
+  nwr["amenity"~"^(library|townhall|community_centre|police)$"](area.jkt);
+  nwr["leisure"="park"](area.jkt);
+);
+out center tags;
+```
+
+If the area returns nothing, replace the `area` line with
+`area["name"="Daerah Khusus Ibukota Jakarta"]["admin_level"="4"]->.jkt;`.
+
+Map OSM tags to categories:
+
+| `category` | OSM tags |
+|---|---|
+| `campus` | `amenity=university`, `amenity=college`. Put these in `campuses` (section 7), not here |
+| `station` | `railway=station`, `railway=halt`, `public_transport=station` (MRT, LRT, KRL) |
+| `transit_stop` | `highway=bus_stop`, `public_transport=platform` with `bus=yes` (TransJakarta halte) |
+| `hospital` | `amenity=hospital` |
+| `public_facility` | `amenity=library`, `amenity=townhall`, `amenity=community_centre`, `amenity=police`, `leisure=park` |
+| `other` | Anything checked by hand that fits none of the above |
+
+Fill the OSM columns as follows:
+
+- `osm_type` and `osm_id` come from the element's `type` and `id`. Do not
+  prefix the ID (`123456789`, not `node/123456789`).
+- `latitude` and `longitude` are WGS84 decimal degrees (EPSG:4326). A `node`
+  gives its own `lat`/`lon`. A `way` or `relation` (most campuses, hospitals,
+  and parks) has no single point, so use the `center` that `out center`
+  returns. The database stores one point per place.
+- `osm_tags` holds the element's full tag object as JSON, for example
+  `{"amenity":"hospital","operator:type":"government"}`. Keep it even when the
+  useful tags are also copied into `address`, `operator`, `website`, or `phone`.
+- `source_name` is `OpenStreetMap`, `source_url` is
+  `https://www.openstreetmap.org/<osm_type>/<osm_id>`, and `observed_at` is the
+  date you ran the query.
+- `region_code` may be left blank for rows that have an OSM ID and coordinates.
+  The ETL assigns the kecamatan or kelurahan by point-in-polygon against the
+  boundary layers (section 16). Fill it by hand only for rows without
+  coordinates you trust.
+- OSM data is licensed under ODbL 1.0 and requires the attribution
+  "© OpenStreetMap contributors". Record it in `geospatial_sources` for any OSM
+  file in `map_data/`.
+- Check each exported row before delivery: remove closed or duplicate places
+  (the same stop mapped as a node and a platform way), and set `is_active` to
+  `FALSE` for places tagged `disused:*` or `abandoned:*`.
+
 ## 13. Housing statistics
 
 **Sheet:** `housing_statistics`  
-**Database:** `public.region_data`
+**Database:** `public.housing_statistics`
 
 This sheet contains prepared aggregates, not current individual listings.
 
@@ -572,7 +654,7 @@ licence allows reuse.
 ## 14. Cost of living
 
 **Sheet:** `cost_of_living`  
-**Database:** `public.region_data`
+**Database:** `public.cost_of_living`
 
 ### Columns
 
@@ -612,7 +694,7 @@ is_sample
 ## 15. Sector mapping
 
 **Sheet:** `sector_mapping`  
-**Database:** none (reference for the backend and scoring)
+**Database:** `public.sector_mapping` (reference for the backend and scoring)
 
 BPS reports employment by KBLI 2020 section. Jejak's sectors are narrower, so a
 KBLI section is always broader than the Jejak sector it contains.
@@ -645,8 +727,8 @@ sector and other activities) or `equals`.
 
 **Sheet:** `geospatial_sources`  
 **Files:** a `map_data/` folder next to the workbook  
-**Database:** processed by the ETL into `regions.geometry`, grid-cell
-`regions`, `region_data`, and `places`
+**Database:** `public.geospatial_sources`; map files are processed by the ETL
+into `regions.geometry`, grid-cell `regions`, `region_data`, and `places`
 
 Heatmaps need finer detail than a kecamatan. The ETL divides each supported city
 into H3 hexagon cells (resolution 9, about 0.1 km² each), stores them as
@@ -705,7 +787,7 @@ limitations
 ## 17. Estimation parameters
 
 **Sheet:** `estimation_parameters`  
-**Database:** none (stored with the ETL method version)
+**Database:** `public.estimation_parameters` (stored with the ETL method version)
 
 The office-worker estimate multiplies office floor area by published ratios.
 Find published values, and give a low and a high value rather than one number.
@@ -814,7 +896,8 @@ Put the files listed in `16_geospatial_sources` in `map_data/`.
 
 ## Handoff checklist
 
-- Every row has a valid `region_code` or `institution_code`.
+- Every row has a valid `region_code` or `institution_code`. The exception is
+  OSM place rows with coordinates, where the ETL assigns the region (section 12).
 - Parent regions exist in `regions`.
 - Every province, city, district, and neighborhood row has its `kemendagri_code`.
 - Each figure is recorded at the level its source reports; no city or province

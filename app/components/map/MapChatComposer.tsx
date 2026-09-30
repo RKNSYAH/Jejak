@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent, type Ref } from "react";
-import { ArrowUp, House, Map, MessageSquareText, Mic, Route, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUp, House, Map, MessageSquareText, Route, SlidersHorizontal, X } from "lucide-react";
 
 import type { MapCategory } from "@/app/engine/types";
 import { mapCategories } from "./mapMetrics";
@@ -56,13 +56,13 @@ export default function MapChatComposer({
             data-hci-region="map-chat"
             aria-hidden={!visible}
             hidden={!visible}
-            className={`pointer-events-none absolute bottom-0 left-0 z-100 flex justify-center px-3 md:px-4 ${isDragging ? "" : "transition-[bottom,right] duration-200 ease-out motion-reduce:transition-none"}`}
+            className={`pointer-events-none absolute bottom-0 left-0 z-100 flex justify-center px-[max(0.75rem,env(safe-area-inset-left))] md:px-4 ${isDragging ? "" : "transition-[bottom,right] duration-200 ease-out motion-reduce:transition-none"}`}
             style={{
                 right: sidebarWidth,
                 bottom: `calc(var(--map-sheet-height, ${sheetHeight}px) + 16px)`,
             }}
         >
-            <section aria-label="Tanya tentang peta" className="pointer-events-auto w-full max-w-[42rem]">
+            <section aria-label="Tanya tentang peta" className="pointer-events-auto w-full max-w-2xl">
                 <div role="group" className="map-chat-suggestions flex gap-2 overflow-x-auto overscroll-x-contain pb-2" aria-label="Pertanyaan yang disarankan">
                     {suggestions.map(({ label, prompt: suggestedPrompt, Icon }) => (
                         <button
@@ -87,7 +87,7 @@ export default function MapChatComposer({
                 >
                     <MessageSquareText aria-hidden="true" className="size-5 shrink-0 text-ink max-[420px]:hidden" />
                     <div className="flex min-w-0 flex-1 items-center gap-1.5 md:gap-2">
-                        <span className="flex max-w-[48%] min-w-0 shrink-0 items-center gap-1 rounded-lg bg-primary-tint px-2 py-1.5 text-xs font-semibold text-ink">
+                         <span className="hidden max-w-[48%] min-w-0 shrink-0 items-center gap-1 rounded-lg bg-primary-tint px-2 py-1.5 text-xs font-semibold text-ink min-[400px]:flex">
                             <Map aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
                             <span className="truncate">{contextLabel}</span>
                             {selectedZoneName && (

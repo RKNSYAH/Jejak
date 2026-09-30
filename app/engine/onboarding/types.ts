@@ -1,0 +1,71 @@
+export const FORM_DRAFT_KEY = "jejak:relocation-form:v1";
+export type FormStep = 1 | 2 | 3 | 4;
+export type Goal = "work" | "study" | "both";
+export type Housing = "kos" | "apartment" | "house" | "unsure";
+export type Transport = "transit" | "motorcycle" | "car" | "active";
+export type Priority = "opportunity" | "affordability" | "mobility" | "environment";
+export type Weights = Record<Priority, number>;
+export type City = "jakarta-selatan" | "bandung" | "yogyakarta" | "unsure";
+export type Extra = "internet" | "healthcare" | "quiet";
+export type FormAnswers = {
+    goal: Goal;
+    occupation: string;
+    sector: string | null;
+    studyField: string;
+    education: string;
+    city: City;
+    experience: "graduate" | "early" | "experienced";
+    monthlyBudget: number;
+    maximumRent: number;
+    overBudget: "mark" | "hide";
+    housing: Housing[];
+    destinationId: string | null;
+    transport: Transport;
+    commuteMinutes: 15 | 30 | 45 | 60;
+    departure: "morning" | "midday" | "evening" | "flexible";
+    weights: Weights;
+    extras: Extra[];
+};
+export type FormSession = {
+    version: 1;
+    status: "active" | "paused" | "skipped" | "completed";
+    step: FormStep;
+    answers: FormAnswers;
+};
+export type DemoDistrict = {
+    id: string;
+    name: string;
+    center: [number, number];
+    rent: Record<Exclude<Housing, "unsure">, number>;
+    otherCosts: number;
+    career: number;
+    education: number;
+    environment: number;
+    commute: Record<string, number>;
+    extras: Extra[];
+    is_sample: true;
+};
+export type DemoDestination = {
+    id: string;
+    name: string;
+    center: [number, number];
+    kind: "office" | "campus";
+};
+export type DistrictRecommendation = {
+    district: DemoDistrict;
+    rent: number;
+    monthlyCost: number;
+    commuteMinutes: number | null;
+    eligible: boolean;
+    exclusions: string[];
+    reasons: string[];
+    score: number;
+    rank: number | null;
+};
+export type OnboardingPreview = {
+    available: boolean;
+    districts: DistrictRecommendation[];
+    ranked: DistrictRecommendation[];
+    affordableCount: number;
+    eligibleCount: number;
+};

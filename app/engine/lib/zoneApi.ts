@@ -1,12 +1,14 @@
 import type { MapCategory, MapCellsResponse, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "../types";
 import { isBoundary, isRecord } from "./zoneGeometry";
+import { handleAuthFailure } from "./authRedirect";
+import { ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "./zoneRequestTimeouts";
 
 function isNullableNumber(value: unknown): value is number | null {
     return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
-export async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
-    const timeout = AbortSignal.timeout(20000);
+export async function getJson(url: string, signal: AbortSignal, timeoutMs = ZONE_REQUEST_TIMEOUT_MS): Promise<unknown> {
+    const timeout = AbortSignal.timeout(timeoutMs);
     let res: Response;
     try {
         res = await fetch(url, { signal: AbortSignal.any([signal, timeout]) });
@@ -15,6 +17,7 @@ export async function getJson(url: string, signal: AbortSignal): Promise<unknown
         if (timeout.aborted || (error instanceof Error && error.name === "TimeoutError")) throw new Error("Zone request timed out. Please retry.");
         throw new Error("Unable to connect to the zone service. Please retry.");
     }
+    handleAuthFailure(res);
     const data: unknown = await res.json().catch((error: unknown) => {
         if (signal.aborted) throw error;
         if (timeout.aborted) throw new Error("Zone request timed out. Please retry.");
@@ -72,6 +75,7 @@ export async function getMapCells(zoneId: string, category: MapCategory, signal:
 
 function parseGeometry(data: unknown, zoneId: string): ZoneGeometry {
     if (!isRecord(data) || data.type !== "FeatureCollection" || !Array.isArray(data.features)) throw new Error("Invalid geometry response");
+    if (data.features.length === 0) throw new Error("No boundary found for the requested zone. Please retry.");
     const features = data.features.map((feature) => {
         if (!isRecord(feature) || feature.type !== "Feature" || !isBoundary(feature.geometry) || !isRecord(feature.properties) ||
             feature.properties.zone_id !== zoneId || typeof feature.properties.zone_name !== "string") throw new Error("Invalid zone boundary");
@@ -100,19 +104,33 @@ function parseDetails(data: unknown): ZoneDetailResult {
             (fact.confidence == null || (typeof fact.confidence === "number" && fact.confidence >= 0 && fact.confidence <= 1)) &&
             ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
             (fact.limitations === null || typeof fact.limitations === "string") && typeof fact.is_sample === "boolean" &&
+            (fact.dimension_key === undefined || fact.dimension_key === null ||
+                fact.dimension_key === "kbli_2020_code" || fact.dimension_key === "housing_type") &&
+            (fact.dimension_value === undefined || fact.dimension_value === null || typeof fact.dimension_value === "string") &&
+            ((fact.dimension_key == null && fact.dimension_value == null) ||
+                (typeof fact.dimension_key === "string" && typeof fact.dimension_value === "string")) &&
             (fact.approximate === undefined || typeof fact.approximate === "boolean")) ||
         !data.places.every((place) => isRecord(place) && typeof place.id === "number" &&
             typeof place.name === "string" && typeof place.category === "string" &&
             typeof place.latitude === "number" && Number.isFinite(place.latitude) && Math.abs(place.latitude) <= 90 &&
             typeof place.longitude === "number" && Number.isFinite(place.longitude) && Math.abs(place.longitude) <= 180 &&
-            typeof place.source === "string" && typeof place.is_sample === "boolean")) {
+            typeof place.source === "string" && typeof place.is_sample === "boolean" &&
+            (place.source_url == null || typeof place.source_url === "string") &&
+            (place.address == null || typeof place.address === "string") &&
+            (place.website == null || typeof place.website === "string") &&
+            (place.phone == null || typeof place.phone === "string") &&
+            (place.operator == null || typeof place.operator === "string") &&
+            ((place.osm_type == null && place.osm_id == null) ||
+                (["node", "way", "relation"].includes(String(place.osm_type)) &&
+                 typeof place.osm_id === "number" && Number.isSafeInteger(place.osm_id) && place.osm_id > 0)) &&
+            (place.osm_tags === undefined || isRecord(place.osm_tags)))) {
         throw new Error("Invalid region data");
     }
     return data as ZoneDetailResult;
 }
 
 export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Promise<ZoneGeometry> {
-    return parseGeometry(await getJson(`/api/geometry?zone_id=${encodeURIComponent(zoneId)}`, signal), zoneId);
+    return parseGeometry(await getJson(`/api/geometry?zone_id=${encodeURIComponent(zoneId)}`, signal, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS), zoneId);
 }
 
 export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneDetailResult> {
@@ -124,7 +142,7 @@ export async function getZoneMapData(zoneId: string, signal: AbortSignal): Promi
     details: ZoneDetailResult;
     geometryError: string | null;
 }> {
-    const data = await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services&include_geometry=1`, signal);
+    const data = await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services&include_geometry=1`, signal, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS);
     if (!isRecord(data) || !("geometry" in data) || (data.geometry_error !== null && typeof data.geometry_error !== "string")) {
         throw new Error("Invalid region map response");
     }

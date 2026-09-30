@@ -5,23 +5,32 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronLeft, Eye, EyeOff } from "lucide-react";
 import { loginUser, loginWithGoogle, registerUser, requestPasswordReset, updatePassword } from "../engine/controller/userController";
+import { authDestination, signupDestination } from "../engine/lib/authDestination";
+import { setRememberPreference } from "../engine/lib/client";
+import BrandLogo from "../components/BrandLogo";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
 
 export default function LoginForm({
   initialMode,
-  callbackError,
+  next,
+  error,
+  signedOut,
 }: {
-  initialMode: "login" | "signup" | "reset";
-  callbackError: boolean;
+  initialMode: Mode;
+  next: string;
+  error: string | null;
+  signedOut: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState(callbackError ? "Tautan masuk tidak valid atau sudah kedaluwarsa. Coba lagi." : "");
+  const [message, setMessage] = useState(error === "callback" ? "Tautan masuk tidak valid atau sudah kedaluwarsa. Coba lagi." : error === "reset" ? "Tautan pengaturan ulang tidak berlaku. Minta tautan baru." : signedOut ? "Kamu sudah keluar dari akun." : "");
+  const destination = authDestination(next);
 
   const isSignup = mode === "signup";
   const isLogin = mode === "login";
@@ -53,16 +62,20 @@ export default function LoginForm({
 
     try {
       if (isLogin) {
+        setRememberPreference(remember);
         const { error } = await loginUser(email, password);
         if (error) throw error;
-        router.push("/map");
+        router.replace(destination);
+        router.refresh();
       } else if (isSignup) {
+        setRememberPreference(true);
         const callback = new URL("/auth/callback", window.location.origin);
-        callback.searchParams.set("next", "/map?welcome=1");
+        callback.searchParams.set("next", signupDestination(destination));
         const { data, error } = await registerUser(email, password, "", callback.toString());
         if (error) throw error;
         if (data.session) {
-          router.push("/map?welcome=1");
+          router.replace(signupDestination(destination));
+          router.refresh();
         } else {
           setMessage("Periksa emailmu untuk mengonfirmasi akun, lalu lanjutkan masuk.");
         }
@@ -77,10 +90,11 @@ export default function LoginForm({
         }
         const { error } = await updatePassword(password);
         if (error) throw error;
-        changeMode("login");
-        setMessage("Kata sandi berhasil diperbarui. Silakan masuk.");
+        router.replace("/map?passwordUpdated=1");
+        router.refresh();
       }
     } catch (error) {
+      if (isLogin) setRememberPreference(true);
       setMessage(error instanceof Error ? error.message : "Terjadi kesalahan. Silakan coba lagi.");
     } finally {
       setPending(false);
@@ -92,139 +106,146 @@ export default function LoginForm({
     setPending(true);
     setMessage("");
     try {
-      const next = isSignup ? "/map?welcome=1" : "/map";
-      const { error } = await loginWithGoogle(window.location.origin, next);
+      setRememberPreference(isSignup || remember);
+      const oauthDestination = isSignup ? signupDestination(destination) : destination;
+      const { error } = await loginWithGoogle(window.location.origin, oauthDestination);
       if (error) throw error;
     } catch (error) {
+      setRememberPreference(true);
       setMessage(error instanceof Error ? error.message : "Tidak dapat masuk dengan Google. Coba lagi.");
       setPending(false);
     }
   }
 
   return (
-    <main className="flex h-dvh w-full flex-1 justify-end overflow-hidden bg-base-100 font-body text-ink" data-hci-region="login-page">
-      <div className="h-dvh w-full overflow-y-auto overscroll-contain bg-base-100 md:max-w-xl md:border-l md:border-rule md:shadow-overlay">
-      <div className={`relative mx-auto flex min-h-dvh w-full max-w-[242px] flex-col pb-4 md:left-0 md:max-w-[400px] md:pb-8 ${isLogin ? "-left-2" : "-left-0.5"}`}>
-        <header className="flex items-center justify-between pl-[3px] pt-[27px] md:pl-0 md:pt-12">
-          <Link href="/" className="inline-flex min-h-5 items-center gap-1 text-[8px] font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:min-h-11 md:gap-2 md:text-sm">
-            <ChevronLeft aria-hidden="true" className="size-3 md:size-4" strokeWidth={1.75} />
-            Beranda
-          </Link>
-          {isSignup && <span className="text-[8px] text-ink-muted md:text-xs">Langkah 1 dari 5 · Akun</span>}
-        </header>
+    <main className="relative flex min-h-dvh w-full shrink-0 flex-col bg-base-100 font-body text-ink lg:flex-row lg:justify-end" data-hci-region="login-page">
+      <header className="flex min-h-20 w-full shrink-0 items-center border-b border-rule px-4 pt-[env(safe-area-inset-top)] lg:hidden" data-hci-region="auth-header">
+        <Link href="/" aria-label="Beranda" className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+          <ChevronLeft aria-hidden="true" className="size-6" strokeWidth={1.75} />
+        </Link>
+        <BrandLogo large border={false} />
+      </header>
+      <div className="hidden lg:absolute lg:left-8 lg:top-8 lg:block" data-hci-region="auth-brand">
+        <BrandLogo large />
+      </div>
+      <div className="flex w-full flex-1 flex-col bg-base-100 lg:max-w-xl lg:border-l lg:border-rule lg:shadow-overlay">
+        <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 lg:min-h-dvh lg:pb-8">
+          <header className="hidden flex-wrap items-center justify-between gap-2 pt-12 lg:flex">
+            <Link href="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+              <ChevronLeft aria-hidden="true" className="size-4" strokeWidth={1.75} />
+              Beranda
+            </Link>
+            {isSignup && <span className="text-xs text-ink-muted">Langkah 1 dari 5 · Akun</span>}
+          </header>
+          {isSignup && <p className="mt-4 text-right text-xs text-ink-muted lg:hidden">Langkah 1 dari 5 · Akun</p>}
 
-        <div className={`${isLogin ? "mt-[45px]" : "mt-[21px]"} md:mt-8`}>
-          {(isLogin || isSignup) && (
-            <nav aria-label="Pilih cara mengakses akun" className="flex h-[30px] rounded-[8px] border border-rule p-[2px] md:h-12 md:rounded-xl md:p-1" data-hci-region="login-mode">
-              <button type="button" aria-current={isLogin ? "page" : undefined} onClick={() => changeMode("login")} className={`btn min-h-0 h-full flex-1 rounded-[5px] border-0 text-[8px] font-semibold shadow-none md:rounded-lg md:text-sm ${isLogin ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
-                Masuk
-              </button>
-              <button type="button" aria-current={isSignup ? "page" : undefined} onClick={() => changeMode("signup")} className={`btn min-h-0 h-full flex-1 rounded-[5px] border-0 text-[8px] font-semibold shadow-none md:rounded-lg md:text-sm ${isSignup ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
-                Daftar
-              </button>
-            </nav>
-          )}
-
-          <section aria-labelledby="auth-title" className="mt-[12px] md:mt-5" data-hci-region="login-form">
-            <h1 id="auth-title" className="font-sans text-[18px] font-bold leading-[22px] tracking-[-0.02em] md:text-3xl md:leading-tight">
-              {isLogin ? "Masuk ke Jejak" : isSignup ? "Buat akun Jejak" : mode === "forgot" ? "Lupa kata sandi?" : "Atur kata sandi baru"}
-            </h1>
-
-            {isLogin && <p className="mt-1 text-[8px] leading-[13px] text-ink-muted md:mt-2 md:text-sm">Buka lagi profil, area tersimpan, dan paketmu.</p>}
-            {isSignup && (
-              <p className="mt-[5px] flex items-center gap-1 text-[7px] leading-[15px] text-ink-muted md:mt-3 md:gap-2 md:text-xs">
-                <span className="badge badge-primary badge-soft h-[15px] rounded-full border-primary/20 px-[6px] text-[7px] font-semibold md:h-6 md:px-3 md:text-xs">Paket Gratis</span>
-                Bisa ditingkatkan kapan saja.
-                <Link href="/pricing" className="font-semibold text-primary underline underline-offset-1">Lihat paket</Link>
-              </p>
+          <div className="mt-8">
+            {(isLogin || isSignup) && (
+              <nav aria-label="Pilih cara mengakses akun" className="flex min-h-12 rounded-xl border border-rule p-1" data-hci-region="login-mode">
+                <button type="button" aria-current={isLogin ? "page" : undefined} onClick={() => changeMode("login")} className={`btn min-h-11 flex-1 rounded-lg border-0 text-sm font-semibold shadow-none ${isLogin ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
+                  Masuk
+                </button>
+                <button type="button" aria-current={isSignup ? "page" : undefined} onClick={() => changeMode("signup")} className={`btn min-h-11 flex-1 rounded-lg border-0 text-sm font-semibold shadow-none ${isSignup ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
+                  Daftar
+                </button>
+              </nav>
             )}
-            {mode === "forgot" && <p className="mt-2 text-[8px] text-ink-muted md:text-sm">Masukkan emailmu untuk menerima tautan pengaturan ulang.</p>}
-            {mode === "reset" && <p className="mt-2 text-[8px] text-ink-muted md:text-sm">Buat kata sandi baru untuk akunmu.</p>}
 
-            <form method="post" onSubmit={handleSubmit} className={`${isSignup ? "mt-[15px]" : isLogin ? "mt-[16px]" : "mt-[14px]"} md:mt-5`}>
-              {mode !== "reset" && (
-                <div>
-                  <label htmlFor="email" className="mb-[4px] block text-[8px] font-semibold leading-[10px] md:mb-2 md:text-sm md:leading-normal">Email</label>
-                  <input id="email" name="email" type="email" required autoComplete="username" enterKeyHint="next" placeholder={isSignup ? "nama@email.com" : "raka@email.com"} value={email} onChange={(event) => setEmail(event.target.value)} className="input h-[29px] min-h-0 w-full rounded-[5px] border-rule bg-transparent px-[9px] text-[8px] text-ink placeholder:text-ink-muted focus:border-primary focus:outline-primary md:h-12 md:rounded-lg md:px-4 md:text-base" />
-                </div>
-              )}
-
-              {isPasswordMode && (
-                <div className={mode === "reset" ? "" : `${isLogin ? "mt-[4px]" : "mt-[9px]"} md:mt-5`}>
-                  <div className="mb-[4px] flex items-center justify-between md:mb-2">
-                    <label htmlFor={isLogin ? "current-password" : "new-password"} className="text-[8px] font-semibold leading-[10px] md:text-sm md:leading-normal">Kata sandi</label>
-                    {isLogin && <button type="button" onClick={() => changeMode("forgot")} className="min-h-4 text-[7px] font-semibold text-primary underline underline-offset-1 focus-visible:outline-2 focus-visible:outline-primary md:text-xs">Lupa kata sandi?</button>}
-                  </div>
-                  <div className="input relative flex h-[29px] min-h-0 w-full items-center rounded-[5px] border-rule bg-transparent p-0 focus-within:border-primary focus-within:outline-primary md:h-12 md:rounded-lg">
-                    <input id={isLogin ? "current-password" : "new-password"} name="password" type={showPassword ? "text" : "password"} required autoComplete={isLogin ? "current-password" : "new-password"} aria-describedby={isLogin ? undefined : "password-hints"} enterKeyHint="done" placeholder={isSignup ? "••••••••" : "Masukkan kata sandi"} value={password} onChange={(event) => setPassword(event.target.value)} className="h-full min-w-0 flex-1 bg-transparent pl-[9px] pr-1 text-[8px] text-ink placeholder:text-ink-muted focus:outline-none md:pl-4 md:text-base" />
-                    <button type="button" aria-label={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)} className="flex h-full w-7 shrink-0 items-center justify-center text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:w-12">
-                      {showPassword ? <EyeOff aria-hidden="true" className="size-[11px] md:size-5" /> : <Eye aria-hidden="true" className="size-[11px] md:size-5" />}
-                    </button>
-                  </div>
-                  {(isSignup || mode === "reset") && (
-                    <div id="password-hints" className="mt-[5px] flex flex-wrap items-center gap-x-[9px] gap-y-1 text-[7px] text-ink-muted md:mt-3 md:gap-x-4 md:text-xs">
-                      {([ ["length", "Minimal 8 karakter"], ["letter", "Huruf kecil"], ["number", "Satu angka"] ] as const).map(([check, label]) => (
-                        <span key={check} className="inline-flex items-center gap-[3px]">
-                          {passwordChecks[check] ? <Check aria-hidden="true" className="size-[8px] text-primary md:size-3" /> : <span aria-hidden="true" className="size-[6px] rounded-full border border-ink-muted md:size-2" />}
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {isLogin && (
-                <label className="mt-[6px] flex min-h-[16px] cursor-pointer items-center gap-[6px] text-[7px] md:mt-3 md:min-h-8 md:gap-3 md:text-sm">
-                  <input name="remember" type="checkbox" className="checkbox checkbox-xs size-[10px] rounded-none border-ink-muted md:size-4" />
-                  Tetap masuk di perangkat ini
-                </label>
-              )}
+            <section aria-labelledby="auth-title" className="mt-[12px] md:mt-5" data-hci-region="login-form">
+              <h1 id="auth-title" className="font-sans text-2xl font-bold leading-tight tracking-[-0.02em] md:text-3xl">
+                {isLogin ? "Masuk ke Jejak" : isSignup ? "Buat akun Jejak" : mode === "forgot" ? "Lupa kata sandi?" : "Atur kata sandi baru"}
+              </h1>
 
               {isSignup && (
-                <div className="mt-[10px] space-y-[5px] md:mt-5 md:space-y-2">
-                  <label className="flex min-h-[15px] items-center gap-[6px] text-[7px] md:min-h-9 md:gap-3 md:text-sm">
-                    <input name="terms" type="checkbox" required className="checkbox checkbox-xs size-[10px] rounded-none border-ink-muted md:size-4" />
-                    <span>Saya setuju dengan <Link href="/terms" className="font-semibold text-primary underline">Syarat layanan</Link> dan <Link href="/privacy" className="font-semibold text-primary underline">Kebijakan privasi</Link> Jejak.</span>
-                  </label>
-                  <label className="flex min-h-[15px] items-center gap-[6px] text-[7px] md:min-h-9 md:gap-3 md:text-sm">
-                    <input name="updates" type="checkbox" className="checkbox checkbox-xs size-[10px] rounded-none border-ink-muted md:size-4" />
-                    Kirimi saya kabar saat ada kota atau data baru. Opsional.
-                  </label>
-                </div>
-              )}
-
-              {message && <p role="status" aria-live="polite" className="mt-3 text-[8px] leading-relaxed text-ink md:text-sm">{message}</p>}
-
-              <button type="submit" disabled={pending} className="btn btn-primary mt-[13px] h-[28px] min-h-0 w-full rounded-[6px] border-0 text-[8px] font-semibold shadow-none md:mt-4 md:h-12 md:rounded-xl md:text-sm">
-                {pending ? "Memproses…" : isLogin ? "Masuk" : isSignup ? <span className="inline-flex items-center gap-2">Buat akun dan lanjut <ArrowRight aria-hidden="true" className="size-[9px] md:size-4" /></span> : mode === "forgot" ? "Kirim tautan" : "Simpan kata sandi"}
-              </button>
-            </form>
-
-            {(isLogin || isSignup) && (
-              <>
-                <div className="my-[14px] flex items-center gap-2 text-[8px] leading-[10px] text-ink-muted md:my-4 md:gap-4 md:text-xs"><span className="h-px flex-1 bg-rule" /><span>atau</span><span className="h-px flex-1 bg-rule" /></div>
-                <button type="button" onClick={handleGoogle} disabled={pending} className="btn btn-outline h-[28px] min-h-0 w-full rounded-[6px] border-ink bg-transparent text-[8px] font-semibold text-ink shadow-none hover:bg-ink hover:text-on-ink md:h-12 md:rounded-xl md:text-sm">
-                  {isLogin ? "Masuk dengan Google" : "Daftar dengan Google"}
-                </button>
-                <p className="mt-[13px] text-[8px] text-ink-muted md:mt-4 md:text-sm">
-                  {isLogin ? "Belum punya akun? " : "Sudah punya akun? "}
-                  <button type="button" onClick={() => changeMode(isLogin ? "signup" : "login")} className="font-semibold text-primary underline underline-offset-1 cursor-pointer focus-visible:outline-2 focus-visible:outline-primary">{isLogin ? "Daftar gratis" : "Masuk"}</button>
+                <p className="mt-3 flex flex-wrap items-center gap-2 text-xs leading-relaxed text-ink-muted">
+                  <span className="badge badge-primary badge-soft min-h-6 rounded-full border-primary/20 px-3 text-xs font-semibold">Paket Gratis</span>
+                  Bisa ditingkatkan kapan saja.
+                  <Link href="/pricing" className="font-semibold text-primary underline underline-offset-1">Lihat paket</Link>
                 </p>
-              </>
-            )}
-            {(mode === "forgot" || mode === "reset") && <button type="button" onClick={() => changeMode("login")} className="mt-4 text-[8px] font-semibold text-primary underline md:text-sm">Kembali ke Masuk</button>}
-          </section>
-        </div>
+              )}
+              {mode === "forgot" && <p className="mt-2 text-sm text-ink-muted">Masukkan emailmu untuk menerima tautan pengaturan ulang.</p>}
+              {mode === "reset" && <p className="mt-2 text-sm text-ink-muted">Buat kata sandi baru untuk akunmu.</p>}
 
-        <footer className="mt-auto pt-7 text-[7px] leading-[11px] text-ink-muted md:pt-6 md:text-xs md:leading-relaxed">
-          {isSignup ? (
-            <p>Kami tidak akan pernah membagikan informasi pribadi Anda dengan pihak ketiga.</p>
-          ) : (
-            <p>Butuh bantuan masuk? <a href="mailto:dukungan@jejak.id" className="font-semibold text-primary underline">Hubungi dukungan</a></p>
-          )}
-        </footer>
-      </div>
+              <form method="post" onSubmit={handleSubmit} className="mt-5">
+                {mode !== "reset" && (
+                  <div>
+                    <label htmlFor="email" className="mb-2 block text-sm font-semibold">Email</label>
+                    <input id="email" name="email" type="email" required autoComplete="username" enterKeyHint="next" placeholder="nama@email.com" value={email} onChange={(event) => setEmail(event.target.value)} className="input min-h-12 w-full rounded-lg border-rule bg-transparent px-4 text-base text-ink placeholder:text-ink-muted focus:border-primary focus:outline-primary" />
+                  </div>
+                )}
+
+                {isPasswordMode && (
+                  <div className={mode === "reset" ? "" : "mt-5"}>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <label htmlFor={isLogin ? "current-password" : "new-password"} className="text-sm font-semibold">Kata sandi</label>
+                      {isLogin && <button type="button" onClick={() => changeMode("forgot")} className="min-h-11 text-sm font-semibold text-primary underline underline-offset-1 focus-visible:outline-2 focus-visible:outline-primary">Lupa kata sandi?</button>}
+                    </div>
+                    <div className="input relative flex min-h-12 w-full items-center rounded-lg border-rule bg-transparent p-0 focus-within:border-primary focus-within:outline-primary">
+                      <input id={isLogin ? "current-password" : "new-password"} name="password" type={showPassword ? "text" : "password"} required autoComplete={isLogin ? "current-password" : "new-password"} aria-describedby={isLogin ? undefined : "password-hints"} enterKeyHint="done" placeholder={isSignup ? "••••••••" : "Masukkan kata sandi"} value={password} onChange={(event) => setPassword(event.target.value)} className="h-full min-w-0 flex-1 bg-transparent pl-4 pr-1 text-base text-ink placeholder:text-ink-muted focus:outline-none" />
+                      <button type="button" aria-label={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)} className="flex min-h-11 w-12 shrink-0 items-center justify-center text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+                        {showPassword ? <EyeOff aria-hidden="true" className="size-5" /> : <Eye aria-hidden="true" className="size-5" />}
+                      </button>
+                    </div>
+                    {(isSignup || mode === "reset") && (
+                      <div id="password-hints" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-muted">
+                        {([["length", "Minimal 8 karakter"], ["letter", "Huruf kecil"], ["number", "Satu angka"]] as const).map(([check, label]) => (
+                          <span key={check} className="inline-flex items-center gap-[3px]">
+                            {passwordChecks[check] ? <Check aria-hidden="true" className="size-3 text-primary" /> : <span aria-hidden="true" className="size-2 rounded-full border border-ink-muted" />}
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {isLogin && (
+                  <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+                    <input name="remember" type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} aria-describedby="remember-hint" className="checkbox size-5 rounded-none border-ink-muted" />
+                    Tetap masuk di perangkat ini
+                  </label>
+                )}
+                {isSignup && (
+                  <div className="mt-5 space-y-2">
+                    <label className="flex min-h-11 items-center gap-3 text-sm">
+                      <input name="terms" type="checkbox" required className="checkbox size-5 shrink-0 rounded-none border-ink-muted" />
+                      <span>Saya setuju dengan <Link href="/terms" className="font-semibold text-primary underline">Syarat layanan</Link> dan <Link href="/privacy" className="font-semibold text-primary underline">Kebijakan privasi</Link> Jejak.</span>
+                    </label>
+                  </div>
+                )}
+
+                {message && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-error wrap-break-word">{message}</p>}
+
+                <button type="submit" disabled={pending} className="btn btn-primary mt-5 min-h-12 w-full rounded-xl border-0 text-sm font-semibold shadow-none">
+                  {pending ? "Memproses…" : isLogin ? "Masuk" : isSignup ? <span className="inline-flex items-center gap-2">Buat akun dan lanjut <ArrowRight aria-hidden="true" className="size-4" /></span> : mode === "forgot" ? "Kirim tautan" : "Simpan kata sandi"}
+                </button>
+              </form>
+
+              {(isLogin || isSignup) && (
+                <>
+                  <div className="my-4 flex items-center gap-4 text-xs text-ink-muted"><span className="h-px flex-1 bg-rule" /><span>atau</span><span className="h-px flex-1 bg-rule" /></div>
+                  <button type="button" onClick={handleGoogle} disabled={pending} className="btn btn-outline min-h-12 w-full rounded-xl border-ink bg-transparent text-sm font-semibold text-ink shadow-none hover:bg-ink hover:text-on-ink">
+                    {isLogin ? "Masuk dengan Google" : "Daftar dengan Google"}
+                  </button>
+                  <p className="mt-4 text-sm text-ink-muted">
+                    {isLogin ? "Belum punya akun? " : "Sudah punya akun? "}
+                    <button type="button" onClick={() => changeMode(isLogin ? "signup" : "login")} className="inline-flex min-h-11 items-center font-semibold text-primary underline underline-offset-1 cursor-pointer focus-visible:outline-2 focus-visible:outline-primary">{isLogin ? "Daftar gratis" : "Masuk"}</button>
+                  </p>
+                </>
+              )}
+              {mode === "forgot" && <button type="button" onClick={() => changeMode("login")} className="mt-4 min-h-11 text-sm font-semibold text-primary underline">Kembali ke Masuk</button>}
+              {mode === "reset" && <Link href="/map" className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-primary underline">Kembali ke peta</Link>}
+            </section>
+          </div>
+
+          <footer className="mt-auto pt-7 text-xs leading-relaxed text-ink-muted md:pt-6">
+            {isSignup ? (
+              <p>Kami tidak akan pernah membagikan informasi pribadi Anda dengan pihak ketiga.</p>
+            ) : (
+              <p>Butuh bantuan masuk? <a href="mailto:dukungan@jejak.id" className="font-semibold text-primary underline">Hubungi dukungan</a></p>
+            )}
+          </footer>
+        </div>
       </div>
     </main>
   );

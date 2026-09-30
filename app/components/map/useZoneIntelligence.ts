@@ -5,6 +5,14 @@ import { beginHciResponse } from "@/app/engine/lib/hciTelemetry";
 import { getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "@/app/engine/lib/zoneApi";
 import type { Zone, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "@/app/engine/types";
 
+const DEFAULT_JAKARTA_ZONE_IDS = [
+    "jakarta-selatan-setiabudi",
+    "jakarta-selatan-tebet",
+    "jakarta-pusat-menteng",
+    "jakarta-selatan-kebayoran-baru",
+    "jakarta-pusat-tanah-abang",
+];
+
 export function useZoneIntelligence(enabled = true) {
     const [catalog, setCatalog] = useState<ZoneListResponse>({ is_sample: false, zones: [] });
     const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -51,6 +59,7 @@ export function useZoneIntelligence(enabled = true) {
     }
 
     useEffect(() => {
+        if (!enabled) return;
         const controller = new AbortController();
         getZones(controller.signal).then((data) => {
             if (!controller.signal.aborted) setCatalog(data);
@@ -60,7 +69,7 @@ export function useZoneIntelligence(enabled = true) {
             if (!controller.signal.aborted) setCatalogLoading(false);
         });
         return () => controller.abort();
-    }, [catalogRevision]);
+    }, [catalogRevision, enabled]);
 
     useEffect(() => () => requestRef.current?.abort(), []);
 
@@ -68,7 +77,10 @@ export function useZoneIntelligence(enabled = true) {
         if (!enabled || !showRecommendations || catalogLoading || catalogError || catalog.zones.length === 0) return;
         const controller = new AbortController();
         recommendationsRef.current = controller;
-        const topFive = catalog.zones.slice(0, 5);
+        const topFive = DEFAULT_JAKARTA_ZONE_IDS.flatMap((id) => {
+            const zone = catalog.zones.find((zone) => zone.zone_id === id);
+            return zone ? [zone] : [];
+        })
         const cached = Object.fromEntries(topFive.flatMap((zone) => {
             const geometry = geometryCache.current[zone.zone_id];
             return geometry ? [[zone.zone_id, geometry]] : [];

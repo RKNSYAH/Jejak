@@ -6,7 +6,8 @@ import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
 import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
 import { cellLayers, cellMetrics, formatFactValue, mapCategories } from "../app/components/map/mapMetrics";
 import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
-import { getMapCells, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
+import { getMapCells, getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
+import { BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "../app/engine/lib/zoneRequestTimeouts";
 import mapStyle from "../public/jejak_light_openfreemap.json";
 import type { MapCell, ZoneDetailResult, ZoneGeometry } from "../app/engine/types";
 
@@ -30,6 +31,50 @@ test("trusted boundaries retain the app ID and reject a different city", () => {
     centralBoundary.features[0].properties.WADMKK = "KOTA ADMINISTRASI JAKARTA PUSAT";
     assert.equal(normalizeGeometry(centralBoundary, senen).features[0].properties.zone_id, "senen");
     assert.throws(() => normalizeGeometry(centralBoundary, zone), /does not match/);
+});
+
+test("full administrative city names match BIG and keep kota and kabupaten apart", () => {
+    const fullName = { ...zone, city_name: "Kota Administrasi Jakarta Selatan" };
+    const bigBoundary = structuredClone(boundary);
+    bigBoundary.features[0].properties.WADMKK = "Kota Administrasi Jakarta Selatan";
+    assert.equal(normalizeGeometry(bigBoundary, fullName).features.length, 1);
+    assert.equal(normalizeGeometry(boundary, fullName).features.length, 1);
+    const seribu = { ...zone, zone_name: "Kepulauan Seribu Utara", city_name: "Kabupaten Administrasi Kepulauan Seribu" };
+    const seribuBoundary = structuredClone(boundary);
+    seribuBoundary.features[0].properties.WADMKC = "Kepulauan Seribu Utara";
+    seribuBoundary.features[0].properties.WADMKK = "Administrasi Kepulauan Seribu";
+    assert.equal(normalizeGeometry(seribuBoundary, seribu).features.length, 1);
+    const bekasi = { ...zone, zone_name: "Pancoran", city_name: "Kabupaten Bekasi" };
+    const bothBekasi = structuredClone(boundary);
+    bothBekasi.features[0].properties.WADMKK = "Kota Bekasi";
+    bothBekasi.features.push({ ...structuredClone(boundary.features[0]), properties: { WADMKC: "Pancoran", WADMKK: "Bekasi", KDCBPS: "regency" } });
+    assert.deepEqual(normalizeGeometry(bothBekasi, bekasi).features.map((feature) => feature.properties.source_region_code), ["regency"]);
+});
+
+test("district names match BIG despite spacing and punctuation", () => {
+    for (const [ours, big] of [["Asemrowo", "Asem Rowo"], ["Pulo Gadung", "Pulogadung"], ["Kepulauan Seribu Selatan", "Kepulauan Seribu Selatan."]]) {
+        const spaced = structuredClone(boundary);
+        spaced.features[0].properties.WADMKC = big;
+        assert.equal(normalizeGeometry(spaced, { ...zone, zone_name: ours }).features.length, 1);
+    }
+});
+
+test("catalogue city shorthand matches BIG's kota names without merging regencies", () => {
+    for (const city of ["Bandung", "Surabaya", "Yogyakarta"]) {
+        const named = structuredClone(boundary);
+        named.features[0].properties.WADMKK = `Kota ${city}`;
+        assert.equal(normalizeGeometry(named, { ...zone, city_name: city }).features.length, 1);
+        assert.equal(normalizeGeometry(named, { ...zone, city_name: `Kota ${city}` }).features.length, 1);
+        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kabupaten ${city}` }), /does not match/);
+        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kab. ${city}` }), /does not match/);
+    }
+    const both = structuredClone(boundary);
+    both.features[0].properties.WADMKK = "Kota Bekasi";
+    both.features.push({ ...structuredClone(boundary.features[0]), properties: { WADMKC: "Pancoran", WADMKK: "Bekasi", KDCBPS: "regency" } });
+    assert.throws(() => normalizeGeometry(both, { ...zone, city_name: "Bekasi" }), /multiple administrative areas/);
+    assert.equal(normalizeGeometry(both, { ...zone, city_name: "Kota Bekasi" }).features.length, 1);
+    assert.deepEqual(normalizeGeometry(both, { ...zone, city_name: "Kabupaten Bekasi" }).features.map((feature) => feature.properties.source_region_code), ["regency"]);
+    assert.throws(() => normalizeGeometry({ type: "FeatureCollection", features: [] }, zone), /No boundary found/);
 });
 
 test("database rows preserve their stable code and explicit sample label", () => {
@@ -67,6 +112,88 @@ test("a stored boundary is returned alongside facts without a provider request",
     const row = { region_code: "pancoran", region_name: "Pancoran", parent_code: "jakarta-selatan", parent_name: "Jakarta Selatan", is_sample: false, geometry: polygon, places: [], facts: [] };
     assert.equal((await getZoneBoundary(row)).features[0].properties.zone_id, "pancoran");
     await assert.rejects(getZoneBoundary({ ...row, geometry: { type: "Point", coordinates: [0, 0] } }), /Invalid stored boundary/);
+});
+
+function providerRow(code: string) {
+    return { region_code: code, region_name: "Pancoran", parent_code: "jakarta-selatan", parent_name: "Jakarta Selatan", is_sample: false, geometry: null, places: [], facts: [] };
+}
+
+test("provider lookups cache validated boundaries and bypass raw HTTP response caching", async (context) => {
+    let calls = 0;
+    context.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
+        calls++;
+        const query = new URL(url).searchParams;
+        assert.equal(query.get("where"), "UPPER(WADMKC) LIKE 'P%A%N%C%O%R%A%N%' AND UPPER(WADMKK) LIKE '%JAKARTA SELATAN'");
+        assert.equal(options.cache, "no-store");
+        assert.equal("next" in options, false);
+        return Response.json(boundary);
+    });
+    const row = providerRow("provider-cache");
+    assert.equal((await getZoneBoundary(row)).features[0].properties.zone_id, row.region_code);
+    assert.equal((await getZoneBoundary(row)).features.length, 1);
+    assert.equal(calls, 1);
+    // Stored geometry always wins, even after a provider result was cached.
+    const stored = { ...polygon, coordinates: [[[108, -7], [109, -7], [109, -6], [108, -7]]] };
+    assert.deepEqual((await getZoneBoundary({ ...row, geometry: stored })).features[0].geometry, stored);
+});
+
+test("simultaneous boundary requests share a lookup and cache identity includes the city", async (context) => {
+    let calls = 0;
+    let release!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => { release = resolve; });
+    context.mock.method(globalThis, "fetch", async () => { calls++; return response; });
+    const row = providerRow("provider-concurrent");
+    const first = getZoneBoundary(row);
+    const second = getZoneBoundary(row);
+    assert.equal(calls, 1);
+    release(Response.json(boundary));
+    assert.deepEqual(await first, await second);
+    context.mock.restoreAll();
+
+    const other = structuredClone(boundary);
+    other.features[0].properties.WADMKK = "Kota Bandung";
+    context.mock.method(globalThis, "fetch", async () => { calls++; return Response.json(other); });
+    assert.equal((await getZoneBoundary({ ...row, parent_code: "bandung", parent_name: "Bandung" })).features.length, 1);
+    assert.equal(calls, 2);
+});
+
+test("failed, empty and invalid provider responses stay retryable with distinct errors", async (context) => {
+    const wrong = structuredClone(boundary);
+    wrong.features[0].properties.WADMKK = "Other city";
+    const cases: [string, () => Response, RegExp][] = [
+        ["empty", () => Response.json({ type: "FeatureCollection", features: [] }), /No boundary found/],
+        ["http", () => new Response("Unavailable", { status: 503 }), /HTTP 503/],
+        ["arcgis", () => Response.json({ error: { code: 499, message: "Token Required" } }), /returned an error \(499\)/],
+        ["json", () => new Response("<html>Unavailable</html>"), /returned invalid data/],
+        ["schema", () => Response.json({ unexpected: true }), /Invalid boundary response/],
+        ["identity", () => Response.json(wrong), /does not match/],
+        ["timeout", () => { throw new DOMException("Timeout", "TimeoutError"); }, /provider timed out/],
+        ["network", () => { throw new TypeError("fetch failed"); }, /provider unavailable/],
+    ];
+    for (const [name, failure, message] of cases) {
+        let calls = 0;
+        context.mock.method(globalThis, "fetch", async () => ++calls === 1 ? failure() : Response.json(boundary));
+        const row = providerRow(`provider-retry-${name}`);
+        await assert.rejects(getZoneBoundary(row), message);
+        assert.equal((await getZoneBoundary(row)).features.length, 1);
+        assert.equal(calls, 2);
+        context.mock.restoreAll();
+    }
+});
+
+test("validated boundary cache expires and stays bounded", async (context) => {
+    let now = Date.now();
+    let calls = 0;
+    context.mock.method(Date, "now", () => now);
+    context.mock.method(globalThis, "fetch", async () => { calls++; return Response.json(boundary); });
+    const row = providerRow("provider-expiry");
+    await getZoneBoundary(row);
+    now += 31 * 24 * 60 * 60 * 1000;
+    await getZoneBoundary(row);
+    assert.equal(calls, 2);
+    for (let index = 0; index < 128; index++) await getZoneBoundary(providerRow(`provider-eviction-${index}`));
+    await getZoneBoundary(row);
+    assert.equal(calls, 131);
 });
 
 test("district colors remain data driven", () => {
@@ -170,10 +297,20 @@ test("catalogue keeps database ranking, sample flags and unknown ratios", async 
 });
 
 test("browser API rejects malformed region facts", async (context) => {
-    let payload: unknown = { is_sample: true, facts: [{ metric: "company_count", value: 0, unit: "companies", source: "SAMPLE", period_end: null, evidence_type: "estimated", limitations: null, is_sample: true }], places: [] };
+    const sheetPlace = { id: 10, name: "Campus", category: "campus", latitude: -6.2, longitude: 106.8,
+        source: "PDDikti", source_url: "https://example.id", observed_at: "2026-09-01", is_sample: false,
+        address: "Jakarta", osm_type: "node", osm_id: 123, osm_tags: { amenity: "university" } };
+    let payload: unknown = { is_sample: false, facts: [{ metric: "employed_people:kbli_j", value: 95000, unit: "count", source: "BPS",
+        period_end: "2025-12-31", evidence_type: "observed", limitations: null, is_sample: false,
+        dimension_key: "kbli_2020_code", dimension_value: "j" }], places: [sheetPlace] };
     context.mock.method(globalThis, "fetch", async () => Response.json(payload));
     const signal = new AbortController().signal;
-    assert.equal((await getZoneIntelligence("pancoran", signal)).facts[0].value, 0);
+    const details = await getZoneIntelligence("pancoran", signal);
+    assert.equal(details.facts[0].value, 95000);
+    assert.equal(details.facts[0].dimension_value, "j");
+    assert.equal(details.places[0].osm_tags?.amenity, "university");
+    payload = { is_sample: false, facts: [{ ...details.facts[0], dimension_value: null }], places: [sheetPlace] };
+    await assert.rejects(getZoneIntelligence("pancoran", signal), /Invalid region data/);
     payload = { is_sample: true, facts: [{ metric: "company_count", value: "bad" }], places: [] };
     await assert.rejects(getZoneIntelligence("pancoran", signal), /Invalid region data/);
     context.mock.restoreAll();
@@ -204,6 +341,50 @@ test("combined zone load keeps facts when its boundary is unavailable", async (c
     assert.equal(malformedBoundary.geometry, null);
     assert.match(malformedBoundary.geometryError ?? "", /Invalid zone boundary/);
     assert.equal(malformedBoundary.details.facts[0].value, 0);
+});
+
+test("boundary requests have a longer deadline without slowing cancellation or ordinary requests", async (context) => {
+    const deadlines: number[] = [];
+    context.mock.method(AbortSignal, "timeout", (milliseconds: number) => {
+        deadlines.push(milliseconds);
+        return new AbortController().signal;
+    });
+    const details = { is_sample: false, facts: [], places: [] };
+    const geometry = normalizeGeometry(boundary, zone);
+    context.mock.method(globalThis, "fetch", async (url: RequestInfo | URL) => {
+        if (String(url).startsWith("https://")) return Response.json(boundary);
+        if (String(url).startsWith("/api/geometry")) return Response.json(geometry);
+        if (String(url).includes("include_geometry=1")) return Response.json({ details, geometry, geometry_error: null });
+        return Response.json(details);
+    });
+    const controller = new AbortController();
+    await getZoneBoundary(providerRow("provider-deadline"));
+    await getZoneGeometry("pancoran", controller.signal);
+    await getZoneMapData("pancoran", controller.signal);
+    await getZoneIntelligence("pancoran", controller.signal);
+    assert.deepEqual(deadlines, [BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS]);
+    assert.ok(BOUNDARY_PROVIDER_TIMEOUT_MS > 20_000);
+    assert.ok(ZONE_BOUNDARY_REQUEST_TIMEOUT_MS > BOUNDARY_PROVIDER_TIMEOUT_MS);
+    context.mock.restoreAll();
+
+    context.mock.method(globalThis, "fetch", (_url: RequestInfo | URL, options: RequestInit) => new Promise((_resolve, reject) => {
+        options.signal!.addEventListener("abort", () => reject(options.signal!.reason), { once: true });
+    }));
+    const request = getZoneGeometry("pancoran", controller.signal);
+    controller.abort();
+    await assert.rejects(request, (error: Error) => error.name === "AbortError");
+});
+
+test("empty browser boundary responses cannot be cached as successful selections", async (context) => {
+    const geometry = { type: "FeatureCollection", features: [] };
+    const details = { is_sample: false, facts: [], places: [] };
+    context.mock.method(globalThis, "fetch", async (url: RequestInfo | URL) => Response.json(String(url).startsWith("/api/geometry") ? geometry : { details, geometry, geometry_error: null }));
+    const signal = new AbortController().signal;
+    await assert.rejects(getZoneGeometry("pancoran", signal), /No boundary found/);
+    const combined = await getZoneMapData("pancoran", signal);
+    assert.equal(combined.geometry, null);
+    assert.match(combined.geometryError ?? "", /No boundary found/);
+    assert.deepEqual(combined.details, details);
 });
 
 test("zone requests report non-JSON errors and timeouts clearly", async (context) => {

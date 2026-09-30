@@ -1,4 +1,4 @@
-import { createClient } from "../lib/client";
+import { createClient, setRememberPreference } from "../lib/client";
 
 export async function registerUser(email: string, password: string, name: string, emailRedirectTo?: string) {
     const supabase = createClient();
@@ -62,5 +62,6 @@ export async function logoutUser() {
         throw new Error(`Logout failed: ${error.message}`);
     }
 
-    return true
+    setRememberPreference(true);
+    return true;
 }

@@ -46,9 +46,157 @@ test('migration chain and database contracts', async (t) => {
   });
   if (!migrated) return;
 
+  await t.test('all workbook headers exist on their matching Supabase tables', async () => {
+    const workbookColumns = {
+      regions: ['region_code', 'region_name', 'region_type', 'parent_region_code', 'kemendagri_code', 'bps_code', 'source_name', 'source_updated_at', 'is_supported'],
+      population: ['region_code', 'population', 'male_population', 'female_population', 'working_age_population', 'households', 'population_density', 'urban_population', 'rural_population', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      labor_force: ['region_code', 'labor_force', 'employed_people', 'unemployed_people', 'unemployment_rate', 'labor_force_participation_rate', 'working_age_population', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      sector_employment: ['region_code', 'kbli_2020_code', 'kbli_2020_name', 'employed_people', 'employment_percentage', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      wages_income: ['region_code', 'average_monthly_wage_idr', 'median_monthly_wage_idr', 'minimum_wage_idr', 'median_household_income_idr', 'average_household_expenditure_idr', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      institutions: ['institution_code', 'institution_name', 'institution_type', 'website', 'source_name', 'source_url', 'is_active'],
+      campuses: ['institution_code', 'region_code', 'campus_name', 'osm_type', 'osm_id', 'osm_tags', 'latitude', 'longitude', 'address', 'website', 'phone', 'operator', 'source_name', 'source_url', 'observed_at', 'is_active'],
+      student_enrollment: ['institution_code', 'campus_osm_type', 'campus_osm_id', 'metric', 'student_count', 'data_scope', 'program_code', 'program_name', 'academic_year', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      education_facilities: ['region_code', 'schools', 'vocational_schools', 'universities', 'polytechnics', 'training_centers', 'public_schools', 'private_schools', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      healthcare_facilities: ['region_code', 'hospitals', 'public_hospitals', 'private_hospitals', 'health_centers', 'clinics', 'pharmacies', 'hospital_beds', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      transport_infrastructure: ['region_code', 'public_transport_stops', 'train_stations', 'bus_stations', 'transit_stations', 'airport_count', 'port_count', 'road_length_km', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      public_places: ['region_code', 'institution_code', 'place_name', 'category', 'osm_type', 'osm_id', 'osm_tags', 'latitude', 'longitude', 'address', 'operator', 'website', 'phone', 'source_name', 'source_url', 'observed_at', 'is_active'],
+      housing_statistics: ['region_code', 'housing_type', 'median_monthly_rent_idr', 'average_monthly_rent_idr', 'minimum_monthly_rent_idr', 'maximum_monthly_rent_idr', 'observation_count', 'housing_price_index', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      cost_of_living: ['region_code', 'food_monthly_idr', 'utilities_monthly_idr', 'transport_monthly_idr', 'connectivity_monthly_idr', 'household_expenditure_monthly_idr', 'consumer_price_index', 'inflation_rate', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      sector_mapping: ['kbli_2020_code', 'kbli_2020_name', 'jejak_sector_id', 'relationship', 'notes'],
+      geospatial_sources: ['dataset_code', 'layer', 'dataset_name', 'provider', 'release', 'reference_period', 'spatial_resolution', 'crs', 'file_format', 'file_name', 'coverage', 'license', 'source_url', 'retrieved_at', 'limitations'],
+      estimation_parameters: ['parameter', 'value_low', 'value_high', 'unit', 'applies_to', 'region_code', 'period_end', 'source_name', 'source_url', 'published_at', 'limitations', 'is_sample'],
+    };
+    for (const [table, expected] of Object.entries(workbookColumns)) {
+      const found = await rows(`select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = $1`, [table]);
+      const actual = new Set(found.map((column) => column.column_name));
+      assert.deepEqual(expected.filter((column) => !actual.has(column)), [], `${table} sheet headers`);
+    }
+    const sourceWidths = await rows(`select table_name, column_name, character_maximum_length
+      from information_schema.columns where table_schema = 'public'
+        and column_name in ('source', 'source_name') and data_type = 'character varying'`);
+    assert.ok(sourceWidths.length > 0);
+    assert.ok(sourceWidths.every((column) => column.character_maximum_length === 255), 'all varchar source labels allow 255 characters');
+  });
+
   await db.query('insert into auth.users values ($1), ($2)', [userA, userB]);
   const region = await one(`insert into public.regions (code, name, region_type)
     values ('pancoran', 'Pancoran', 'district') returning id`);
+
+  await t.test('sheet-shaped static data feeds the public map RPCs', async () => {
+    const city = await one(`insert into public.regions
+      (region_code, region_name, region_type, source_name, is_supported)
+      values ('sheet-dki-jakarta', 'DKI Jakarta', 'province', 'BIG', true) returning id`);
+    const district = await one(`insert into public.regions
+      (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+      values ('sheet-jakarta-selatan', 'Jakarta Selatan', 'sheet-dki-jakarta', 'district', 'BIG', true) returning id`);
+    assert.equal((await one('select parent_id from public.regions where id = $1', [district.id])).parent_id, city.id);
+    await db.query(`update public.regions set region_name = 'DKI Jakarta Province' where id = $1`, [city.id]);
+    assert.equal((await one('select name from public.regions where id = $1', [city.id])).name, 'DKI Jakarta Province');
+    const source = 'BPS 2025';
+    const longSource = source.padEnd(200, 'x');
+    await db.exec('set role service_role');
+    await db.query(`insert into public.population
+      (region_code, population, period_end, source_name, evidence_type, is_sample)
+      values ('sheet-jakarta-selatan', 1500000, '2025-12-31', $1, 'observed', false)`, [longSource]);
+    await db.query(`insert into public.population
+      (region_code, population, period_end, source_name, evidence_type, is_sample)
+      values ('sheet-jakarta-selatan', 1510000, '2025-12-31', $1, 'observed', false)
+      on conflict (region_code, period_start, period_end, source_name)
+      do update set population = excluded.population`, [longSource]);
+    await db.query(`insert into public.wages_income
+      (region_code, average_monthly_wage_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 7200000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.housing_statistics
+      (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'kos', 1800000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.housing_statistics
+      (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'apartment', 3200000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.sector_employment
+      (region_code, kbli_2020_code, kbli_2020_name, employed_people, employment_percentage,
+       period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'j', 'Information and Communication', 95000, 0.084,
+       '2025-12-31', $1, 'observed')`, [source]);
+    const university = await one(`insert into public.institutions
+      (institution_code, institution_name, institution_type, source_name)
+      values ('sheet-university', 'Sheet University', 'university', 'PDDikti') returning id`);
+    await db.query(`insert into public.campuses
+      (institution_code, region_code, campus_name, osm_type, osm_id, latitude, longitude, source_name, observed_at)
+      values ('sheet-university', 'sheet-jakarta-selatan', 'Sheet Campus', 'node', 12345,
+        -6.2, 106.8, $1, '2026-09-01')`, [longSource]);
+    await db.query(`insert into public.public_places
+      (region_code, place_name, category, osm_type, osm_id, latitude, longitude, source_name, observed_at)
+      values ('sheet-jakarta-selatan', 'Sheet Stop', 'transit_stop', 'node', 12346,
+        -6.21, 106.81, 'OpenStreetMap', '2026-09-01')`);
+    await db.query(`insert into public.student_enrollment
+      (institution_code, campus_osm_type, campus_osm_id, metric, student_count, data_scope,
+       program_code, program_name, academic_year, source_name, evidence_type)
+      values ('sheet-university', 'node', 12345, 'program_enrollment', 420,
+       'program', 'informatics', 'Informatics', '2025/2026', $1, 'observed')`, [longSource]);
+    await db.exec('reset role');
+
+    await db.exec('set role anon');
+    try {
+      const ranked = await one(`select * from public.get_map_regions('sheet-dki-jakarta', false)`);
+      assert.equal(ranked.region_code, 'sheet-jakarta-selatan');
+      assert.equal(Number(ranked.average_monthly_wage_idr), 7200000);
+      assert.equal(Number(ranked.median_monthly_rent_idr), 1800000);
+      assert.equal(Number(ranked.population), 1510000);
+
+      const details = await one(`select * from public.get_map_region('sheet-jakarta-selatan', false, false)`);
+      assert.equal(details.region_name, 'Jakarta Selatan');
+      assert.equal(details.geometry, null);
+      const facts = new Map(details.facts.map((fact) => [fact.metric, fact]));
+      assert.equal(Number(facts.get('population').value), 1510000);
+      assert.equal(Number(facts.get('median_monthly_rent_idr').value), 1800000);
+      assert.equal(Number(facts.get('median_monthly_rent_idr:apartment').value), 3200000);
+      assert.equal(Number(facts.get('employed_people:kbli_j').value), 95000);
+      assert.equal(facts.get('median_monthly_rent_idr').dimension_key, 'housing_type');
+      assert.equal(facts.get('median_monthly_rent_idr').dimension_value, 'kos');
+      assert.equal(facts.get('median_monthly_rent_idr:apartment').dimension_value, 'apartment');
+      assert.equal(facts.get('employed_people:kbli_j').dimension_key, 'kbli_2020_code');
+      assert.equal(facts.get('employed_people:kbli_j').dimension_value, 'j');
+      assert.equal(facts.get('population').source, longSource);
+      assert.equal(details.places.length, 2);
+      assert.ok(details.places.every((place) => place.osm_id > 0));
+
+      const places = await db.query(`select name, osm_type, osm_id
+        from public.get_public_places($1)`, [district.id]);
+      assert.equal(places.rows.length, 2);
+      assert.equal(places.rows[0].osm_type, 'node');
+      const longPlaceSource = await one(`select source from public.get_public_places($1)
+        where name = 'Sheet Campus'`, [district.id]);
+      assert.equal(longPlaceSource.source, longSource);
+
+      const enrollment = await one(`select institution_id, metric, numeric_value,
+        program_code, program_name from public.get_institution_data($1)`, [university.id]);
+      assert.equal(enrollment.institution_id, university.id);
+      assert.equal(enrollment.metric, 'program_enrollment');
+      assert.equal(Number(enrollment.numeric_value), 420);
+      assert.equal(enrollment.program_code, 'informatics');
+      const longEnrollmentSource = await one(`select source from public.get_institution_data($1)`, [university.id]);
+      assert.equal(longEnrollmentSource.source, longSource);
+
+      const populationRows = await db.query(`select metric, numeric_value, source
+        from public.get_region_data($1, 'population')`, [district.id]);
+      assert.equal(Number(populationRows.rows[0].numeric_value), 1510000);
+      assert.equal(populationRows.rows[0].source, longSource);
+
+      const layer = await db.query(`select region_code, metric_data
+        from public.get_region_layer($1, 'population', null, null, 'district')`, [city.id]);
+      assert.equal(layer.rows.length, 1);
+      assert.equal(layer.rows[0].region_code, 'sheet-jakarta-selatan');
+      assert.equal(Number(layer.rows[0].metric_data.numeric_value), 1510000);
+      assert.equal(layer.rows[0].metric_data.source, longSource);
+      const housingLayer = await one(`select metric_data
+        from public.get_region_layer($1, 'median_monthly_rent_idr', null, null, 'district')`, [city.id]);
+      assert.equal(housingLayer.metric_data.dimension_key, 'housing_type');
+      assert.equal(housingLayer.metric_data.dimension_value, 'kos');
+    } finally {
+      await db.exec('reset role');
+    }
+  });
 
   await t.test('backend RPCs deny browser execution even with legacy default grants', async () => {
     const exposed = await rows(`select p.proname from pg_proc p
@@ -65,6 +213,7 @@ test('migration chain and database contracts', async (t) => {
     try {
       await assert.rejects(db.query('select public.zone_evidence_gc()'), /permission denied/);
       await assert.rejects(db.query('select * from public.zone_evidence_cache'), /permission denied/);
+      await assert.rejects(db.query('select * from public.population'), /permission denied/);
       assert.deepEqual(await rows('select * from public.get_region_data($1)', [region.id]), []);
     } finally {
       await db.exec('reset role');
@@ -588,4 +737,5 @@ test('migration chain and database contracts', async (t) => {
       await db.exec('reset role');
     }
   });
+
 });

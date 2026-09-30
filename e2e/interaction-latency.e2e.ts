@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./fixtures/auth";
 import type { HciClick, HciClickBatch } from "../app/engine/types";
 
 // INP thresholds for click to next frame: 200 ms or less is good, over 500 ms is poor.

@@ -39,6 +39,9 @@ export type RegionFact = {
   evidence_type: "observed" | "estimated" | "derived" | "unavailable";
   limitations: string | null;
   is_sample: boolean;
+  // Sheet dimensions that distinguish KBLI and housing-type observations.
+  dimension_key?: "kbli_2020_code" | "housing_type" | null;
+  dimension_value?: string | null;
   // Counted from monitored web sources: show as "approx. N", never as an exact total.
   approximate?: boolean;
 };
@@ -50,8 +53,16 @@ export type RegionPlace = {
   latitude: number;
   longitude: number;
   source: string;
+  source_url?: string | null;
   observed_at: string | null;
   is_sample: boolean;
+  address?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  operator?: string | null;
+  osm_type?: "node" | "way" | "relation" | null;
+  osm_id?: number | null;
+  osm_tags?: Record<string, string>;
 };
 
 export type ZoneDetailResult = {

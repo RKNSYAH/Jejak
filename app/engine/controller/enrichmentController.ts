@@ -44,7 +44,7 @@ type ClaimRow = {
 export type ClaimSummary = { evidence_type: EvidenceType; status: string; run_id: string | null; retry_at: string | null };
 
 async function getRegion(zoneId: string) {
-    const { data, error } = await createAdminClient().from("regions").select("id").eq("code", zoneId).maybeSingle();
+    const { data, error } = await createAdminClient().from("regions").select("id").eq("region_code", zoneId).maybeSingle();
     if (error) throw error;
     return data as { id: number } | null;
 }

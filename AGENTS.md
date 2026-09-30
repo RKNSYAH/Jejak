@@ -11,7 +11,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Commands and generated files
 
 - Use Bun 1.4.2 and Node.js 20.9+ (`package.json`). Common checks: `bun run lint`, `bunx tsc --noEmit` (no typecheck script), and `bun run test` (runs `tests/` only). Focus tests with `bun test tests/mapping.test.ts`, `bun test tests/enrichment.test.ts`, or `bun test tests/hci.test.ts`.
-- `bun run test:schema` runs the separate Node test suite against in-memory PGlite/PostGIS; it needs no remote database credentials. `bun run test:e2e` builds and serves on port 3100 for Playwright latency tests; install Chromium with `bunx playwright install chromium` first. E2E reuses an existing server outside CI, so use production server for meaningful latency results.
+- `bun run test:schema` runs the separate Node test suite against in-memory PGlite/PostGIS; it needs no remote database credentials. `bun run test:e2e` starts a local Supabase Auth/Data API fixture on port 3101, then builds and serves the production app on port 3100 for Playwright tests; install Chromium with `bunx playwright install chromium` first. Both ports must be available. Map tests use signed-in fixture sessions; no remote database credentials are needed.
 - `predev` and `prebuild` copy MapLibre workers into `public/maplibre/`; update `scripts/copy-maplibre-worker.mjs`, not copied bundles.
 
 ## Architecture and runtime

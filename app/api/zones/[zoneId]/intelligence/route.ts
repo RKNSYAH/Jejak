@@ -1,8 +1,11 @@
 import { withLocatedEvidence } from "@/app/engine/controller/enrichmentController";
 import { getZoneRow, toZoneDetails, validateZoneQuery } from "@/app/engine/controller/zoneController";
 import { getZoneBoundary } from "@/app/engine/lib/zoneBoundary";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(req: Request, context: { params: Promise<{ zoneId: string }> }) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     const { zoneId } = await context.params;
     try {
         const params = new URL(req.url).searchParams;

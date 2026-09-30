@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getAuthenticatedClaims } from "../engine/controller/userServerController";
+import { authDestination } from "../engine/lib/authDestination";
 import LoginForm from "./LoginForm";
 
 export const metadata: Metadata = {
@@ -8,7 +11,15 @@ export const metadata: Metadata = {
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const params = await searchParams;
-  const mode = params.mode === "signup" || params.mode === "reset" ? params.mode : "login";
+  const mode = params.mode === "signup" || params.mode === "reset" || params.mode === "forgot" ? params.mode : "login";
+  const next = authDestination(typeof params.next === "string" ? params.next : null);
+  const claims = await getAuthenticatedClaims().catch(() => null);
 
-  return <LoginForm initialMode={mode} callbackError={params.error === "callback"} />;
+  if (mode === "reset") {
+    if (!claims) redirect("/login?mode=forgot&error=reset");
+  } else if (claims) {
+    redirect(next);
+  }
+
+  return <LoginForm initialMode={mode} next={next} error={typeof params.error === "string" ? params.error : null} signedOut={params.status === "signed-out"} />;
 }

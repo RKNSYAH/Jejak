@@ -14,10 +14,19 @@ export default defineConfig({
         { name: "desktop", use: { ...devices["Desktop Chrome"] } },
         { name: "mobile", use: { ...devices["Pixel 7"] } },
     ],
-    webServer: {
+    webServer: [{
+        command: "node e2e/fixtures/supabase.mjs",
+        url: "http://127.0.0.1:3101/health",
+        reuseExistingServer: false,
+    }, {
         command: `bun run build && bunx next start --port ${port}`,
-        url: `http://localhost:${port}/map`,
-        reuseExistingServer: !process.env.CI,
+        url: `http://localhost:${port}/login`,
+        env: {
+            NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3101",
+            NEXT_PUBLIC_SUPABASE_ANON_KEY: "e2e-publishable-key",
+            SUPABASE_SERVICE_ROLE_KEY: "",
+        },
+        reuseExistingServer: false,
         timeout: 300_000,
-    },
+    }],
 });

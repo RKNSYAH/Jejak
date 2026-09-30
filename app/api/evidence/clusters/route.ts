@@ -1,8 +1,11 @@
 import { getEvidenceClusters } from "@/app/engine/controller/enrichmentController";
 import { isEnrichmentScope } from "@/app/engine/enrichment/scopes";
 import { isAdminConfigured } from "@/app/engine/lib/admin";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 
 export async function GET(req: Request) {
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     const params = new URL(req.url).searchParams;
     const cityId = params.get("city_id") ?? "";
     const scope = params.get("scope");

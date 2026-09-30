@@ -88,7 +88,7 @@ The app reads stored boundaries first and falls back to Indonesia's BIG boundary
 bun run dev
 ```
 
-Open [http://localhost:3000/map](http://localhost:3000/map). The root URL redirects to `/map`.
+Open [http://localhost:3000/map](http://localhost:3000/map). Signed-out visitors are redirected to `/login`, with their map query parameters preserved for after sign-in. Protected map APIs return `403` JSON for missing or invalid sessions; authenticated requests for unknown regions return `404`.
 
 The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/`. Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change.
 
@@ -135,6 +135,7 @@ bun test tests/hci.test.ts
 - `langflow.test.ts`: Langflow URL handling, workflow envelopes, and transport errors.
 - `enrichment.test.ts`: scope hashing, LF-01 parsing, acceptance, locality, confidence, snapshots, geocoding, and the pipeline with fakes.
 - `enrichmentRoutes.test.ts`: enrichment route validation and sign-in requirement.
+- `mapAuth.test.ts`, `authDestination.test.ts`: map API access checks, login return paths, and client-side handling of expired sessions.
 
 `bunfig.toml` preloads `tests/setup.mjs`, which stubs Next's `server-only` module so route tests can import server controllers.
 - `hci.test.ts`: click payload validation and malformed-request handling.
@@ -163,7 +164,9 @@ bunx playwright install chromium
 bun run test:e2e
 ```
 
-Playwright builds the app and serves it at `http://localhost:3100`. It runs desktop Chrome and Pixel 7 emulation with one worker, mocks the map-data and telemetry API requests, and checks click-to-paint and selection-response budgets. Keep the environment configuration in place for the server build and runtime. Outside CI, Playwright can reuse an existing server on port 3100; use a production server for meaningful latency measurements.
+Playwright starts an isolated Supabase Auth/Data API fixture at `http://127.0.0.1:3101`, builds the app with that fixture's public configuration, and serves the production app at `http://localhost:3100`. Both ports must be available. No remote Supabase credentials are needed. Map tests sign in with local test sessions, while map-data and telemetry requests use fixtures. Tests run desktop Chrome and Pixel 7 emulation with one worker and check click-to-paint and selection-response budgets.
+
+`e2e/map-auth.e2e.ts` covers signed-out redirects, forbidden API responses, tampered cookies, successful login return paths, token refresh, and session-expiry navigation.
 
 Open the HTML report with:
 
@@ -189,7 +192,7 @@ scripts/               MapLibre worker setup
 supabase/              Migrations, schema documentation, and database tests
 tests/                 Application and route tests
 instrumentation-client.ts  Click-telemetry startup
-proxy.ts               Supabase auth cookie refresh
+proxy.ts               Supabase auth cookie refresh and map access redirect
 ```
 
 For map-data changes, follow this path:

@@ -44,7 +44,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
   const available = facts.some(Boolean) || campuses.length > 0;
 
   return (
-  <div className="flex h-full min-h-0 flex-col font-body" aria-busy={loading}>
+    <div className="flex h-full min-h-0 min-w-0 flex-col font-body" aria-busy={loading}>
     <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
@@ -54,7 +54,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
         <X aria-hidden="true" className="size-5" />
       </button>
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 pb-15">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 pb-[max(1rem,env(safe-area-inset-bottom))] wrap-break-word md:px-5 md:pb-15">
       {isSample && <p className="mb-4 text-sm text-ink"><span className="badge badge-neutral badge-sm font-semibold">Sample data</span> Illustrative values, not verified observations.</p>}
       <div role="status" aria-live="polite" className="text-sm">
         {loading && <p className="mb-3">Loading regional data…</p>}
@@ -310,7 +310,7 @@ export default function ZoneIntelligencePanel(
       >
         <div
           ref={sheetRef}
-          className="zone-intelligence-sheet modal-box flex h-[60dvh] flex-col overflow-hidden border border-rule p-0 shadow-overlay data-dragging:transition-none"
+          className="zone-intelligence-sheet modal-box flex h-[60dvh] max-h-[60dvh] w-full max-w-none flex-col overflow-hidden border border-rule p-0 shadow-overlay data-dragging:transition-none"
           onTransitionEnd={(event) => {
             if (event.target === event.currentTarget && event.propertyName === "translate") {
               finishClose();
@@ -318,7 +318,7 @@ export default function ZoneIntelligencePanel(
           }}
         >
           <div
-            className="flex h-8 shrink-0 touch-none items-center justify-center cursor-grab active:cursor-grabbing"
+            className="flex h-11 shrink-0 touch-none items-center justify-center cursor-grab active:cursor-grabbing"
             aria-hidden="true"
             onPointerDown={handleGrabberPointerDown}
             onPointerMove={handleGrabberPointerMove}

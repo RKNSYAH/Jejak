@@ -1,6 +1,6 @@
 # Jejak database schema
 
-The schema has **16 active tables**. Prepared facts, private enrichment evidence,
+The schema has **31 active tables**. Prepared facts, private enrichment evidence,
 public aggregates, user decisions, subscriptions, and anonymous interaction
 telemetry have separate responsibilities.
 
@@ -12,11 +12,11 @@ Subsequent changes are additive migrations; do not edit previously applied SQL.
 ```text
 Prepared datasets                  LF-01 discovery
        |                                  |
-regions / institutions             backend validation + geocoding
+sheet-shaped static tables         backend validation + geocoding
        |                                  |
-places / region_data /             zone_evidence_cache
-institution_data                          |
-       +---------------+------------------+
+regions / places / region_data     zone_evidence_cache
+       |                                     |
+       +---------------+---------------------+
                        |
               backend aggregation
                        |
@@ -30,7 +30,9 @@ auth.users -> relocation_profiles -> recommendation_runs
 ```
 
 - **Prepared data:** official statistics, institution identities, campus locations,
-  and enrollment arrive through scheduled ETL, not user-triggered LLM calls.
+  and enrollment arrive through scheduled ETL in tables matching the research-sheet
+  columns, not user-triggered LLM calls. The map API presents those wide rows as
+  metric facts while retaining provenance and dimensions.
 - **Dynamic data:** openings, listings, office presence, and local employment use
   a private cache. LF-01 discovers candidates; the backend validates and writes.
 - **Public data:** browsers receive prepared facts, public places, and aggregate
@@ -56,13 +58,18 @@ Canonical geographic hierarchy and trusted boundaries.
 | Fields | Meaning |
 |---|---|
 | `id`, `parent_id` | Integer identity and parent region FK |
-| `code`, `name`, `region_type` | Stable lowercase code, display name, geographic level |
+| `region_code`, `region_name`, `region_type` | Workbook key, display name, geographic level |
+| `parent_region_code`, `kemendagri_code`, `bps_code` | Workbook parent and official administrative codes |
 | `geometry` | Nullable `MultiPolygon` in WGS84 / SRID 4326 |
-| `source`, `source_updated_at` | Boundary provenance |
+| `source_name`, `source_updated_at` | Boundary provenance |
 | `is_supported`, `created_at`, `updated_at` | Product coverage and audit fields |
 
 Types: country, province, regency, city, district, neighborhood, grid, metro.
 The geometry has a GiST index. Missing geometry stays missing; no model invents it.
+`region_code`, `region_name`, and `source_name` are synchronized with the legacy
+`code`, `name`, and `source` columns for compatibility with existing database
+functions. Workbook imports use the sheet-facing names. `parent_region_code` is
+the spreadsheet relationship and is kept in sync with the internal `parent_id`.
 
 The synthetic H3 heatmap cells and their housing/employment facts were removed
 by `20260928161244`. District boundaries and the grid read contract remain
@@ -73,8 +80,10 @@ available without a fabricated thematic value.
 Canonical universities, polytechnics, schools, training providers, and other
 education institutions. Identity is separate from a physical campus.
 
-Fields: `id`, unique `code`, `name`, `institution_type`, `website`, `source`,
-`source_url`, `is_active`, `created_at`, `updated_at`.
+Fields include the sheet columns `institution_code`, `institution_name`,
+`institution_type`, `website`, `source_name`, `source_url`, and `is_active`, plus
+internal identity/timestamp fields. The legacy `code`, `name`, and `source`
+columns stay synchronized for existing functions.
 
 ### 3. `places`
 
@@ -89,9 +98,46 @@ unique OSM identity; `osm_tags` stores its metadata.
 Coordinates are required and range-checked. Only a campus can reference an
 institution. The `(id, institution_id)` key supports ownership checks for facts.
 
-### 4. `region_data`
+### 4. Sheet-shaped static datasets
 
-Versioned prepared regional facts in a tall format: **one metric per row**.
+The workbook's statistical sheets each have a matching wide table, with the same
+lowercase snake-case data columns and date/numeric types:
+
+| Sheet/table | Distinguishing fields |
+|---|---|
+| `population` | Population, age, household, and density measures |
+| `labor_force` | Labor force, employment, unemployment, participation, sample size |
+| `sector_employment` | `kbli_2020_code`, employment count, employment percentage |
+| `wages_income` | Wage, minimum-wage, household-income, expenditure measures |
+| `education_facilities` | School, university, polytechnic, and training counts |
+| `healthcare_facilities` | Hospital, clinic, pharmacy, and bed counts |
+| `transport_infrastructure` | Stop, station, airport, port, and road measures |
+| `housing_statistics` | `housing_type`, rent range, observation count, price index |
+| `cost_of_living` | Food, utility, transport, connectivity, CPI, and inflation measures |
+| `student_enrollment` | Institution/campus/program scope, metric, student count, academic year |
+| `campuses`, `public_places` | Sheet-facing names, region/institution codes, OSM identity and provenance |
+| `sector_mapping` | KBLI-to-Jejak sector reference mapping |
+| `geospatial_sources` | Source files, CRS, resolution, coverage, and license |
+| `estimation_parameters` | Named low/high ETL parameters and provenance |
+
+Each table retains the sheet's source, time period, evidence, confidence,
+limitations, and sample fields where specified. Internal `id` columns and indexes
+support safe relationships and idempotent imports; they are not workbook fields.
+Repeat-import indexes include the region/institution, period, source, and relevant
+row dimension such as housing type or KBLI code.
+Every varchar `source`/`source_name` label supports 255 characters, and reviewed
+read RPCs return full labels without truncating them.
+
+`private.static_region_facts` turns these rows into metric/value facts for the
+existing map RPCs. Housing metrics preserve housing type (the `kos` metric keeps
+the current base metric name); sector facts include their KBLI section. New
+campus/public-place rows are also included in the reviewed public-place/map reads.
+
+### 5. `region_data`
+
+Legacy/runtime regional facts in a tall format: **one metric per row**. It remains
+the import target for ETL-generated grid-cell facts and for existing application
+data; workbook statistics now go to their sheet-shaped tables above.
 
 | Fields | Meaning |
 |---|---|
@@ -111,9 +157,10 @@ An upsert refreshes one source/period without replacing different releases or
 sources. The layer RPC orders period, publication, retrieval, then ID when
 selecting the latest row.
 
-### 5. `institution_data`
+### 6. `institution_data`
 
-Versioned institution, campus, and program facts. Uses the same one-value rule,
+Legacy versioned institution, campus, and program facts. New workbook enrollment
+rows are stored in `student_enrollment`. This table uses the one-value rule,
 period/provenance fields, confidence, limitations, and sample marker as regional
 facts, plus `institution_id`, `campus_place_id`, `data_scope`, and `academic_year`.
 
@@ -126,7 +173,7 @@ Examples: enrolled students, active students, new intake, graduates, internation
 students, and program enrollment. Insert new releases rather than overwrite old
 years. Institution totals are never copied into every campus.
 
-### 6. `evidence_cache_policies`
+### 7. `evidence_cache_policies`
 
 One policy per dynamic evidence type. Counts mean **accepted evidence records**,
 not workers, vacancies, or people.
@@ -144,9 +191,9 @@ not workers, vacancies, or people.
 Other fields: `max_sources_per_run` (8 since `20260928120000`), `retry_after_minutes`
 (0 for every type: users trigger runs from prompts, so a failed or partial run never
 blocks the next request; a policy may opt back into a cooldown), and `updated_at`.
-Enrollment belongs in prepared institution facts, not this cache.
+Enrollment belongs in prepared `student_enrollment` rows, not this cache.
 
-### 7. `zone_evidence_cache`
+### 8. `zone_evidence_cache`
 
 Private dynamic evidence, unique by `(region_id, scope_hash, dedup_hash)`.
 The backend canonicalizes `scope_key` and hashes it; evidence type and filters
@@ -178,7 +225,7 @@ Legacy columns from `0001` remain: `zone_id`, `claim_type`, `normalized_value`,
 `dedup_key`. The new writer maintains compatibility fields it can populate.
 Legacy rows without normalized scope fields cannot satisfy new cache counts.
 
-### 8. `enrichment_runs`
+### 9. `enrichment_runs`
 
 One LF-01 attempt for one region/type/scope. Fields include an identity `id`, UUID
 `external_run_id`, scope fields, count/budget at claim time, `status`, `stage`,
@@ -192,7 +239,7 @@ lock coordinates claim, evidence writes, and completion.
 Every expired or missing lease becomes a failed run with the normal policy
 cooldown. There is no attempt counter that can reset accidentally on replacement.
 
-### 9. `region_snapshots`
+### 10. `region_snapshots`
 
 Versioned public aggregates for `(region_id, snapshot_type, scope_hash)`.
 
@@ -245,7 +292,7 @@ and keep identifying information out of prose. Office presence alone does not
 support employment estimates. National/global headcount is not local headcount.
 Extend this explicit contract when adding a new aggregate.
 
-### 10. `relocation_profiles`
+### 11. `relocation_profiles`
 
 Fields: identity `id`, `user_id`, `profile_name`, `revision`, `profile` JSON,
 `confirmed`, `confirmed_at`, `created_at`, `updated_at`.
@@ -254,7 +301,7 @@ Fields: identity `id`, `user_id`, `profile_name`, `revision`, `profile` JSON,
 refinement inserts another revision. The backend validates the profile JSON.
 Users can read their own revisions; backend operations handle writes/deletion.
 
-### 11. `recommendation_runs`
+### 12. `recommendation_runs`
 
 Fields: identity `id`, UUID `external_request_id`, `user_id`, `profile_id`,
 `scoring_version`, `status`, `results`, optional `explanation`, `created_at`,
@@ -264,7 +311,7 @@ A recommendation requires a confirmed profile owned by the same user. Results
 come from deterministic scoring; AI explanations do not change arithmetic. Users
 can read their own runs. Auth account deletion cascades through profiles and runs.
 
-### 12. `shortlist_items`
+### 13. `shortlist_items`
 
 Fields: identity `id`, `user_id`, `region_id`, optional `recommendation_run_id`,
 `note`, `created_at`.
@@ -275,7 +322,7 @@ Deleting a recommendation clears only that reference, preserving the saved item.
 Authenticated users can create/read/update/delete their own items and omit IDs
 on insert. The RLS policy needs only the ownership predicate.
 
-### 13. `hci_click_events`
+### 14. `hci_click_events`
 
 Append-only alpha click telemetry from `instrumentation-client.ts` through
 `POST /api/hci`. Fields: identity `id`, random per-tab `session_id`, optional
@@ -295,7 +342,7 @@ clicks, share, clicks per active minute, and p50/p90 paint and response times
 per region. The existing `response_timeouts` count includes all null responses,
 including cancelled interactions.
 
-### 14. `subscription_plans`
+### 15. `subscription_plans`
 
 Fields: integer identity `id`, unique `code`, `name`, `billing_interval`
 (`month`/`year`), `price_amount` in major units, `currency` (default `IDR`),
@@ -304,7 +351,7 @@ Fields: integer identity `id`, unique `code`, `name`, `billing_interval`
 Anyone can read the catalog, including retired plans that existing subscribers
 still reference; a pricing page filters on `is_active`. Only the backend writes.
 
-### 15. `subscriptions`
+### 16. `subscriptions`
 
 Fields: identity `id`, `user_id`, `plan_id`, `status`, `current_period_start`,
 optional `current_period_end` (null means no end), `cancel_at_period_end`,
@@ -323,7 +370,7 @@ code, name, and features, or no rows for the free tier. `past_due` keeps access
 while the provider retries. A lapsed `current_period_end` ends access even if a
 renewal webhook was missed.
 
-### 16. `geocode_cache`
+### 17. `geocode_cache`
 
 Backend-only cache of geocoder responses for LF-01 candidate addresses, keyed by
 `query_hash` (SHA-256 of provider, country, viewbox, and normalized query).
@@ -412,7 +459,12 @@ New function defaults are private for the migration role.
 - `get_region_snapshot(integer, varchar, text)`
 - `get_region_data(integer, varchar)`
 - `get_public_places(integer, varchar)`
-- `get_institution_data(integer, bigint)`
+- `get_institution_data(integer, bigint)` — legacy institution facts plus new
+  enrollment rows, including program code/name.
+
+The map-region/detail/layer reads also include static sheet-backed rows. Returned
+facts retain their sheet metric, evidence/provenance fields, and optional
+`dimension_key`/`dimension_value` for KBLI sections and housing types.
 
 **Authenticated RPC** (invoker rights, limited by RLS to the caller):
 
@@ -467,6 +519,8 @@ they are not the new write/read path.
 | `20260928140000` | `get_evidence_clusters()` backend-only per-district evidence counts |
 | `20260928161244` | Remove synthetic grids, mock district facts and housing observations |
 | `20260928161436` | Preserve/restore `get_map_cells()` after remote cleanup |
+| `20260930120000` | Sheet-shaped static data tables, catalog sheet columns, and static-data API reads |
+| `20260930130000` | Widen source labels to `varchar(255)` and retain full names through read RPCs |
 
 The three `202609260...` files were renamed from `20260926_*`, which sorted after
 every later `20260926hhmmss_*` file and shared one version. If the hosted project

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import Header from "../components/Header";
+import BrandLogo from "../components/BrandLogo";
 
 export const metadata: Metadata = {
   title: "Harga | Jejak",
@@ -39,7 +39,7 @@ export default function PricingPage() {
     <div className="flex min-h-dvh flex-col bg-base-100 text-base-content">
       <Header activeHref="/pricing" />
 
-      <main className="mx-auto w-full max-w-344 flex-1 px-2 pb-28 pt-8 font-body md:px-4 md:pt-6 lg:px-6">
+      <main className="mx-auto w-full max-w-344 flex-1 px-4 pb-20 pt-8 font-body md:px-6 md:pt-6 lg:pb-28">
         <section aria-labelledby="pricing-heading" data-hci-region="pricing-plans">
           <div className="grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-end">
             <div>
@@ -53,23 +53,23 @@ export default function PricingPage() {
             </p>
           </div>
 
-          <div className="mt-10 grid gap-16 md:grid-cols-3">
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
             {plans.map((plan) => (
               <article
                 key={plan.id}
                 data-hci-region={`pricing-${plan.id}`}
                 className={`card card-border min-w-0 rounded-xl border-rule bg-base-100 ${plan.reccommended ? "ring-2 ring-primary shadow-xl" : ""}`}
               >
-                <div className="card-body gap-0 p-6 lg:p-7">
+                <div className="card-body min-w-0 gap-0 p-5 lg:p-7">
                   <h2 className="card-title font-sans text-xl text-ink">{plan.name}</h2>
                   <p className="mt-2 min-h-12 text-sm leading-relaxed text-ink-muted">
                     Rincian paket akan tersedia setelah model harga ditetapkan.
                   </p>
 
                   <div className="mt-6 min-h-24">
-                    <p className="font-sans text-3xl font-bold text-ink">
+                    <p className="font-sans text-3xl font-bold text-ink wrap-break-word">
                       {plan.price || "Harga belum ditentukan"}
-                      <span className="mt-1 ml-2 text-sm font-medium text-ink-muted">
+                      <span className="mt-1 text-sm font-medium text-ink-muted sm:ml-2">
                         {plan.term}
                       </span>
                     </p>
@@ -111,7 +111,7 @@ export default function PricingPage() {
           <h2 id="comparison-heading" className="font-sans text-3xl font-bold text-ink">
             Semua detail dalam satu tabel
           </h2>
-          <div className="mt-6 overflow-x-auto border-t-2 border-ink">
+          <div role="region" aria-label="Perbandingan paket; geser untuk melihat kolom lainnya" tabIndex={0} className="mt-6 overflow-x-auto overscroll-x-contain border-t-2 border-ink focus-visible:outline-2 focus-visible:outline-primary">
             <table className="table min-w-[640px] rounded-none text-sm">
               <thead>
                 <tr className="text-ink">
@@ -181,10 +181,8 @@ export default function PricingPage() {
       </main>
 
       <footer className="border-t border-rule py-6 font-body text-sm">
-        <div className="mx-auto flex w-full max-w-344 items-center gap-4 px-2 md:px-4 lg:px-6">
-          <Link href="/" className="font-sans text-lg font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
-            jejak<span className="text-primary"> |</span>
-          </Link>
+        <div className="mx-auto flex w-full max-w-344 items-center gap-4 px-4 md:px-6">
+          <BrandLogo />
           <span className="text-ink-muted">© {new Date().getFullYear()} Jejak</span>
         </div>
       </footer>

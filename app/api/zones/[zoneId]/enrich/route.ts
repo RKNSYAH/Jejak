@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { EnrichmentRequestError, isEnrichmentConfigured, requestZoneEnrichment, runZoneEnrichment } from "@/app/engine/controller/enrichmentController";
-import { getAuthenticatedClaims } from "@/app/engine/controller/userServerController";
+import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 import { isEnrichmentScope } from "@/app/engine/enrichment/scopes";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 
@@ -27,8 +27,8 @@ export async function POST(req: Request, context: { params: Promise<{ zoneId: st
     const scope = body.scope;
 
     // Enrichment spends search, crawl, and model credits.
-    const claims = await getAuthenticatedClaims().catch(() => null);
-    if (!claims) return Response.json({ error: "Sign in to refresh evidence", code: "SIGN_IN_REQUIRED" }, { status: 401 });
+    const denied = await mapAccessDenied();
+    if (denied) return denied;
     // Checked before claiming so a misconfigured server never leaves runs queued.
     if (!isEnrichmentConfigured()) {
         return Response.json({ error: "Evidence enrichment is not available yet", code: "ENRICHMENT_UNAVAILABLE" }, { status: 503 });

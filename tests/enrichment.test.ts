@@ -220,7 +220,7 @@ test("the geocoder is cache-first, bounded per run, and biased to the zone", asy
     assert.equal(await again.geocode("nowhere at all"), null);
 
     const limited = createNominatimGeocoder({ userAgent: "ua", cache, spacingMs: 0,
-        fetchImpl: (async () => new Response("slow down", { status: 429 })) as typeof fetch });
+        fetchImpl: (async () => new Response("slow down", { status: 429 })) as unknown as typeof fetch });
     await assert.rejects(limited.geocode("rate limited"), GeocoderUnavailableError);
 });
 

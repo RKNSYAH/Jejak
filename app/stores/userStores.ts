@@ -1,14 +1,16 @@
 import { create } from "zustand";
 import { UserProfile, TargetSector } from "../engine/types";
 import type { StoredRelocationProfile } from "../engine/lib/relocationProfile";
+import { clearRelocationProfileCache, writeRelocationProfileCache } from "../engine/lib/relocationProfileCache";
 
 type UserProfileStore = {
     profile: UserProfile | null;
     relocationProfile: StoredRelocationProfile | null;
+    relocationProfileUserId: string | null;
     setProfile: (profile: UserProfile) => void;
-    setRelocationProfile: (profile: StoredRelocationProfile | null) => void;
+    setRelocationProfile: (userId: string, profile: StoredRelocationProfile | null) => void;
     setTargetSectors: (sectors: TargetSector[]) => void;
-    resetProfile: () => void;
+    resetProfile: (userId?: string) => void;
 };
 
 const initialProfile: UserProfile = {
@@ -25,12 +27,16 @@ const initialProfile: UserProfile = {
     },
 };
 
-export const useUserProfileStore = create<UserProfileStore>((set) => ({
+export const useUserProfileStore = create<UserProfileStore>((set, get) => ({
     profile: null,
     relocationProfile: null,
+    relocationProfileUserId: null,
 
     setProfile: (profile) => set({ profile }),
-    setRelocationProfile: (relocationProfile) => set({ relocationProfile }),
+    setRelocationProfile: (userId, relocationProfile) => {
+        writeRelocationProfileCache(userId, relocationProfile);
+        set({ relocationProfile, relocationProfileUserId: userId });
+    },
 
     setTargetSectors: (sectors) =>
         set((state) => ({
@@ -40,5 +46,9 @@ export const useUserProfileStore = create<UserProfileStore>((set) => ({
             },
         })),
 
-    resetProfile: () => set({ profile: null }),
+    resetProfile: (signedOutUserId) => {
+        const userId = signedOutUserId ?? get().relocationProfileUserId;
+        if (userId) clearRelocationProfileCache(userId);
+        set({ profile: null, relocationProfile: null, relocationProfileUserId: null });
+    },
 }));
