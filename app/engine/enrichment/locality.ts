@@ -18,7 +18,7 @@ export function normalizePlaceName(name: string): string {
         .trim();
 }
 
-export type LocalityInput = {
+type LocalityInput = {
     // Precision LF-01 read from the source; "unknown" defers to the geocoder.
     statedPrecision: Precision;
     geocode: GeocodeResult;
@@ -33,7 +33,7 @@ export type LocalityInput = {
 
 // Jakarta results carry the province only as an ISO 3166-2 code, not a state name.
 export function regionKey(geocode: GeocodeResult): string | null {
-    return geocode.provinceCode ?? geocode.state ?? null;
+    return geocode.provinceCode ?? geocode.state;
 }
 
 // A source that only names a city never becomes a zone-level point, whatever

@@ -54,7 +54,7 @@ const precisionByAddressType: Record<string, Precision> = {
     state_district: "region", state: "region", region: "region", province: "region",
 };
 
-export function normalizeGeocodeQuery(query: string): string {
+function normalizeGeocodeQuery(query: string): string {
     return query.replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
@@ -122,16 +122,16 @@ export function addressQueries(buildingName: string | null, rawAddress: string |
         });
 }
 
-export type Viewbox = [number, number, number, number];
+type Viewbox = [number, number, number, number];
 
 // The viewbox changes Nominatim's ranking, so it is part of the cache key.
-export function geocodeQueryHash(query: string, viewbox: Viewbox | null = null): string {
+function geocodeQueryHash(query: string, viewbox: Viewbox | null = null): string {
     const bias = viewbox ? viewbox.map((value) => value.toFixed(2)).join(",") : "none";
     // v2: results parsed with the Indonesian precision mapping and a province code.
     return sha256Hex(`nominatim-v2|id|${bias}|${normalizeGeocodeQuery(query).toLowerCase()}`);
 }
 
-export function parseNominatimResult(item: unknown): GeocodeResult | null {
+function parseNominatimResult(item: unknown): GeocodeResult | null {
     if (!isRecord(item)) return null;
     const latitude = Number(item.lat);
     const longitude = Number(item.lon);
@@ -163,7 +163,7 @@ async function takeSlot(spacingMs: number, wait: (ms: number) => Promise<void>) 
     if (slot > now) await wait(slot - now);
 }
 
-export type NominatimOptions = {
+type NominatimOptions = {
     userAgent: string;
     cache: GeocodeCache;
     // [west, south, east, north] around the zone: preferred, not enforced, so an

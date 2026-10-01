@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronLeft, Eye, EyeOff } from "lucide-react";
 import { loginUser, loginWithGoogle, registerUser, requestPasswordReset, updatePassword } from "../engine/controller/userController";
-import { authDestination, signupDestination } from "../engine/lib/authDestination";
+import { signupDestination } from "../engine/lib/authDestination";
 import { setRememberPreference } from "../engine/lib/client";
 import BrandLogo from "../components/BrandLogo";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
+
+const accessModes = [["login", "Masuk"], ["signup", "Daftar"]] as const;
 
 export default function LoginForm({
   initialMode,
@@ -18,7 +20,7 @@ export default function LoginForm({
   signedOut,
 }: {
   initialMode: Mode;
-  next: string;
+  next: string; // already checked with authDestination by the page
   error: string | null;
   signedOut: boolean;
 }) {
@@ -30,16 +32,17 @@ export default function LoginForm({
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState(error === "callback" ? "Tautan masuk tidak valid atau sudah kedaluwarsa. Coba lagi." : error === "reset" ? "Tautan pengaturan ulang tidak berlaku. Minta tautan baru." : signedOut ? "Kamu sudah keluar dari akun." : "");
-  const destination = authDestination(next);
+  const destination = next;
 
   const isSignup = mode === "signup";
   const isLogin = mode === "login";
-  const isPasswordMode = isLogin || isSignup || mode === "reset";
+  const isPasswordMode = mode !== "forgot";
   const passwordChecks = {
     length: password.length >= 8,
     letter: /\p{Ll}/u.test(password),
     number: /\d/.test(password),
   };
+  const passwordValid = Object.values(passwordChecks).every(Boolean);
 
   function changeMode(nextMode: Mode) {
     setMode(nextMode);
@@ -52,7 +55,7 @@ export default function LoginForm({
     event.preventDefault();
     if (pending) return;
 
-    if (isSignup && !Object.values(passwordChecks).every(Boolean)) {
+    if ((isSignup || mode === "reset") && !passwordValid) {
       setMessage("Kata sandi harus minimal 8 karakter, dengan huruf kecil dan angka.");
       return;
     }
@@ -84,10 +87,6 @@ export default function LoginForm({
         if (error) throw error;
         setMessage("Jika email terdaftar, tautan untuk mengatur ulang kata sandi akan dikirim.");
       } else {
-        if (!Object.values(passwordChecks).every(Boolean)) {
-          setMessage("Kata sandi harus minimal 8 karakter, dengan huruf kecil dan angka.");
-          return;
-        }
         const { error } = await updatePassword(password);
         if (error) throw error;
         router.replace("/map?passwordUpdated=1");
@@ -130,24 +129,21 @@ export default function LoginForm({
       </div>
       <div className="flex w-full flex-1 flex-col bg-base-100 lg:max-w-xl lg:border-l lg:border-rule lg:shadow-overlay">
         <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 lg:min-h-dvh lg:pb-8">
-          <header className="hidden flex-wrap items-center justify-between gap-2 pt-12 lg:flex">
+          <header className="hidden pt-12 lg:flex">
             <Link href="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
               <ChevronLeft aria-hidden="true" className="size-4" strokeWidth={1.75} />
               Beranda
             </Link>
-            {isSignup && <span className="text-xs text-ink-muted">Langkah 1 dari 5 · Akun</span>}
           </header>
-          {isSignup && <p className="mt-4 text-right text-xs text-ink-muted lg:hidden">Langkah 1 dari 5 · Akun</p>}
 
           <div className="mt-8">
             {(isLogin || isSignup) && (
               <nav aria-label="Pilih cara mengakses akun" className="flex min-h-12 rounded-xl border border-rule p-1" data-hci-region="login-mode">
-                <button type="button" aria-current={isLogin ? "page" : undefined} onClick={() => changeMode("login")} className={`btn min-h-11 flex-1 rounded-lg border-0 text-sm font-semibold shadow-none ${isLogin ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
-                  Masuk
-                </button>
-                <button type="button" aria-current={isSignup ? "page" : undefined} onClick={() => changeMode("signup")} className={`btn min-h-11 flex-1 rounded-lg border-0 text-sm font-semibold shadow-none ${isSignup ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
-                  Daftar
-                </button>
+                {accessModes.map(([value, label]) => (
+                  <button key={value} type="button" aria-current={mode === value ? "page" : undefined} onClick={() => changeMode(value)} className={`btn min-h-11 flex-1 rounded-lg border-0 text-sm font-semibold shadow-none ${mode === value ? "bg-primary text-primary-content hover:bg-primary/90" : "bg-transparent text-ink hover:bg-primary-tint"}`}>
+                    {label}
+                  </button>
+                ))}
               </nav>
             )}
 
@@ -201,7 +197,7 @@ export default function LoginForm({
 
                 {isLogin && (
                   <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-3 text-sm">
-                    <input name="remember" type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} aria-describedby="remember-hint" className="checkbox size-5 rounded-none border-ink-muted" />
+                    <input name="remember" type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="checkbox size-5 rounded-none border-ink-muted" />
                     Tetap masuk di perangkat ini
                   </label>
                 )}
@@ -240,7 +236,7 @@ export default function LoginForm({
 
           <footer className="mt-auto pt-7 text-xs leading-relaxed text-ink-muted md:pt-6">
             {isSignup ? (
-              <p>Kami tidak akan pernah membagikan informasi pribadi Anda dengan pihak ketiga.</p>
+              <p>Informasi pribadimu tidak akan dibagikan ke pihak ketiga.</p>
             ) : (
               <p>Butuh bantuan masuk? <a href="mailto:dukungan@jejak.id" className="font-semibold text-primary underline">Hubungi dukungan</a></p>
             )}

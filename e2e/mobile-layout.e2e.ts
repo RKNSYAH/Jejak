@@ -1,11 +1,10 @@
 import { expect, test as publicTest } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { openDemoMap, stubZones } from "./fixtures/map";
 
 test("mobile map controls use full width without covering each other", async ({ page }) => {
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones: [] } }));
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await stubZones(page);
+    await openDemoMap(page);
 
     for (const width of [320, 360, 390, 430]) {
         await page.setViewportSize({ width, height: 700 });
@@ -36,12 +35,10 @@ publicTest("login and pricing reflow at 320px", async ({ page }) => {
 });
 
 test("short mobile map clears controls when discovery opens", async ({ page }) => {
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones: [] } }));
+    await stubZones(page);
     await page.setViewportSize({ width: 320, height: 420 });
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
-    const sheetHandle = page.getByRole("separator", { name: "Resize exploration panel" });
+    await openDemoMap(page);
+    const sheetHandle = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     await expect(page.getByRole("button", { name: /Bangunan 3D/ })).toBeVisible();
     await sheetHandle.press("End");
     await expect(page.locator('[data-hci-region="map-chat"]')).toBeHidden();
@@ -52,11 +49,9 @@ test("short mobile map clears controls when discovery opens", async ({ page }) =
 
 test("desktop keeps search and lenses on one line, tools at bottom left", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop");
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones: [] } }));
+    await stubZones(page);
     await page.setViewportSize({ width: 1440, height: 800 });
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await openDemoMap(page);
 
     const search = (await page.locator('[data-hci-region="search"]').boundingBox())!;
     const categories = (await page.locator('[data-hci-region="categories"]').boundingBox())!;

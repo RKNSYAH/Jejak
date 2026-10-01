@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
 import { Check } from "lucide-react";
 import type { FeatureCollection, Polygon } from "geojson";
-import { availableDestinations } from "@/app/engine/onboarding/preview";
-import { demoDestinations } from "@/app/engine/onboarding/demoData";
-import type { DistrictRecommendation, FormSession, OnboardingPreview } from "@/app/engine/onboarding/types";
+import type { FilterSpecification } from "maplibre-gl";
+import { availableDestinations, displayStep } from "@/app/engine/onboarding/preview";
+import { getDestination } from "@/app/engine/onboarding/demoData";
+import type { DistrictRecommendation, FormSession, FormStep, OnboardingPreview } from "@/app/engine/onboarding/types";
 import type { MapCategory, ZoneGeometry } from "@/app/engine/types";
 
 export const ONBOARDING_FILL_ID = "onboarding-district-fill";
@@ -22,15 +23,33 @@ function commuteCircle(center: [number, number], radiusKm: number): Polygon {
     return { type: "Polygon", coordinates: [coordinates] };
 }
 
+function DistrictLabel({ item, step }: { item: DistrictRecommendation; step: FormStep }) {
+    return <div className="pointer-events-none flex flex-col items-center gap-1 text-center font-sans text-sm font-bold leading-tight text-ink [text-shadow:0_1px_2px_var(--color-base-100),0_-1px_2px_var(--color-base-100)]">
+        {step === 4 && item.rank && <span className="flex size-7 items-center justify-center rounded-full border-2 border-base-100 bg-primary font-body text-sm text-primary-content shadow-overlay">{item.rank}</span>}
+        <span className="max-w-24">{item.district.name}</span>
+    </div>;
+}
+
+// Onboarding map value (0-100) for each category; mobility is unknown without a destination.
+function categoryValue(item: DistrictRecommendation, category: MapCategory | null): number | null {
+    switch (category) {
+        case "employment": return item.district.career;
+        case "education": return item.district.education;
+        case "housing": return Math.max(0, 100 - item.rent / 60_000);
+        case "mobility": return item.commuteMinutes === null ? null : Math.max(0, 100 - item.commuteMinutes);
+        default: return item.score;
+    }
+}
+
 export default function OnboardingMapLayers({ session, preview, geometry, mapRef, mapLoaded, category, onDestination, onSelectDistrict }: {
     session: FormSession; preview: OnboardingPreview; geometry: ZoneGeometry | null; mapRef: RefObject<MapRef | null>;
     mapLoaded: boolean; category: MapCategory | null; onDestination: (id: string) => void; onSelectDistrict: (id: string) => void;
 }) {
     const [patternReady, setPatternReady] = useState(false);
-    const step = session.status === "completed" ? 4 : session.step;
+    const step = displayStep(session);
     const completed = session.status === "completed";
     const answers = session.answers;
-    const destination = demoDestinations.find((item) => item.id === answers.destinationId);
+    const destination = getDestination(answers.destinationId);
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!mapLoaded || !map) return;
@@ -57,10 +76,7 @@ export default function OnboardingMapLayers({ session, preview, geometry, mapRef
         return { type: "FeatureCollection" as const, features: geometry?.features.flatMap((feature) => {
             const item = byId.get(feature.properties.zone_id);
             if (!item) return [];
-            const value = category === "employment" ? item.district.career : category === "education" ? item.district.education
-                : category === "housing" ? Math.max(0, 100 - item.rent / 60_000) : category === "mobility"
-                    ? item.commuteMinutes === null ? null : Math.max(0, 100 - item.commuteMinutes) : item.score;
-            return [{ ...feature, properties: { ...feature.properties, eligible: item.eligible, value, is_sample: true } }];
+            return [{ ...feature, properties: { ...feature.properties, eligible: item.eligible, value: categoryValue(item, category), is_sample: true } }];
         }) ?? [] };
     }, [preview, geometry, category]);
 
@@ -76,22 +92,17 @@ export default function OnboardingMapLayers({ session, preview, geometry, mapRef
     const showFilled = step === 2 || step === 4;
     const hideExcluded = showFilled && answers.overBudget === "hide";
     const displayedDistricts = preview.districts.filter((item) => !hideExcluded || item.eligible);
-    function DistrictLabel({ item }: { item: DistrictRecommendation }) {
-        return <div className="pointer-events-none flex flex-col items-center gap-1 text-center font-sans text-sm font-bold leading-tight text-ink [text-shadow:0_1px_2px_var(--color-base-100),0_-1px_2px_var(--color-base-100)]">
-            {step === 4 && item.rank && <span className="flex size-7 items-center justify-center rounded-full border-2 border-base-100 bg-primary font-body text-sm text-primary-content shadow-overlay">{item.rank}</span>}
-            <span className="max-w-24">{item.district.name}</span>
-        </div>;
-    }
+    const eligibleFilter: FilterSpecification = hideExcluded ? ["==", ["get", "eligible"], true] : ["all"];
     return <>
         <Source id="onboarding-districts" type="geojson" data={districtData}>
             <Layer id={ONBOARDING_FILL_ID} type="fill" beforeId="building-3d"
-                filter={hideExcluded ? ["==", ["get", "eligible"], true] : ["all"]}
+                filter={eligibleFilter}
                 paint={{ "fill-color": completed && category !== "summary" && category !== null
                     ? ["interpolate", ["linear"], ["coalesce", ["get", "value"], 0], 0, "#9ED9EB", 100, "#006AD8"] : "#006AD8",
                     "fill-opacity": showFilled ? ["case", ["get", "eligible"], ["case", ["==", ["get", "value"], null], 0, 0.2], 0.015] : 0 }} />
             {showFilled && !hideExcluded && patternReady && <Layer id="onboarding-over-limit" type="fill" beforeId="building-3d"
                 filter={["==", ["get", "eligible"], false]} paint={{ "fill-pattern": HATCH_IMAGE, "fill-opacity": 0.65 }} />}
-            <Layer id="onboarding-district-outlines" type="line" beforeId="building-3d" filter={hideExcluded ? ["==", ["get", "eligible"], true] : ["all"]}
+            <Layer id="onboarding-district-outlines" type="line" beforeId="building-3d" filter={eligibleFilter}
                 paint={{ "line-color": showFilled ? ["case", ["get", "eligible"], "#006AD8", "#5F84B1"] : "#5F84B1", "line-width": 1.3, "line-opacity": 0.9 }} />
         </Source>
         {step === 3 && destination && <Source id="onboarding-commute-simulation" type="geojson" data={bands}>
@@ -100,8 +111,8 @@ export default function OnboardingMapLayers({ session, preview, geometry, mapRef
             <Layer id="onboarding-commute-lines" type="line" beforeId="building-3d" paint={{ "line-color": "#5F84B1", "line-width": 1.5, "line-dasharray": [3, 3] }} />
         </Source>}
         {displayedDistricts.map((item) => <Marker key={item.district.id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
-            {completed ? <button type="button" aria-label={`${item.district.name}${item.rank ? `, peringkat ${item.rank}` : ", di luar batas"}`} onClick={(event) => { event.stopPropagation(); onSelectDistrict(item.district.id); }} className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} /></button>
-                : <DistrictLabel item={item} />}
+            {completed ? <button type="button" aria-label={`${item.district.name}${item.rank ? `, peringkat ${item.rank}` : ", di luar batas"}`} onClick={(event) => { event.stopPropagation(); onSelectDistrict(item.district.id); }} className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} step={step} /></button>
+                : <DistrictLabel item={item} step={step} />}
         </Marker>)}
         {(step === 1 || step === 3) && availableDestinations(answers.goal).map((item) => {
             const selected = step === 3 && answers.destinationId === item.id;

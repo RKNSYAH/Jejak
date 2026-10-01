@@ -2,29 +2,23 @@ import { after } from "next/server";
 import { EnrichmentRequestError, isEnrichmentConfigured, requestZoneEnrichment, runZoneEnrichment } from "@/app/engine/controller/enrichmentController";
 import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 import { isEnrichmentScope } from "@/app/engine/enrichment/scopes";
-import { isRecord } from "@/app/engine/lib/zoneGeometry";
+import { readJsonBody } from "@/app/engine/lib/http";
+import { isRecord, isRegionCode } from "@/app/engine/lib/zoneGeometry";
 
 // The pipeline runs in after(); it shares this route's execution limit.
 export const maxDuration = 300;
 
 export async function POST(req: Request, context: { params: Promise<{ zoneId: string }> }) {
     const { zoneId } = await context.params;
-    if (req.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-        return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
-    }
-    let body: unknown;
-    try {
-        body = await req.json();
-    } catch {
-        return Response.json({ error: "Invalid JSON" }, { status: 400 });
-    }
-    if (zoneId.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(zoneId)) {
+    const body = await readJsonBody(req);
+    if (body instanceof Response) return body;
+    if (!isRegionCode(zoneId)) {
         return Response.json({ error: "Unsupported zone_id" }, { status: 400 });
     }
     if (!isRecord(body) || Object.keys(body).some((key) => key !== "scope") || !isEnrichmentScope(body.scope)) {
         return Response.json({ error: "scope must be career or housing" }, { status: 400 });
     }
-    const scope = body.scope;
+    const { scope } = body;
 
     // Enrichment spends search, crawl, and model credits.
     const denied = await mapAccessDenied();
@@ -34,7 +28,7 @@ export async function POST(req: Request, context: { params: Promise<{ zoneId: st
         return Response.json({ error: "Evidence enrichment is not available yet", code: "ENRICHMENT_UNAVAILABLE" }, { status: 503 });
     }
 
-    let result: Awaited<ReturnType<typeof requestZoneEnrichment>>;
+    let result;
     try {
         result = await requestZoneEnrichment(zoneId, scope);
     } catch (error) {
@@ -44,7 +38,7 @@ export async function POST(req: Request, context: { params: Promise<{ zoneId: st
         return Response.json({ error: "Unable to start evidence enrichment" }, { status: 503 });
     }
 
-    const job = result.job;
+    const { job } = result;
     if (job) {
         after(async () => {
             const outcome = await runZoneEnrichment(job).catch(() => null);

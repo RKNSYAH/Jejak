@@ -22,6 +22,7 @@ export const cityCenters = {
 } satisfies Record<string, [number, number]>;
 export const cityLabels = { "jakarta-selatan": "Jakarta Selatan", bandung: "Bandung", yogyakarta: "Yogyakarta", unsure: "Belum yakin" };
 export const transportLabels = { transit: "transport umum", motorcycle: "motor", car: "mobil", active: "jalan atau sepeda" };
+export const getDestination = (id: string | null) => demoDestinations.find((item) => item.id === id);
 export const formatRupiah = (value: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value);
 
 function district(id: string, name: string, center: [number, number], rent: number, career: number,

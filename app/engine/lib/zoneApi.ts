@@ -1,10 +1,16 @@
 import type { MapCategory, MapCellsResponse, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "../types";
-import { isBoundary, isRecord } from "./zoneGeometry";
+import { isBoundary, isCentroid, isRecord } from "./zoneGeometry";
 import { handleAuthFailure } from "./authRedirect";
 import { ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "./zoneRequestTimeouts";
 
+const evidenceTypes = ["observed", "estimated", "derived", "unavailable"];
+
 function isNullableNumber(value: unknown): value is number | null {
     return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+export function isNullableString(value: unknown): value is string | null {
+    return value === null || typeof value === "string";
 }
 
 export async function getJson(url: string, signal: AbortSignal, timeoutMs = ZONE_REQUEST_TIMEOUT_MS): Promise<unknown> {
@@ -14,19 +20,19 @@ export async function getJson(url: string, signal: AbortSignal, timeoutMs = ZONE
         res = await fetch(url, { signal: AbortSignal.any([signal, timeout]) });
     } catch (error) {
         if (signal.aborted) throw error;
-        if (timeout.aborted || (error instanceof Error && error.name === "TimeoutError")) throw new Error("Zone request timed out. Please retry.");
-        throw new Error("Unable to connect to the zone service. Please retry.");
+        if (timeout.aborted || (error instanceof Error && error.name === "TimeoutError")) throw new Error("Permintaan data habis waktu. Coba lagi.");
+        throw new Error("Tidak dapat terhubung ke layanan data. Coba lagi.");
     }
     handleAuthFailure(res);
     const data: unknown = await res.json().catch((error: unknown) => {
         if (signal.aborted) throw error;
-        if (timeout.aborted) throw new Error("Zone request timed out. Please retry.");
+        if (timeout.aborted) throw new Error("Permintaan data habis waktu. Coba lagi.");
         return null;
     });
     if (!res.ok) {
-        throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : `Unable to load zone data (HTTP ${res.status})`);
+        throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : `Data kecamatan gagal dimuat (HTTP ${res.status}).`);
     }
-    if (data === null) throw new Error("Invalid response from the zone service");
+    if (data === null) throw new Error("Respons layanan data tidak valid.");
     return data;
 }
 
@@ -51,13 +57,10 @@ export async function getZones(signal: AbortSignal): Promise<ZoneListResponse> {
 
 function isCellFact(fact: unknown): boolean {
     return isRecord(fact) && typeof fact.value === "number" && Number.isFinite(fact.value) &&
-        (fact.unit === null || typeof fact.unit === "string") &&
-        ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
-        (fact.period_end === null || typeof fact.period_end === "string") &&
-        typeof fact.source === "string" &&
+        isNullableString(fact.unit) && evidenceTypes.includes(String(fact.evidence_type)) &&
+        isNullableString(fact.period_end) && typeof fact.source === "string" &&
         (fact.sample_size === null || (typeof fact.sample_size === "number" && Number.isInteger(fact.sample_size) && fact.sample_size >= 0)) &&
-        (fact.limitations === null || typeof fact.limitations === "string") &&
-        typeof fact.is_sample === "boolean";
+        isNullableString(fact.limitations) && typeof fact.is_sample === "boolean";
 }
 
 export async function getMapCells(zoneId: string, category: MapCategory, signal: AbortSignal, includeGeometry = true): Promise<MapCellsResponse> {
@@ -66,16 +69,14 @@ export async function getMapCells(zoneId: string, category: MapCategory, signal:
         !Array.isArray(data.cells) ||
         !data.cells.every((cell) => isRecord(cell) && typeof cell.cell_code === "string" && cell.parent_code === zoneId &&
             (includeGeometry ? isBoundary(cell.geometry) : cell.geometry === null) &&
-            Array.isArray(cell.centroid) && cell.centroid.length === 2 &&
-            Math.abs(Number(cell.centroid[0])) <= 180 && Math.abs(Number(cell.centroid[1])) <= 90 &&
-            isRecord(cell.facts) && Object.values(cell.facts).every(isCellFact) &&
+            isCentroid(cell.centroid) && isRecord(cell.facts) && Object.values(cell.facts).every(isCellFact) &&
             typeof cell.is_sample === "boolean")) throw new Error("Invalid heatmap data");
     return data as MapCellsResponse;
 }
 
 function parseGeometry(data: unknown, zoneId: string): ZoneGeometry {
     if (!isRecord(data) || data.type !== "FeatureCollection" || !Array.isArray(data.features)) throw new Error("Invalid geometry response");
-    if (data.features.length === 0) throw new Error("No boundary found for the requested zone. Please retry.");
+    if (data.features.length === 0) throw new Error("Batas kecamatan tidak ditemukan. Coba lagi.");
     const features = data.features.map((feature) => {
         if (!isRecord(feature) || feature.type !== "Feature" || !isBoundary(feature.geometry) || !isRecord(feature.properties) ||
             feature.properties.zone_id !== zoneId || typeof feature.properties.zone_name !== "string") throw new Error("Invalid zone boundary");
@@ -97,13 +98,13 @@ function parseDetails(data: unknown): ZoneDetailResult {
     if (!isRecord(data) || typeof data.is_sample !== "boolean" || !Array.isArray(data.facts) || !Array.isArray(data.places) ||
         !data.facts.every((fact) => isRecord(fact) && typeof fact.metric === "string" &&
             typeof fact.value === "number" && Number.isFinite(fact.value) && typeof fact.source === "string" &&
-            (fact.unit === null || typeof fact.unit === "string") &&
+            isNullableString(fact.unit) &&
             (fact.source_url == null || typeof fact.source_url === "string") &&
             (fact.period_start == null || typeof fact.period_start === "string") &&
-            (fact.period_end === null || typeof fact.period_end === "string") &&
+            isNullableString(fact.period_end) &&
             (fact.confidence == null || (typeof fact.confidence === "number" && fact.confidence >= 0 && fact.confidence <= 1)) &&
-            ["observed", "estimated", "derived", "unavailable"].includes(String(fact.evidence_type)) &&
-            (fact.limitations === null || typeof fact.limitations === "string") && typeof fact.is_sample === "boolean" &&
+            evidenceTypes.includes(String(fact.evidence_type)) &&
+            isNullableString(fact.limitations) && typeof fact.is_sample === "boolean" &&
             (fact.dimension_key === undefined || fact.dimension_key === null ||
                 fact.dimension_key === "kbli_2020_code" || fact.dimension_key === "housing_type") &&
             (fact.dimension_value === undefined || fact.dimension_value === null || typeof fact.dimension_value === "string") &&

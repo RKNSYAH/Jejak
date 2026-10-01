@@ -13,10 +13,11 @@ import {
 import type { ZoneSummary } from "@/app/engine/types";
 import type { DistrictRecommendation } from "@/app/engine/onboarding/types";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
+import { clamp } from "./viewport";
 
 const MIN_HEIGHT = 30;
 const CENTER_HEIGHT = 290;
-const DEFAULT_HEIGHT = MIN_HEIGHT;
+const KEY_STEP = 40;
 
 function getMinHeight() {
     return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 44 : MIN_HEIGHT;
@@ -59,7 +60,7 @@ export default function MapBottomSheet({
     recommendations?: DistrictRecommendation[];
     onEditPreferences?: () => void;
 }) {
-    const [height, setHeight] = useState(DEFAULT_HEIGHT);
+    const [height, setHeight] = useState(MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
     const sheetRef = useRef<HTMLElement>(null);
     const dragHandleRef = useRef<HTMLDivElement>(null);
@@ -68,20 +69,11 @@ export default function MapBottomSheet({
     const pendingHeight = useRef<number | null>(null);
     const dragFrame = useRef<number | null>(null);
 
-    useEffect(() => {
-        onHeightChange(getMinHeight());
-        onStateChange({ height: getMinHeight(), isExpanded: false, isDragging: false });
-    }, [onHeightChange, onStateChange]);
-
     const setSheetHeight = useCallback((nextHeight: number) => {
         if (sheetRef.current) sheetRef.current.style.height = `${nextHeight}px`;
         dragHandleRef.current?.setAttribute("aria-valuenow", String(Math.round(nextHeight)));
         onHeightChange(nextHeight);
-        onStateChange({
-            height: nextHeight,
-            isExpanded: nextHeight > getCenterHeight(),
-            isDragging: false,
-        });
+        onStateChange({ height: nextHeight, isExpanded: nextHeight > getCenterHeight(), isDragging: false });
         setHeight(nextHeight);
     }, [onHeightChange, onStateChange]);
 
@@ -108,29 +100,12 @@ export default function MapBottomSheet({
         focusHandle: () => dragHandleRef.current?.focus(),
     }), [setSheetHeight]);
 
-    const clampHeight = (value: number) => {
-        return Math.min(Math.max(value, getMinHeight()), getMaxHeight());
-    }
-
-    const getSnapPoints = () => {
-        const max = getMaxHeight();
-
-        return [
-            getMinHeight(),
-            Math.min(getCenterHeight(), max),
-            max,
-        ];
-    };
+    const clampHeight = (value: number) => clamp(value, getMinHeight(), getMaxHeight());
 
     const snapToNearestHeight = (currentHeight: number) => {
-        const snapPoints = getSnapPoints();
-
-        const nearest = snapPoints.reduce((prev, curr) => {
-            return Math.abs(curr - currentHeight) < Math.abs(prev - currentHeight) ? curr : prev;
-        }, snapPoints[0]);
-
-        setSheetHeight(nearest);
-    }
+        const snapPoints = [getMinHeight(), getCenterHeight(), getMaxHeight()];
+        setSheetHeight(snapPoints.reduce((prev, curr) => Math.abs(curr - currentHeight) < Math.abs(prev - currentHeight) ? curr : prev));
+    };
 
     const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -170,27 +145,10 @@ export default function MapBottomSheet({
         if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
     }, []);
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        const step = 40;
-
-        if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setSheetHeight(clampHeight(height + step));
-        }
-
-        if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setSheetHeight(clampHeight(height - step));
-        }
-
-        if (event.key === "Home") {
-            event.preventDefault();
-            setSheetHeight(getMinHeight());
-        }
-
-        if (event.key === "End") {
-            event.preventDefault();
-            setSheetHeight(getMaxHeight());
-        }
+        const next = ({ ArrowUp: height + KEY_STEP, ArrowDown: height - KEY_STEP, Home: getMinHeight(), End: getMaxHeight() } as Record<string, number>)[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        setSheetHeight(clampHeight(next));
     };
 
     const isExpanded = height > getCenterHeight();
@@ -200,22 +158,13 @@ export default function MapBottomSheet({
             <div
                 ref={dragHandleRef}
                 role="separator"
-                aria-label="Resize exploration panel"
+                aria-label="Ubah tinggi daftar kecamatan"
                 aria-orientation="horizontal"
                 aria-valuemin={getMinHeight()}
                 aria-valuemax={Math.round(getMaxHeight())}
                 aria-valuenow={Math.round(height)}
                 tabIndex={0}
-                className="
-          flex h-11 shrink-0
-          cursor-ns-resize
-          touch-none
-          items-center
-          justify-center
-          outline-none
-          focus-visible:ring-2
-          focus-visible:ring-primary
-        "
+                className="flex h-11 shrink-0 cursor-ns-resize touch-none items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -225,10 +174,9 @@ export default function MapBottomSheet({
                 <div className="h-1 w-10 rounded-full bg-ink/20" />
             </div>
             <div className="shrink-0 px-4 pb-3">
-                <p className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Area yang tersedia</p>
-                <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{recommendations ? "Rekomendasi contoh untukmu" : "Pilih area jejakmu selanjutnya"}</h2>
-                    <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} area tersedia</p>
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{recommendations ? "Rekomendasi contoh untukmu" : "Pilih kecamatan jejakmu selanjutnya"}</h2>
+                    <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} kecamatan tersedia</p>
                 </div>
                 {onEditPreferences && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Ubah preferensi contoh</button>}
             </div>
@@ -245,9 +193,7 @@ export default function MapBottomSheet({
                             isSample={zone.is_sample}
                             compact={!isExpanded}
                             recommendation={recommendations?.find((item) => item.district.id === zone.zone_id)}
-                            onClick={() => {
-                                onSelect(zone);
-                            }}
+                            onClick={() => onSelect(zone)}
                         />
                     ))}
                 </div>
@@ -266,11 +212,11 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
                 <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{recommendation?.rank ? `${recommendation.rank}. ` : ""}{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
-                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data area"}</span>
+                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data kecamatan"}</span>
                 {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">Sewa Rp{formatRupiah(recommendation.rent)}{recommendation.commuteMinutes !== null ? ` · ${recommendation.commuteMinutes} mnt simulasi` : ""}</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
-                    <span className="hidden md:inline">Jelajahi area ini</span>
+                    <span className="hidden md:inline">Jelajahi kecamatan ini</span>
                 </span>
             </span>
         </button>

@@ -4,7 +4,7 @@ import type { SectorClassification } from "./lf02Contract";
 import type { LocalityTier } from "./locality";
 import { sha256Hex, type EvidenceType } from "./scopes";
 
-export const CONFIDENCE_VERSION = "evidence-confidence-v1";
+const CONFIDENCE_VERSION = "evidence-confidence-v1";
 // Spec §15: below 0.40 a value is "insufficient" and is not published.
 export const ACCEPTANCE_THRESHOLD = 0.4;
 
@@ -33,7 +33,7 @@ export function checkClaimValue(candidate: LF01Candidate, type: EvidenceType): s
     return null;
 }
 
-export function canonicalJson(value: unknown): string {
+function canonicalJson(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
     if (isRecord(value)) {
         return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
@@ -64,7 +64,7 @@ function onDomain(host: string, domain: string): boolean {
     return host === domain || host.endsWith(`.${domain}`);
 }
 
-export function sourceReliability(candidate: LF01Candidate): number {
+function sourceReliability(candidate: LF01Candidate): number {
     // LinkedIn and Indeed postings arrive as search-provider titles and snippets only.
     if (candidate.sourceType === "search_snippet") return 0.3;
     const host = hostOf(candidate.canonicalUrl);

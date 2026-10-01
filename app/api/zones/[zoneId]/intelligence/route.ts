@@ -17,17 +17,14 @@ export async function GET(req: Request, context: { params: Promise<{ zoneId: str
         const located = withLocatedEvidence(row);
         if (!withGeometry) return Response.json(toZoneDetails(await located));
 
-        try {
-            const geometry = await getZoneBoundary(row);
-            return Response.json({ details: toZoneDetails(await located), geometry, geometry_error: null });
-        } catch (error) {
-            return Response.json({ details: toZoneDetails(await located), geometry: null, geometry_error: error instanceof Error ? error.message : "Unable to load region boundary" });
-        }
+        const boundary = await getZoneBoundary(row).then(
+            (geometry) => ({ geometry, geometry_error: null }),
+            (error) => ({ geometry: null, geometry_error: error instanceof Error ? error.message : "Batas kecamatan belum dapat dimuat." }));
+        return Response.json({ details: toZoneDetails(await located), ...boundary });
     } catch (error) {
         if (error instanceof Error && error.message.startsWith("Unsupported")) {
             return Response.json({ error: error.message }, { status: 400 });
         }
-        console.log(error)
-        return Response.json({ error: "Unable to load region data" }, { status: 503 });
+        return Response.json({ error: "Data kecamatan belum dapat dimuat." }, { status: 503 });
     }
 }

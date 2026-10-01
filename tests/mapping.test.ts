@@ -24,13 +24,13 @@ test("trusted boundaries retain the app ID and reject a different city", () => {
     assert.deepEqual(getGeometryBounds(geometry), [[106, -6], [107, -5]]);
     const otherCity = structuredClone(boundary);
     otherCity.features[0].properties.WADMKK = "Other city";
-    assert.throws(() => normalizeGeometry(otherCity, zone), /does not match/);
+    assert.throws(() => normalizeGeometry(otherCity, zone), /tidak cocok/);
     const senen = { zone_id: "senen", zone_name: "Senen", city_id: "jakarta-pusat", city_name: "Jakarta Pusat" };
     const centralBoundary = structuredClone(boundary);
     centralBoundary.features[0].properties.WADMKC = "Senen";
     centralBoundary.features[0].properties.WADMKK = "KOTA ADMINISTRASI JAKARTA PUSAT";
     assert.equal(normalizeGeometry(centralBoundary, senen).features[0].properties.zone_id, "senen");
-    assert.throws(() => normalizeGeometry(centralBoundary, zone), /does not match/);
+    assert.throws(() => normalizeGeometry(centralBoundary, zone), /tidak cocok/);
 });
 
 test("full administrative city names match BIG and keep kota and kabupaten apart", () => {
@@ -65,16 +65,16 @@ test("catalogue city shorthand matches BIG's kota names without merging regencie
         named.features[0].properties.WADMKK = `Kota ${city}`;
         assert.equal(normalizeGeometry(named, { ...zone, city_name: city }).features.length, 1);
         assert.equal(normalizeGeometry(named, { ...zone, city_name: `Kota ${city}` }).features.length, 1);
-        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kabupaten ${city}` }), /does not match/);
-        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kab. ${city}` }), /does not match/);
+        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kabupaten ${city}` }), /tidak cocok/);
+        assert.throws(() => normalizeGeometry(named, { ...zone, city_name: `Kab. ${city}` }), /tidak cocok/);
     }
     const both = structuredClone(boundary);
     both.features[0].properties.WADMKK = "Kota Bekasi";
     both.features.push({ ...structuredClone(boundary.features[0]), properties: { WADMKC: "Pancoran", WADMKK: "Bekasi", KDCBPS: "regency" } });
-    assert.throws(() => normalizeGeometry(both, { ...zone, city_name: "Bekasi" }), /multiple administrative areas/);
+    assert.throws(() => normalizeGeometry(both, { ...zone, city_name: "Bekasi" }), /beberapa wilayah administratif/);
     assert.equal(normalizeGeometry(both, { ...zone, city_name: "Kota Bekasi" }).features.length, 1);
     assert.deepEqual(normalizeGeometry(both, { ...zone, city_name: "Kabupaten Bekasi" }).features.map((feature) => feature.properties.source_region_code), ["regency"]);
-    assert.throws(() => normalizeGeometry({ type: "FeatureCollection", features: [] }, zone), /No boundary found/);
+    assert.throws(() => normalizeGeometry({ type: "FeatureCollection", features: [] }, zone), /Batas kecamatan tidak ditemukan/);
 });
 
 test("database rows preserve their stable code and explicit sample label", () => {
@@ -104,7 +104,7 @@ test("category joins distinguish zero, missing values, and summary", () => {
     assert.deepEqual(createZoneLayerData(geometry, details, "housing").features.map((feature) => feature.properties.zone_id), ["pancoran", "setiabudi"]);
     assert.equal(createZoneLayerData({ type: "FeatureCollection", features: [] }, details, "summary").features.length, 0);
     assert.equal(mapCategories.housing.format(1900000), "Rp1.900.000");
-    assert.equal(formatFactValue({ metric: "median_monthly_rent_idr", value: 1900000, unit: "IDR", source: "SAMPLE", period_end: null, evidence_type: "estimated", limitations: null, is_sample: true }), "Rp1.900.000/month");
+    assert.equal(formatFactValue({ metric: "median_monthly_rent_idr", value: 1900000, unit: "IDR", source: "SAMPLE", period_end: null, evidence_type: "estimated", limitations: null, is_sample: true }), "Rp1.900.000/bulan");
 });
 
 test("a stored boundary is returned alongside facts without a provider request", async (context) => {
@@ -137,6 +137,28 @@ test("provider lookups cache validated boundaries and bypass raw HTTP response c
     assert.deepEqual((await getZoneBoundary({ ...row, geometry: stored })).features[0].geometry, stored);
 });
 
+test("provider boundaries with Z values are stored as 2D", async (context) => {
+    const previous = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "http://supabase.test";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    context.after(() => {
+        if (previous.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = previous.url;
+        if (previous.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.key;
+    });
+    const withZ = structuredClone(boundary);
+    withZ.features[0].geometry = { type: "Polygon", coordinates: [[[106, -6, 0], [107, -6, 0], [107, -5, 0], [106, -6, 0]]] };
+    let stored: { p_geometry: { coordinates: number[][][][] } } | undefined;
+    context.mock.method(globalThis, "fetch", async (url: string | URL | Request, options?: RequestInit) => {
+        if (String(url).includes("/rpc/store_region_boundary")) {
+            stored = JSON.parse(String(options?.body));
+            return new Response(null, { status: 204 });
+        }
+        return Response.json(withZ);
+    });
+    await getZoneBoundary(providerRow("provider-3d"));
+    assert.deepEqual(stored?.p_geometry.coordinates, [[[[106, -6], [107, -6], [107, -5], [106, -6]]]]);
+});
+
 test("simultaneous boundary requests share a lookup and cache identity includes the city", async (context) => {
     let calls = 0;
     let release!: (response: Response) => void;
@@ -161,14 +183,14 @@ test("failed, empty and invalid provider responses stay retryable with distinct 
     const wrong = structuredClone(boundary);
     wrong.features[0].properties.WADMKK = "Other city";
     const cases: [string, () => Response, RegExp][] = [
-        ["empty", () => Response.json({ type: "FeatureCollection", features: [] }), /No boundary found/],
+        ["empty", () => Response.json({ type: "FeatureCollection", features: [] }), /Batas kecamatan tidak ditemukan/],
         ["http", () => new Response("Unavailable", { status: 503 }), /HTTP 503/],
-        ["arcgis", () => Response.json({ error: { code: 499, message: "Token Required" } }), /returned an error \(499\)/],
-        ["json", () => new Response("<html>Unavailable</html>"), /returned invalid data/],
+        ["arcgis", () => Response.json({ error: { code: 499, message: "Token Required" } }), /mengembalikan galat \(499\)/],
+        ["json", () => new Response("<html>Unavailable</html>"), /Data batas wilayah tidak valid/],
         ["schema", () => Response.json({ unexpected: true }), /Invalid boundary response/],
-        ["identity", () => Response.json(wrong), /does not match/],
-        ["timeout", () => { throw new DOMException("Timeout", "TimeoutError"); }, /provider timed out/],
-        ["network", () => { throw new TypeError("fetch failed"); }, /provider unavailable/],
+        ["identity", () => Response.json(wrong), /tidak cocok/],
+        ["timeout", () => { throw new DOMException("Timeout", "TimeoutError"); }, /tidak merespons/],
+        ["network", () => { throw new TypeError("fetch failed"); }, /tidak tersedia/],
     ];
     for (const [name, failure, message] of cases) {
         let calls = 0;
@@ -191,9 +213,9 @@ test("validated boundary cache expires and stays bounded", async (context) => {
     now += 31 * 24 * 60 * 60 * 1000;
     await getZoneBoundary(row);
     assert.equal(calls, 2);
-    for (let index = 0; index < 128; index++) await getZoneBoundary(providerRow(`provider-eviction-${index}`));
+    for (let index = 0; index < 256; index++) await getZoneBoundary(providerRow(`provider-eviction-${index}`));
     await getZoneBoundary(row);
-    assert.equal(calls, 131);
+    assert.equal(calls, 259);
 });
 
 test("district colors remain data driven", () => {
@@ -238,7 +260,7 @@ test("cell glow weights are relative to the busiest cell and rent fills hexagons
     assert.deepEqual(summarizeCells(cells, workers), {
         cells: 3, withValue: 2, min: 1500, max: 6000, total: 7500,
         maxBounds: { low: 4200, high: 8400 }, totalBounds: { low: 5250, high: 10500 },
-        sources: ["SAMPLE"], periods: ["period unavailable"], isSample: true,
+        sources: ["SAMPLE"], periods: ["periode tidak tersedia"], isSample: true,
     });
     const fill = createCellFillData(cells, "median_monthly_rent_idr");
     assert.deepEqual(fill.features.map((f) => f.properties.value), [null, null, null]);
@@ -380,10 +402,10 @@ test("empty browser boundary responses cannot be cached as successful selections
     const details = { is_sample: false, facts: [], places: [] };
     context.mock.method(globalThis, "fetch", async (url: RequestInfo | URL) => Response.json(String(url).startsWith("/api/geometry") ? geometry : { details, geometry, geometry_error: null }));
     const signal = new AbortController().signal;
-    await assert.rejects(getZoneGeometry("pancoran", signal), /No boundary found/);
+    await assert.rejects(getZoneGeometry("pancoran", signal), /Batas kecamatan tidak ditemukan/);
     const combined = await getZoneMapData("pancoran", signal);
     assert.equal(combined.geometry, null);
-    assert.match(combined.geometryError ?? "", /No boundary found/);
+    assert.match(combined.geometryError ?? "", /Batas kecamatan tidak ditemukan/);
     assert.deepEqual(combined.details, details);
 });
 
@@ -394,17 +416,17 @@ test("zone requests report non-JSON errors and timeouts clearly", async (context
     context.mock.restoreAll();
 
     context.mock.method(globalThis, "fetch", async () => new Response("Unexpected markup"));
-    await assert.rejects(getZones(signal), /Invalid response from the zone service/);
+    await assert.rejects(getZones(signal), /Respons layanan data tidak valid/);
     context.mock.restoreAll();
 
     context.mock.method(globalThis, "fetch", async () => { throw new DOMException("Timeout", "TimeoutError"); });
-    await assert.rejects(getZones(signal), /timed out/);
+    await assert.rejects(getZones(signal), /habis waktu/);
 });
 
 test("company point sits at the district centre with its located company count", () => {
     const setiabudi = { zone_id: "setiabudi", zone_name: "Setiabudi", centroid: [106.83, -6.22] as [number, number], latest_retrieved_at: "2026-09-28T09:00:00Z",
         counts: { active_opening: { count: 1, organizations: 1 }, office_presence: { count: 3, organizations: 2 } },
-        labels: ["approx. 1 opening", "approx. 3 offices"] };
+        labels: ["sekitar 1 lowongan", "sekitar 3 kantor"] };
     const data = createCompanyPointData(setiabudi);
     assert.deepEqual(data.features.map((feature) => feature.geometry.coordinates), [[106.83, -6.22]]);
     assert.deepEqual(data.features[0].properties, { zone_id: "setiabudi", companies: 2 });
@@ -415,7 +437,7 @@ test("company point sits at the district centre with its located company count",
 test("approximate facts are labelled as approximate counts", () => {
     const fact = { metric: "company_count", value: 2, unit: "companies", source: "Monitored sources", period_end: "2026-09-28",
         evidence_type: "observed" as const, limitations: null, is_sample: false, approximate: true };
-    assert.equal(formatFactValue(fact), "approx. 2 companies");
-    assert.equal(formatFactValue({ ...fact, value: 1 }), "approx. 1 company");
+    assert.equal(formatFactValue(fact), "sekitar 2 perusahaan");
+    assert.equal(formatFactValue({ ...fact, value: 1 }), "sekitar 1 perusahaan");
     assert.equal(formatFactValue({ ...fact, approximate: false, value: 3100 }), (3100).toLocaleString("id-ID"));
 });

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { POST } from "../app/api/user/relocation-profile/route";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { buildPersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
+import { postJson } from "./helpers";
 
 const proposal = {
   hard_constraints: {
@@ -57,11 +58,7 @@ test("profile persistence requires confirmation for every inferred field exactly
 });
 
 test("profile endpoint refuses to save before inferred fields are confirmed", async () => {
-  const response = await POST(new Request("http://localhost/api/user/relocation-profile", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ proposal, confirmed_fields: ["goal"] }),
-  }));
+  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ proposal, confirmed_fields: ["goal"] })));
 
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /Konfirmasi semua kesimpulan/);

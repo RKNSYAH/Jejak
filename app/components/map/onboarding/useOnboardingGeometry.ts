@@ -21,14 +21,11 @@ export function useOnboardingGeometry(enabled: boolean) {
                 }
                 const ids = new Set<string>();
                 for (const feature of data.features) {
-                    if (!isRecord(feature) || !isBoundary(feature.geometry) || !isRecord(feature.properties)) {
+                    const properties = isRecord(feature) && isBoundary(feature.geometry) && isRecord(feature.properties) ? feature.properties : null;
+                    if (!properties || !demoDistricts.some((district) => district.id === properties.zone_id && district.name === properties.zone_name)) {
                         throw new Error("Batas kecamatan tidak sesuai dengan pratinjau.");
                     }
-                    const properties = feature.properties;
-                    if (!demoDistricts.some((district) => district.id === properties.zone_id && district.name === properties.zone_name)) {
-                        throw new Error("Batas kecamatan tidak sesuai dengan pratinjau.");
-                    }
-                    ids.add(String(feature.properties.zone_id));
+                    ids.add(String(properties.zone_id));
                 }
                 if (ids.size !== 10) throw new Error("Batas kecamatan tidak lengkap.");
                 return data as unknown as ZoneGeometry;

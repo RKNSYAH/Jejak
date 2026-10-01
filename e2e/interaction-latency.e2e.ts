@@ -1,6 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
 import type { HciClick, HciClickBatch } from "../app/engine/types";
+import { stubZones } from "./fixtures/map";
 
 // INP thresholds for click to next frame: 200 ms or less is good, over 500 ms is poor.
 // Single clicks can spike under software WebGL, so typical clicks must be good and none poor.
@@ -61,7 +62,7 @@ function geometry(zoneId: string) {
 
 async function openMap(page: Page) {
     const batches: HciClickBatch[] = [];
-    await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: true, zones } }));
+    await stubZones(page, zones, true);
     await page.route((url) => url.pathname === "/api/heatmap", (route) => {
         const url = new URL(route.request().url());
         const zoneId = url.searchParams.get("zone_id") ?? "";
@@ -86,7 +87,7 @@ async function openMap(page: Page) {
     await page.goto("/map?study=e2e");
     // The legend appears with the first recommendation; measure only after they all finish loading.
     await expect(page.getByRole("button", { name: "Legenda" })).toBeVisible();
-    await expect(page.getByText("Memuat area peringkat…")).toBeHidden();
+    await expect(page.getByText("Memuat rekomendasi…")).toBeHidden();
     return batches;
 }
 
@@ -110,7 +111,7 @@ test("category lens clicks repaint within budget", async ({ page }) => {
         const button = page.getByRole("button", { name, exact: true });
         await button.click();
         await expect(button).toHaveAttribute("aria-pressed", "true");
-        if (name === "Pekerjaan") await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
+        if (name === "Pekerjaan") await expect(page.getByRole("status", { name: "Heatmap contoh" })).toBeHidden();
     }
 
     const clicks = await sentClicks(page, batches, lenses.length);
@@ -123,27 +124,27 @@ test("category lens clicks repaint within budget", async ({ page }) => {
 test("heatmap appears only for the selected zone", async ({ page }) => {
     await openMap(page);
     await page.getByRole("button", { name: "Pekerjaan", exact: true }).click();
-    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
+    await expect(page.getByRole("status", { name: "Heatmap contoh" })).toBeHidden();
     await page.getByRole("searchbox").fill("Tebet");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Tebet/ }).click();
-    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeVisible();
-    await page.getByRole("button", { name: "Close Tebet details" }).click();
-    await expect(page.getByRole("status", { name: "Sample heatmap" })).toBeHidden();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Tebet/ }).click();
+    await expect(page.getByRole("status", { name: "Heatmap contoh" })).toBeVisible();
+    await page.getByRole("button", { name: "Tutup detail Tebet" }).click();
+    await expect(page.getByRole("status", { name: "Heatmap contoh" })).toBeHidden();
 });
 
 test("housing cells switch between median rent and listings", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "mobile", "The zone panel covers the map controls on mobile");
     await openMap(page);
     await page.getByRole("searchbox").fill("Tebet");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Tebet/ }).click();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Tebet/ }).click();
     await page.getByRole("button", { name: "Hunian", exact: true }).click();
-    const layers = page.getByRole("group", { name: "Cell layer" });
-    await expect(layers.getByRole("button", { name: "Median rent" })).toHaveAttribute("aria-pressed", "true");
+    const layers = page.getByRole("group", { name: "Lapisan sel" });
+    await expect(layers.getByRole("button", { name: "Median sewa" })).toHaveAttribute("aria-pressed", "true");
     await layers.getByRole("button", { name: "Listings" }).click();
     await expect(layers.getByRole("button", { name: "Listings" })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Pendidikan", exact: true }).click();
     await expect(layers).toBeHidden();
-    await expect(page.getByText("Belum ada data sel untuk zona ini.")).toBeHidden();
+    await expect(page.getByText("Belum ada data sel untuk kecamatan ini.")).toBeHidden();
 });
 
 test("selecting an unloaded zone from search responds within budget", async ({ page }) => {
@@ -151,7 +152,7 @@ test("selecting an unloaded zone from search responds within budget", async ({ p
     const search = page.getByRole("searchbox");
     await search.click();
     await search.fill("Cilandak");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Cilandak/ }).click();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Cilandak/ }).click();
     await expect(page.getByRole("heading", { name: "Cilandak" })).toBeVisible();
 
     const [, select] = await sentClicks(page, batches, 2);
@@ -170,7 +171,7 @@ test("an unrelated busy element does not extend a selection response", async ({ 
         document.body.append(unrelated);
     });
     await page.getByRole("searchbox").fill("Cilandak");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Cilandak/ }).click();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Cilandak/ }).click();
 
     const [select] = await sentClicks(page, batches, 1);
     expect(select.response_ms).toBeGreaterThanOrEqual(API_DELAY_MS);
@@ -190,7 +191,7 @@ test("a category click finishes while a previous selection is still loading", as
     });
     try {
         await page.getByRole("searchbox").fill("Cilandak");
-        await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Cilandak/ }).click();
+        await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Cilandak/ }).click();
         // Mobile search keeps the detail panel hidden until its geometry is ready.
         await expect(page.locator('[aria-busy="true"]').first()).toBeAttached();
         await page.getByRole("button", { name: "Hunian", exact: true }).click();
@@ -216,8 +217,8 @@ test("cancelling a pending selection records a null response", async ({ page, is
     });
     try {
         await page.getByRole("searchbox").fill("Cilandak");
-        await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Cilandak/ }).click();
-        const cancelLabel = isMobile ? "Reset semua lapisan peta" : "Close Cilandak details";
+        await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Cilandak/ }).click();
+        const cancelLabel = isMobile ? "Reset semua lapisan peta" : "Tutup detail Cilandak";
         await page.getByRole("button", { name: cancelLabel }).click();
         const clicks = await sentClicks(page, batches, 2);
         expect(clicks.find((click) => click.region === "search")).toMatchObject({ response_ms: null });

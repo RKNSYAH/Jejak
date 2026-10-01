@@ -13,16 +13,18 @@ export function getMetricRange(values: (number | null)[]): MetricRange {
   return available.length ? { min: Math.min(...available), max: Math.max(...available) } : null;
 }
 
+// Light-to-dark blue across the range; one colour when every value is the same.
+function blueRamp(range: MetricRange): NonNullable<FillLayerProps["paint"]>["fill-color"] {
+  return range && range.min < range.max
+    ? ["interpolate", ["linear"], ["to-number", ["get", "value"]], range.min, "#9ED9EB", range.max, "#006AD8"]
+    : "#006AD8";
+}
+
 export function getZoneFillLayer(category: MapCategory, range: MetricRange): FillLayerProps {
-  const thematic = category !== "summary";
+  if (category === "summary") return { ...ZONE_FILL_LAYER, paint: { "fill-color": "#9ED9EB", "fill-opacity": 0.16 } };
   return {
     ...ZONE_FILL_LAYER,
-    paint: {
-      "fill-color": !thematic ? "#9ED9EB" : range && range.min < range.max
-        ? ["interpolate", ["linear"], ["to-number", ["get", "value"]], range.min, "#9ED9EB", range.max, "#006AD8"]
-        : "#006AD8",
-      "fill-opacity": thematic ? ["case", ["==", ["get", "value"], null], 0, 0.6] : 0.16,
-    },
+    paint: { "fill-color": blueRamp(range), "fill-opacity": ["case", ["==", ["get", "value"], null], 0, 0.6] },
   };
 }
 
@@ -51,9 +53,7 @@ export function getCellFillLayer(range: MetricRange): FillLayerProps {
     id: "cell-fill",
     type: "fill",
     paint: {
-      "fill-color": range && range.min < range.max
-        ? ["interpolate", ["linear"], ["to-number", ["get", "value"]], range.min, "#9ED9EB", range.max, "#006AD8"]
-        : "#006AD8",
+      "fill-color": blueRamp(range),
       "fill-opacity": ["case", ["==", ["get", "value"], null], 0, 0.7],
     },
   };
@@ -72,7 +72,6 @@ export const CELL_OUTLINE_LAYER: LineLayerProps = {
 export const ZONE_FILL_LAYER: FillLayerProps & { id: string } = {
   id: "region-fill",
   type: "fill",
-  paint: { "fill-color": "#9ED9EB", "fill-opacity": 0.16 },
 };
 
 export const ZONE_OUTLINE_LAYER: LineLayerProps = {

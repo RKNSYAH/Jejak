@@ -15,14 +15,14 @@ type Plan = {
   price: string;
   term: string;
   benefits: string[];
-  reccommended: boolean;
+  recommended: boolean;
 };
 
 // Isi harga, masa akses, dan daftar manfaat di sini saat model paket ditetapkan.
 const plans: Plan[] = [
-  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: [], reccommended: false },
-  { id: "plus", name: "Plus", price: "Rp49.000", term: "/ bulan", benefits: [], reccommended: true },
-  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: [], reccommended: false },
+  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: [], recommended: false },
+  { id: "plus", name: "Plus", price: "Rp49.000", term: "/ bulan", benefits: [], recommended: true },
+  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: [], recommended: false },
 ];
 
 type ComparisonGroup = {
@@ -58,7 +58,7 @@ export default function PricingPage() {
               <article
                 key={plan.id}
                 data-hci-region={`pricing-${plan.id}`}
-                className={`card card-border min-w-0 rounded-xl border-rule bg-base-100 ${plan.reccommended ? "ring-2 ring-primary shadow-xl" : ""}`}
+                className={`card card-border min-w-0 rounded-xl border-rule bg-base-100 ${plan.recommended ? "ring-2 ring-primary shadow-xl" : ""}`}
               >
                 <div className="card-body min-w-0 gap-0 p-5 lg:p-7">
                   <h2 className="card-title font-sans text-xl text-ink">{plan.name}</h2>

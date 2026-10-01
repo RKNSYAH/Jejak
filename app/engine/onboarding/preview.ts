@@ -25,11 +25,16 @@ export function toggleHousing(current: Housing[], choice: Housing): Housing[] {
     return selected.includes(choice) ? selected.filter((item) => item !== choice) : [...selected, choice];
 }
 
+// A completed form keeps showing the final (priorities) step on the map.
+export function displayStep(session: FormSession): FormStep {
+    return session.status === "completed" ? 4 : session.step;
+}
+
 export function availableDestinations(goal: FormAnswers["goal"]) {
     return demoDestinations.filter((destination) => goal === "both" || destination.kind === (goal === "study" ? "campus" : "office"));
 }
 
-export function sampleCommute(district: DemoDistrict, answers: FormAnswers): number | null {
+function sampleCommute(district: DemoDistrict, answers: FormAnswers): number | null {
     if (!answers.destinationId) return null;
     const base = district.commute[answers.destinationId];
     if (base === undefined) return null;

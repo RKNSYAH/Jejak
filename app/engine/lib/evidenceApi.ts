@@ -1,15 +1,11 @@
 import { isPublicSnapshot } from "../enrichment/snapshotContract";
 import type { EvidenceClustersResponse, EvidenceScope, ZoneEvidenceResponse } from "../types";
-import { getJson } from "./zoneApi";
-import { isRecord } from "./zoneGeometry";
+import { getJson, isNullableString } from "./zoneApi";
+import { isCentroid, isRecord } from "./zoneGeometry";
 
 const freshness = ["fresh", "stale", "missing"];
 const refreshStatuses = ["running", "queued", "cooldown", "idle"];
 const coverages = ["complete", "partial", "unavailable"];
-
-function isNullableString(value: unknown): value is string | null {
-    return value === null || typeof value === "string";
-}
 
 function isRun(value: unknown): boolean {
     return isRecord(value) && typeof value.run_id === "string" && typeof value.evidence_type === "string" &&
@@ -42,19 +38,17 @@ export async function getZoneEvidence(zoneId: string, scope: EvidenceScope, sign
 
 function isCluster(value: unknown): boolean {
     return isRecord(value) && typeof value.zone_id === "string" && typeof value.zone_name === "string" &&
-        Array.isArray(value.centroid) && value.centroid.length === 2 &&
-        Math.abs(Number(value.centroid[0])) <= 180 && Math.abs(Number(value.centroid[1])) <= 90 &&
-        isRecord(value.counts) && Object.values(value.counts).every((entry) => isRecord(entry) &&
+        isCentroid(value.centroid) && isRecord(value.counts) && Object.values(value.counts).every((entry) => isRecord(entry) &&
             typeof entry.count === "number" && typeof entry.organizations === "number") &&
         Array.isArray(value.labels) && value.labels.every((label) => typeof label === "string") &&
         isNullableString(value.latest_retrieved_at);
 }
 
 // Accepted evidence under a city, as approximate counts per district (for map
-// clusters). Show the labels ("approx. 3 openings") rather than bare numbers.
+// clusters). Show the labels ("sekitar 3 lowongan") rather than bare numbers.
 export async function getEvidenceClusters(cityId: string, scope: EvidenceScope, signal: AbortSignal): Promise<EvidenceClustersResponse> {
     const data = await getJson(`/api/evidence/clusters?${new URLSearchParams({ city_id: cityId, scope })}`, signal);
-    if (!isRecord(data) || data.city_id !== cityId || data.scope !== scope || typeof data.note !== "string" ||
+    if (!isRecord(data) || data.city_id !== cityId || data.scope !== scope ||
         !Array.isArray(data.clusters) || !data.clusters.every(isCluster)) {
         throw new Error("Invalid evidence clusters response");
     }
