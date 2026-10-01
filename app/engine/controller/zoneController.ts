@@ -1,5 +1,6 @@
 import { createClient } from "@/app/engine/lib/server";
 import { cellLayers, cellMetrics } from "@/app/components/map/mapMetrics";
+import { isRegionCode } from "../lib/zoneGeometry";
 import type { MapCategory, MapCell, MapCellsResponse, RegionFact, RegionPlace, Zone, ZoneDetailResult, ZoneListResponse } from "../types";
 
 export const supportedSector = "software_and_it_services";
@@ -7,12 +8,9 @@ export const includeSample = process.env.JEJAK_INCLUDE_SAMPLE_DATA !== "false";
 
 export function validateZoneQuery(params: URLSearchParams) {
     const cityId = params.get("city_id");
-    const sectorId = params.get("sector_id") ?? supportedSector;
-    if (cityId !== null && (cityId.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cityId))) {
-        throw new Error("Unsupported city_id");
-    }
-    if (sectorId !== supportedSector) throw new Error("Unsupported sector_id");
-    return { cityId, sectorId };
+    if (cityId !== null && !isRegionCode(cityId)) throw new Error("Unsupported city_id");
+    if ((params.get("sector_id") ?? supportedSector) !== supportedSector) throw new Error("Unsupported sector_id");
+    return { cityId };
 }
 
 type RegionRow = {
@@ -37,9 +35,8 @@ export type RegionDetailRow = RegionRow & {
 };
 
 export function toZone(row: RegionRow): Zone {
-    const name = row.is_sample ? row.region_name.replace(/ \(demo parent\)$/, "") : row.region_name;
-    const city = row.is_sample ? row.parent_name.replace(/ \(demo parent\)$/, "") : row.parent_name;
-    return { zone_id: row.region_code, zone_name: name, city_id: row.parent_code, city_name: city };
+    const name = (value: string) => row.is_sample ? value.replace(/ \(demo parent\)$/, "") : value;
+    return { zone_id: row.region_code, zone_name: name(row.region_name), city_id: row.parent_code, city_name: name(row.parent_name) };
 }
 
 function numeric(value: string | number | null): number | null {
@@ -79,7 +76,7 @@ export async function getZoneRow(zoneId: string, includeGeometry = true): Promis
 export function validateCellQuery(params: URLSearchParams): { zoneId: string; category: MapCategory } {
     const zoneId = params.get("zone_id") ?? "";
     const category = params.get("category") ?? "";
-    if (zoneId.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(zoneId)) throw new Error("Unsupported zone_id");
+    if (!isRegionCode(zoneId)) throw new Error("Unsupported zone_id");
     if (!Object.hasOwn(cellLayers, category)) throw new Error("Unsupported category");
     return { zoneId, category: category as MapCategory };
 }

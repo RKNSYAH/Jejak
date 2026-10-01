@@ -531,15 +531,13 @@ Each draft migration is transactional and takes the same schema advisory lock.
 Cache operations lock the exact enrichment scope; publication locks its snapshot
 scope. Unique indexes remain the final duplicate/current-row safeguards.
 
-From this directory:
+From the repository root:
 
 ```powershell
-bun install --frozen-lockfile
-bun run test
-python tests/lf01_adapter_test.py
+bun run test:schema
 ```
 
-Pinned PGlite and PostGIS packages execute all nine migrations **without SQL
+Pinned PGlite and PostGIS packages execute every migration **without SQL
 substitutions** in isolated in-memory PostgreSQL. The harness bootstraps only
 Supabase roles and the Auth objects used here. No remote credentials are needed.
 
@@ -547,11 +545,8 @@ Tests cover migration validity, browser/backend permissions, RLS, default IDs,
 confirmed revisions, ownership, duplicate claims, sample exclusion, locality
 ranking, refresh work, expired-worker rejection/cooldowns, campus integrity,
 snapshot validation, a batch of 85 generic child regions with scoped aggregates,
-retired grid RPC cleanup, and
 idempotent fact imports, subscription ownership and current-subscription rules,
-and account deletion.
-The Python tests also check the prepared-request adapter and ensure its saved
-flow export matches the source, without importing Langflow or making network calls.
+stored region boundaries, and account deletion.
 
 PGlite is single-connection: duplicate-claim tests verify sequential behavior,
 not real multi-session contention. Hosted PostgREST and the real map adapter

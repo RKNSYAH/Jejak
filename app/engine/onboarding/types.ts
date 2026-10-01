@@ -1,12 +1,13 @@
 export const FORM_DRAFT_KEY = "jejak:relocation-form:v1";
+export const STORY_DRAFT_KEY = "jejak:relocation-onboarding";
 export type FormStep = 1 | 2 | 3 | 4;
-export type Goal = "work" | "study" | "both";
+type Goal = "work" | "study" | "both";
 export type Housing = "kos" | "apartment" | "house" | "unsure";
 export type Transport = "transit" | "motorcycle" | "car" | "active";
 export type Priority = "opportunity" | "affordability" | "mobility" | "environment";
 export type Weights = Record<Priority, number>;
 export type City = "jakarta-selatan" | "bandung" | "yogyakarta" | "unsure";
-export type Extra = "internet" | "healthcare" | "quiet";
+type Extra = "internet" | "healthcare" | "quiet";
 export type FormAnswers = {
     goal: Goal;
     occupation: string;

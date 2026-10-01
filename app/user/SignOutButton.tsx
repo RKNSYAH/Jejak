@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { logoutUser } from "../engine/controller/userController";
 import { useUserProfileStore } from "../stores/userStores";
-import { FORM_DRAFT_KEY } from "../engine/onboarding/types";
+import { FORM_DRAFT_KEY, STORY_DRAFT_KEY } from "../engine/onboarding/types";
 
 export default function SignOutButton({ userId }: { userId: string }) {
     const router = useRouter();
@@ -19,7 +19,7 @@ export default function SignOutButton({ userId }: { userId: string }) {
         try {
             await logoutUser();
             resetProfile(userId);
-            sessionStorage.removeItem("jejak:relocation-onboarding");
+            sessionStorage.removeItem(STORY_DRAFT_KEY);
             sessionStorage.removeItem(FORM_DRAFT_KEY);
             router.replace("/login?status=signed-out");
             router.refresh();

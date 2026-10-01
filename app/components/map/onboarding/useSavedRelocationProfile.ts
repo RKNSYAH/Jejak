@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { handleAuthFailure } from "@/app/engine/lib/authRedirect";
 import { isStoredRelocationProfile, readRelocationProfileCache } from "@/app/engine/lib/relocationProfileCache";
+import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import type { StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import { useUserProfileStore } from "@/app/stores/userStores";
 
@@ -15,32 +16,29 @@ export function useSavedRelocationProfile(userId: string) {
 
     useEffect(() => {
         if (useUserProfileStore.getState().relocationProfileUserId === userId) return;
-        let active = true;
         const controller = new AbortController();
+        const { signal } = controller;
         const timer = window.setTimeout(async () => {
             const cached = readRelocationProfileCache(userId);
             if (cached !== undefined) {
-                if (active) setSavedProfile(cached);
+                setSavedProfile(cached);
                 return;
             }
             try {
-                const response = await fetch("/api/user/relocation-profile", { cache: "no-store", signal: controller.signal });
-                if (!active) return;
-                if (handleAuthFailure(response) || !response.ok) throw new Error("Unable to load saved profile");
+                const response = await fetch("/api/user/relocation-profile", { cache: "no-store", signal });
+                if (handleAuthFailure(response) || !response.ok) throw new Error("Profil tersimpan belum dapat dimuat.");
                 const result: unknown = await response.json();
-                if (typeof result !== "object" || result === null || !("profile" in result) ||
-                    (result.profile !== null && !isStoredRelocationProfile(result.profile))) {
-                    throw new Error("Invalid saved profile response");
+                if (!isRecord(result) || !("profile" in result) || (result.profile !== null && !isStoredRelocationProfile(result.profile))) {
+                    throw new Error("Respons profil tidak valid.");
                 }
                 // A save completed during this request must win over the older GET.
-                if (active && useUserProfileStore.getState().relocationProfileUserId !== userId) setSavedProfile(result.profile);
+                if (!signal.aborted && useUserProfileStore.getState().relocationProfileUserId !== userId) setSavedProfile(result.profile);
             } catch {
                 // A failed request is unknown, never a cached 'not onboarded' result.
-                if (active) setFailedUserId(userId);
+                if (!signal.aborted) setFailedUserId(userId);
             }
         }, 0);
         return () => {
-            active = false;
             window.clearTimeout(timer);
             controller.abort();
         };

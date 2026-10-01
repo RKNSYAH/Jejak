@@ -1,47 +1,21 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { PGlite } from '@electric-sql/pglite';
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { postgis } from '@electric-sql/pglite-postgis';
+import { applyMigrations, asRole as runAs, createDatabase } from './bootstrap.mjs';
 
-// Real PostgreSQL + PostGIS in memory; no remote database or credentials.
-// Bootstrap only the Supabase roles and auth objects used by the migrations.
 test('migration chain and database contracts', async (t) => {
-  const db = new PGlite({ extensions: { pgcrypto, postgis } });
+  const db = await createDatabase();
   t.after(() => db.close());
   const rows = async (sql, params = []) => (await db.query(sql, params)).rows;
   const one = async (sql, params = []) => (await rows(sql, params))[0];
+  const asRole = (role, fn) => runAs(db, role, fn);
+  const setUser = (sub) => db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [sub]);
   const userA = '00000000-0000-4000-8000-000000000001';
   const userB = '00000000-0000-4000-8000-000000000002';
   const hash = 'a'.repeat(64);
 
-  await db.exec(`
-    create role anon;
-    create role authenticated;
-    create role service_role bypassrls;
-    create role jejak_readonly;
-    grant usage on schema public to anon, authenticated, service_role;
-    alter default privileges in schema public grant execute on functions to anon, authenticated;
-    create schema auth;
-    create table auth.users (id uuid primary key);
-    create function auth.uid() returns uuid language sql stable as $$
-      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-    $$;
-    grant usage on schema auth to authenticated, service_role;
-    grant execute on function auth.uid() to authenticated, service_role;
-  `);
-
   let migrated = false;
   await t.test('all migrations apply without rewriting SQL', async () => {
-    const folder = new URL('../migrations/', import.meta.url);
-    for (const file of (await readdir(folder)).filter((f) => f.endsWith('.sql')).sort()) {
-      try {
-        await db.exec(await readFile(new URL(file, folder), 'utf8'));
-      } catch (error) {
-        throw new Error(`${file}: ${error.message}`, { cause: error });
-      }
-    }
+    await applyMigrations(db);
     migrated = true;
   });
   if (!migrated) return;
@@ -136,8 +110,7 @@ test('migration chain and database contracts', async (t) => {
        'program', 'informatics', 'Informatics', '2025/2026', $1, 'observed')`, [longSource]);
     await db.exec('reset role');
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       const ranked = await one(`select * from public.get_map_regions('sheet-dki-jakarta', false)`);
       assert.equal(ranked.region_code, 'sheet-jakarta-selatan');
       assert.equal(Number(ranked.average_monthly_wage_idr), 7200000);
@@ -193,9 +166,7 @@ test('migration chain and database contracts', async (t) => {
         from public.get_region_layer($1, 'median_monthly_rent_idr', null, null, 'district')`, [city.id]);
       assert.equal(housingLayer.metric_data.dimension_key, 'housing_type');
       assert.equal(housingLayer.metric_data.dimension_value, 'kos');
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('backend RPCs deny browser execution even with legacy default grants', async () => {
@@ -209,15 +180,12 @@ test('migration chain and database contracts', async (t) => {
       and (has_function_privilege('anon', p.oid, 'execute')
         or has_function_privilege('authenticated', p.oid, 'execute'))`);
     assert.deepEqual(exposed, []);
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await assert.rejects(db.query('select public.zone_evidence_gc()'), /permission denied/);
       await assert.rejects(db.query('select * from public.zone_evidence_cache'), /permission denied/);
       await assert.rejects(db.query('select * from public.population'), /permission denied/);
       assert.deepEqual(await rows('select * from public.get_region_data($1)', [region.id]), []);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   let profile;
@@ -248,12 +216,9 @@ test('migration chain and database contracts', async (t) => {
     const save = () => one(`select * from public.save_confirmed_relocation_profile(
       $1, 'primary', $2::jsonb)`, [userA, JSON.stringify(payload)]);
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await assert.rejects(save(), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
 
     await db.exec('set role service_role');
     let first;
@@ -271,39 +236,33 @@ test('migration chain and database contracts', async (t) => {
       await db.exec('reset role');
     }
 
-    await db.exec('set role authenticated');
-    try {
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+    await asRole('authenticated', async () => {
+      await setUser(userA);
       assert.equal((await rows(`select id from public.relocation_profiles where profile_name = 'primary'`)).length, 2);
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await setUser(userB);
       assert.deepEqual(await rows(`select id from public.relocation_profiles where profile_name = 'primary'`), []);
       await assert.rejects(db.query(`insert into public.relocation_profiles
         (user_id, profile_name, revision, profile, confirmed, confirmed_at)
         values ($1, 'primary', 1, '{}'::jsonb, true, now())`, [userB]), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('shortlist default ID, ownership, updates, and deletion work as authenticated', async () => {
-    await db.exec('set role authenticated');
-    try {
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+    await asRole('authenticated', async () => {
+      await setUser(userA);
       const saved = await one(`insert into public.shortlist_items (user_id, region_id, recommendation_run_id)
         values ($1, $2, $3) returning id`, [userA, region.id, recommendation.id]);
       assert.ok(Number.isSafeInteger(Number(saved.id)));
       await db.query(`update public.shortlist_items set note = 'commute' where id = $1`, [saved.id]);
       await assert.rejects(db.query(`update public.shortlist_items set user_id = $1 where id = $2`,
         [userB, saved.id]), /row-level security/);
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await setUser(userB);
       assert.deepEqual(await rows('select * from public.shortlist_items'), []);
       await assert.rejects(db.query(`insert into public.shortlist_items (user_id, region_id, recommendation_run_id)
         values ($1, $2, $3)`, [userB, region.id, recommendation.id]), /foreign key/);
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      await setUser(userA);
       await db.query('delete from public.shortlist_items where id = $1', [saved.id]);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   const claim = () => one(`select * from public.check_and_claim_zone_enrichment($1,
@@ -321,8 +280,7 @@ test('migration chain and database contracts', async (t) => {
   });
 
   await t.test('claim, deduplication, sample exclusion, locality ranking, and cache hit', async () => {
-    await db.exec('set role service_role');
-    try {
+    await asRole('service_role', async () => {
       const run = await claim();
       assert.equal(run.call_lf01, true);
       const duplicate = await claim();
@@ -341,9 +299,7 @@ test('migration chain and database contracts', async (t) => {
       await assert.rejects(upsert(run.run_id, [candidate(1)]), /terminal/);
       await assert.rejects(db.query(`select public.complete_enrichment_run($1, 'failed')`, [run.run_id]), /terminal/);
       assert.equal((await claim()).status, 'cache_hit');
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('full stale cache requests real refresh work; failed runs retry at once unless a policy opts in', async () => {
@@ -427,15 +383,12 @@ test('migration chain and database contracts', async (t) => {
     const current = await addSnapshot(payload, 3, 3);
     await db.query('select public.publish_region_snapshot($1)', [current.id]);
     await assert.rejects(db.query('select public.publish_region_snapshot($1)', [older.id]), /older/);
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       const snapshot = await one('select * from public.get_region_snapshot($1)', [region.id]);
       assert.deepEqual(snapshot.snapshot, payload);
       assert.equal(snapshot.is_stale, true);
       assert.equal(snapshot.is_expired, true);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('one layer call returns scoped child geometry, latest non-sample facts, and safe aggregates', async () => {
@@ -447,7 +400,7 @@ test('migration chain and database contracts', async (t) => {
         extensions.ST_Multi(extensions.ST_GeomFromText(
           'POLYGON((106.8 -6.2,106.81 -6.2,106.81 -6.21,106.8 -6.2))', 4326))) returning id`,
     [parent.id]);
-    const gridB = await one(`insert into public.regions
+    await one(`insert into public.regions
       (parent_id, code, name, region_type, is_supported)
       values ($1, 'h3-b', 'Grid B', 'grid', true) returning id`, [parent.id]);
     const metric = 'transit_access';
@@ -492,8 +445,7 @@ test('migration chain and database contracts', async (t) => {
     const getLayer = (type, scope) => rows(`select * from public.get_region_layer(
       $1, $2, $3, $4, 'grid')`, [parent.id, metric, type, scope]);
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await assert.rejects(db.query('select * from public.region_data'), /permission denied/);
       const layer = await getLayer('employment_summary', scopedHash);
       assert.deepEqual(layer.map((cell) => cell.region_code), ['h3-a', 'h3-b']);
@@ -511,9 +463,7 @@ test('migration chain and database contracts', async (t) => {
       assert.equal((await getLayer(null, null))[0].snapshot, null);
       await assert.rejects(getLayer(null, scopedHash), /optional exact snapshot/);
       await assert.rejects(getLayer('employment_summary', 'bad'), /optional exact snapshot/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
 
     // One RPC fetches 85 cells; missing geometry/facts remain explicitly null.
     await db.query(`insert into public.regions (parent_id, code, name, region_type, is_supported)
@@ -546,8 +496,7 @@ test('migration chain and database contracts', async (t) => {
     await db.query(`insert into public.region_data (region_id, metric, numeric_value, unit, evidence_type, source)
       values ($1, 'housing_listing_count', 4, 'listings', 'observed', 'map read test')`, [cell.id]);
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       const full = await one(`select * from public.get_map_region('map-read-test', false)`);
       const compact = await one(`select * from public.get_map_region('map-read-test', false, false)`);
       assert.equal(full.geometry.type, 'MultiPolygon');
@@ -560,14 +509,11 @@ test('migration chain and database contracts', async (t) => {
       assert.equal(points.geometry, null);
       assert.deepEqual(points.centroid, polygons.centroid);
       assert.deepEqual(points.facts, polygons.facts);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('subscriptions are backend-written, owner-read, and one current per user', async () => {
-    await db.exec('set role service_role');
-    try {
+    await asRole('service_role', async () => {
       const plan = await one(`insert into public.subscription_plans (code, name, billing_interval, price_amount, features)
         values ('pro_monthly', 'Pro', 'month', 49000, '{"max_profiles": 5}') returning id`);
       await db.query(`insert into public.subscriptions (user_id, plan_id, status, current_period_start, current_period_end)
@@ -581,33 +527,25 @@ test('migration chain and database contracts', async (t) => {
         values ($1, $2, $3, now() - interval '2 months', now() - interval '1 month', 'provider_x', 'sub_1')`;
       await db.query(lapsed, [userB, plan.id, 'active']);
       await assert.rejects(db.query(lapsed, [userB, plan.id, 'expired']), /subscriptions_provider_uq/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       assert.deepEqual(await rows('select code from public.subscription_plans'), [{ code: 'pro_monthly' }]);
       await assert.rejects(rows('select * from public.subscriptions'), /permission denied/);
       await assert.rejects(rows('select * from public.get_my_subscription()'), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
 
-    await db.exec('set role authenticated');
-    try {
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+    await asRole('authenticated', async () => {
+      await setUser(userA);
       assert.equal((await rows('select * from public.subscriptions')).length, 2);
       assert.deepEqual(await rows('select plan_code, status, features from public.get_my_subscription()'),
         [{ plan_code: 'pro_monthly', status: 'active', features: { max_profiles: 5 } }]);
       await assert.rejects(db.query(`update public.subscriptions set status = 'canceled'`), /permission denied/);
-      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await setUser(userB);
       assert.deepEqual(await rows('select provider_subscription_id from public.subscriptions'),
         [{ provider_subscription_id: 'sub_1' }]);
       assert.deepEqual(await rows('select * from public.get_my_subscription()'), []);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('account deletion cascades through confirmed profiles and recommendations', async () => {
@@ -621,16 +559,13 @@ test('migration chain and database contracts', async (t) => {
     const insert = (region, x) => db.query(`insert into public.hci_click_events
       (session_id, elapsed_ms, region, target, x, y, viewport_width, viewport_height, paint_ms, response_ms)
       values ('6f1c2d3e-4b5a-4c6d-8e7f-001122334455', 1000, $1, 'Pekerjaan', $2, $2, 1280, 720, 16, null)`, [region, x]);
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await insert('categories', 0.5);
       await assert.rejects(insert('Bad Region', 0.5), /check constraint/);
       await assert.rejects(insert('map', 2), /check constraint/);
       await assert.rejects(rows('select * from public.hci_click_events'), /permission denied/);
       await assert.rejects(rows('select * from public.hci_region_summary'), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
     assert.deepEqual(await rows('select region, clicks, response_timeouts from public.hci_region_summary'),
       [{ region: 'categories', clicks: 1, response_timeouts: 1 }]);
   });
@@ -655,16 +590,12 @@ test('migration chain and database contracts', async (t) => {
       { point_index: 4, latitude: 200, longitude: 110.05 },
     ]);
 
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await assert.rejects(db.query('select * from public.classify_evidence_points($1, $2)', [target.id, points]), /permission denied/);
       await assert.rejects(db.query('select * from public.geocode_cache'), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
 
-    await db.exec('set role service_role');
-    try {
+    await asRole('service_role', async () => {
       const tiers = await rows('select * from public.classify_evidence_points($1, $2)', [target.id, points]);
       assert.deepEqual(tiers.map((row) => [row.point_index, row.containing_region_code, row.locality_tier]), [
         [0, 'tier-target', 'zone'], [1, 'tier-sibling', 'city'], [2, 'tier-cousin', 'region'], [3, null, null],
@@ -696,9 +627,7 @@ test('migration chain and database contracts', async (t) => {
       const published = await one(`select * from public.get_region_snapshot($1, 'career', $2)`, [target.id, scopeHash]);
       assert.equal(published.coverage, 'partial');
       assert.equal(published.is_stale, false);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
   await t.test('evidence clusters count district-precise claims per district, once each', async () => {
@@ -706,14 +635,10 @@ test('migration chain and database contracts', async (t) => {
     // Clusters, like the map reads, cover supported districts (or sample ones when asked).
     await db.query(`update public.regions set is_supported = true where code in ('tier-target', 'tier-sibling')`);
     const cluster = (hashes) => rows(`select * from public.get_evidence_clusters('tier-city-a', $1, true)`, [hashes]);
-    await db.exec('set role anon');
-    try {
+    await asRole('anon', async () => {
       await assert.rejects(db.query(`select * from public.get_evidence_clusters('tier-city-a', $1)`, [[scopeHash]]), /permission denied/);
-    } finally {
-      await db.exec('reset role');
-    }
-    await db.exec('set role service_role');
-    try {
+    });
+    await asRole('service_role', async () => {
       const run = await one(`select * from public.check_and_claim_zone_enrichment(
         (select id from public.regions where code = 'tier-target'), 'active_opening', 'active_opening|sector=test', $1)`, [scopeHash]);
       await upsert(run.run_id, [
@@ -733,9 +658,7 @@ test('migration chain and database contracts', async (t) => {
       const target = (await cluster([scopeHash])).find((row) => row.region_code === 'tier-target');
       assert.equal(target.centroid.type, 'Point');
       assert.deepEqual(await cluster(['0'.repeat(64)]), []);
-    } finally {
-      await db.exec('reset role');
-    }
+    });
   });
 
 });

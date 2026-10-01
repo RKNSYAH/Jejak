@@ -1,32 +1,11 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { PGlite } from '@electric-sql/pglite';
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { postgis } from '@electric-sql/pglite-postgis';
+import { applyMigrations, asRole, createDatabase } from './bootstrap.mjs';
 
 test('boundary persistence RPC', async (t) => {
-  const db = new PGlite({ extensions: { pgcrypto, postgis } });
+  const db = await createDatabase();
   t.after(() => db.close());
-  await db.exec(`
-    create role anon;
-    create role authenticated;
-    create role service_role bypassrls;
-    create role jejak_readonly;
-    grant usage on schema public to anon, authenticated, service_role;
-    alter default privileges in schema public grant execute on functions to anon, authenticated;
-    create schema auth;
-    create table auth.users (id uuid primary key);
-    create function auth.uid() returns uuid language sql stable as $$
-      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-    $$;
-    grant usage on schema auth to authenticated, service_role;
-    grant execute on function auth.uid() to authenticated, service_role;
-  `);
-  const folder = new URL('../migrations/', import.meta.url);
-  for (const file of (await readdir(folder)).filter((file) => file.endsWith('.sql')).sort()) {
-    await db.exec(await readFile(new URL(file, folder), 'utf8'));
-  }
+  await applyMigrations(db);
   await db.exec(`
     insert into public.regions (region_code, region_name, region_type, is_supported)
     values ('boundary-city', 'Boundary City', 'city', true);
@@ -51,12 +30,7 @@ test('boundary persistence RPC', async (t) => {
       from pg_catalog.pg_proc p where p.oid = 'public.store_region_boundary(text,jsonb)'::regprocedure`);
     assert.deepEqual(rows[0], { anon: false, authenticated: false, service: true, security_definer: false });
     for (const role of ['anon', 'authenticated']) {
-      await db.exec(`set role ${role}`);
-      try {
-        await assert.rejects(store('boundary-district', boundary), /permission denied/);
-      } finally {
-        await db.exec('reset role');
-      }
+      await asRole(db, role, () => assert.rejects(store('boundary-district', boundary), /permission denied/));
     }
   });
 
@@ -99,12 +73,8 @@ test('boundary persistence RPC', async (t) => {
   await db.exec('reset role');
 
   await t.test('existing map RPC reads saved geometry', async () => {
-    await db.exec('set role authenticated');
-    try {
-      const { rows } = await db.query(`select geometry from public.get_map_region('boundary-district', false, true)`);
-      assert.deepEqual(rows[0].geometry, boundary);
-    } finally {
-      await db.exec('reset role');
-    }
+    const { rows } = await asRole(db, 'authenticated', () =>
+      db.query(`select geometry from public.get_map_region('boundary-district', false, true)`));
+    assert.deepEqual(rows[0].geometry, boundary);
   });
 });

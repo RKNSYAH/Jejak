@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { defaultAnswers } from "@/app/engine/onboarding/demoData";
-import { availableDestinations, evaluateOnboarding, parseFormSession } from "@/app/engine/onboarding/preview";
+import { availableDestinations, displayStep, evaluateOnboarding, parseFormSession } from "@/app/engine/onboarding/preview";
 import { FORM_DRAFT_KEY, type FormAnswers, type FormSession, type FormStep } from "@/app/engine/onboarding/types";
 
 export function useFormOnboarding() {
@@ -49,7 +49,7 @@ export function useFormOnboarding() {
     }, []);
     const active = session?.status === "active";
     const previewVisible = active || session?.status === "completed";
-    const preview = useMemo(() => session ? evaluateOnboarding(session.answers, session.status === "completed" ? 4 : session.step) : null, [session]);
+    const preview = useMemo(() => session ? evaluateOnboarding(session.answers, displayStep(session)) : null, [session]);
     return { session, ready, active, previewVisible, preview, storageAvailable, storyOpenRequest,
         open, update, goToStep, finish, dismiss, returnToStory };
 }

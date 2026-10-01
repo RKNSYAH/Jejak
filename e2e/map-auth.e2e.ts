@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { authenticateContext } from "./fixtures/auth";
+import { stubZones } from "./fixtures/map";
 
 test("signed-out map navigation goes to login before mounting the map", async ({ page }) => {
     const requests: string[] = [];
@@ -45,7 +46,7 @@ test("a tampered signed-in cookie cannot open the map or its API", async ({ cont
     await expect(page).toHaveURL(/\/login\?/);
 });
 
-test("authenticated callers receive data responses and genuine missing-region 404s", async ({ context, baseURL }) => {
+test("authenticated users receive data responses and genuine missing-region 404s", async ({ context, baseURL }) => {
     await authenticateContext(context, baseURL!);
     expect((await context.request.get("/api/zones")).status()).toBe(200);
     expect((await context.request.get("/api/geometry?zone_id=unknown-region")).status()).toBe(404);
@@ -53,7 +54,7 @@ test("authenticated callers receive data responses and genuine missing-region 40
 });
 
 test("login returns the user to their original map URL", async ({ page }) => {
-    await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: false, zones: [] } }));
+    await stubZones(page);
     const next = "/map?zone=coblong&study=P01";
     await page.goto(`/login?${new URLSearchParams({ next })}`);
     await page.getByRole("textbox", { name: "Email" }).fill("map-user@example.test");
@@ -66,7 +67,7 @@ test("login returns the user to their original map URL", async ({ page }) => {
 test("an expired refreshable session stays on the map and receives refreshed cookies", async ({ context, page, baseURL }) => {
     await authenticateContext(context, baseURL!, true);
     const before = (await context.cookies()).find((cookie) => cookie.name.startsWith("sb-"))!.value;
-    await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: false, zones: [] } }));
+    await stubZones(page);
     const response = await page.goto("/map?study=refresh");
     expect(response?.status()).toBe(200);
     await expect(page.getByRole("searchbox")).toBeVisible();

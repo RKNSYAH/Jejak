@@ -54,9 +54,9 @@ test("zone evidence client requests the public route and accepts aggregate-only 
 
 test("evidence clusters client requests city counts and rejects malformed clusters", async (context) => {
     const clusters = {
-        city_id: "jakarta-selatan", scope: "career", note: "Counts are approximate.",
+        city_id: "jakarta-selatan", scope: "career",
         clusters: [{ zone_id: "setiabudi", zone_name: "Setiabudi", centroid: [106.83, -6.22],
-            counts: { office_presence: { count: 3, organizations: 3 } }, labels: ["approx. 3 offices"], latest_retrieved_at: "2026-09-28T09:00:00Z" }],
+            counts: { office_presence: { count: 3, organizations: 3 } }, labels: ["sekitar 3 kantor"], latest_retrieved_at: "2026-09-28T09:00:00Z" }],
     };
     let requested = "";
     let body: unknown = clusters;
@@ -67,7 +67,7 @@ test("evidence clusters client requests city counts and rejects malformed cluste
     const signal = new AbortController().signal;
     const result = await getEvidenceClusters("jakarta-selatan", "career", signal);
     assert.equal(requested, "/api/evidence/clusters?city_id=jakarta-selatan&scope=career");
-    assert.deepEqual(result.clusters[0].labels, ["approx. 3 offices"]);
+    assert.deepEqual(result.clusters[0].labels, ["sekitar 3 kantor"]);
 
     body = { ...clusters, clusters: [{ ...clusters.clusters[0], centroid: [500, -6.22] }] };
     await assert.rejects(getEvidenceClusters("jakarta-selatan", "career", signal), /Invalid evidence clusters/);
