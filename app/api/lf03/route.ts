@@ -1,55 +1,45 @@
 import { reviewEvidenceConflict } from "@/app/engine/controller/conflictReviewController";
 import { getAuthenticatedClaims } from "@/app/engine/controller/userServerController";
-import { isLangflowConfigured, LangflowError, type LangflowErrorCode } from "@/app/engine/lib/langflow";
+import { readJsonBody } from "@/app/engine/lib/http";
+import { flowErrorResponse, isLangflowConfigured, type FlowErrorMessages } from "@/app/engine/lib/langflow";
 import { validateLF03Input } from "@/app/engine/lib/lf03Validation";
 
 export async function POST(request: Request) {
-    if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-        return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
-    }
-
-    let body: unknown;
-    try {
-        body = await request.json();
-    } catch {
-        return Response.json({ error: "Invalid JSON request" }, { status: 400 });
-    }
+    const body = await readJsonBody(request);
+    if (body instanceof Response) return body;
 
     let group;
     try {
         group = validateLF03Input(body);
     } catch (error) {
         if (error instanceof Error && error.message === "LF03_NO_CONFLICT") {
-            return Response.json({ error: "Claims do not conflict", code: "NO_CONFLICT" }, { status: 422 });
+            return Response.json({ error: "Klaim tidak saling bertentangan.", code: "NO_CONFLICT" }, { status: 422 });
         }
-        return Response.json({ error: "Invalid conflict group" }, { status: 400 });
+        return Response.json({ error: "Kelompok konflik tidak valid." }, { status: 400 });
     }
 
     // LF-03 can fall back to Gemini, so only signed-in users can run it.
     const claims = await getAuthenticatedClaims().catch(() => null);
-    if (!claims) return Response.json({ error: "Sign in to review evidence conflicts", code: "SIGN_IN_REQUIRED" }, { status: 401 });
+    if (!claims) return Response.json({ error: "Masuk terlebih dahulu untuk meninjau konflik bukti.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
 
     if (!isLangflowConfigured()) {
-        return Response.json({ error: "Conflict review is not available yet" }, { status: 503 });
+        const [error, status] = flowErrors.config;
+        return Response.json({ error }, { status });
     }
 
     try {
         return Response.json({ recommendation: await reviewEvidenceConflict(group) });
     } catch (error) {
-        if (!(error instanceof LangflowError)) {
-            return Response.json({ error: "Conflict review returned an unusable recommendation" }, { status: 502 });
-        }
-        const [message, status] = flowErrors[error.code];
-        return Response.json({ error: message }, { status });
+        return flowErrorResponse(flowErrors, error);
     }
 }
 
-const flowErrors: Record<LangflowErrorCode, [string, number]> = {
-    config: ["Conflict review is not available yet", 503],
-    timeout: ["Conflict review took too long", 504],
-    unreachable: ["Could not reach conflict review", 502],
-    upstream: ["Conflict review failed", 502],
-    invalid_response: ["Conflict review returned an unreadable response", 502],
-    incomplete: ["Conflict review did not finish", 502],
-    invalid_output: ["Conflict review returned an unusable recommendation", 502],
+const flowErrors: FlowErrorMessages = {
+    config: ["Tinjauan konflik bukti belum siap. Coba lagi nanti.", 503],
+    timeout: ["Tinjauan konflik bukti terlalu lama. Coba lagi.", 504],
+    unreachable: ["Tinjauan konflik bukti belum bisa dijalankan. Coba lagi.", 502],
+    upstream: ["Tinjauan konflik bukti belum bisa dijalankan. Coba lagi.", 502],
+    invalid_response: ["Hasil tinjauan konflik tidak bisa dibaca. Coba lagi.", 502],
+    incomplete: ["Tinjauan konflik bukti belum selesai. Coba lagi.", 502],
+    invalid_output: ["Hasil tinjauan konflik tidak dapat digunakan. Coba lagi.", 502],
 };

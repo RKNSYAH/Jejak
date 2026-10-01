@@ -1,9 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { stubZones } from "./fixtures/map";
 
 async function startForm(page: Page, savedProfile: Record<string, unknown> | null = null) {
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.fulfill({ json: { profile: savedProfile } }));
-    await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: false, zones: [] } }));
+    await stubZones(page);
     await page.goto("/map?onboarding=demo");
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Apa yang membawamu pindah?" })).toBeVisible();
@@ -57,18 +58,18 @@ test("form updates sample recommendations and completes without live ranking or 
     await page.getByRole("button", { name: "Selesai, buka peta", exact: true }).click();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Ubah preferensi contoh" })).toHaveCount(1);
-    await expect(preview).toContainText("Contoh data");
+    await expect(preview).toContainText("Data contoh");
     expect(liveCalls).toEqual([]);
     expect(errors).toEqual([]);
 
-    await page.getByRole("separator", { name: "Resize exploration panel" }).press("End");
+    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await expect(page.getByRole("heading", { name: "Rekomendasi contoh untukmu" })).toBeVisible();
     const results = page.locator('[data-hci-region="zone-list"]');
     await expect(results).toContainText("Sewa Rp");
     await page.reload();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Ubah preferensi contoh" })).toHaveCount(1);
-    await page.getByRole("separator", { name: "Resize exploration panel" }).press("End");
+    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await page.getByRole("button", { name: "Ubah preferensi contoh" }).click();
     await expect(page.getByRole("slider", { name: "Karier", exact: true })).toHaveValue("65");
 });
@@ -88,10 +89,10 @@ test("back, refresh, story switching, and skip preserve the form draft", async (
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Data analyst");
     await page.getByRole("button", { name: "Lewati", exact: true }).click();
-    await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
-    await page.getByRole("button", { name: "Complete profile", exact: true }).click();
+    await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
+    await page.getByRole("button", { name: "Lengkapi profil", exact: true }).click();
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Data analyst");
 });

@@ -6,19 +6,14 @@ import { POST as enrich } from "../app/api/zones/[zoneId]/enrich/route";
 import { GET as evidence } from "../app/api/zones/[zoneId]/evidence/route";
 import { GET as runStatus } from "../app/api/enrichment-runs/[runId]/route";
 import { GET as clusters } from "../app/api/evidence/clusters/route";
+import { countFetches, postJson } from "./helpers";
 
 const params = <T extends object>(value: T) => ({ params: Promise.resolve(value) });
 
-function post(body: string, type = "application/json") {
-    return new Request("http://localhost/api/zones/pancoran/enrich", { method: "POST", headers: { "Content-Type": type }, body });
-}
+const post = (body: string, type?: string) => postJson("/api/zones/pancoran/enrich", body, type);
 
-test("enrich validates the request before authentication and never claims for anonymous callers", async (context) => {
-    let fetchCalls = 0;
-    context.mock.method(globalThis, "fetch", async () => {
-        fetchCalls += 1;
-        return Response.json({});
-    });
+test("enrich validates the request before authentication and never claims for anonymous users", async (context) => {
+    const fetches = countFetches(context);
     const zone = params({ zoneId: "pancoran" });
     assert.equal((await enrich(post("{}", "text/plain"), zone)).status, 415);
     assert.equal((await enrich(post("{"), zone)).status, 400);
@@ -29,7 +24,7 @@ test("enrich validates the request before authentication and never claims for an
     const anonymous = await enrich(post('{"scope":"career"}'), zone);
     assert.equal(anonymous.status, 403);
     assert.equal((await anonymous.json()).code, "SIGN_IN_REQUIRED");
-    assert.equal(fetchCalls, 0);
+    assert.equal(fetches.count, 0);
 });
 
 test("evidence and run status reject malformed identifiers", async () => {

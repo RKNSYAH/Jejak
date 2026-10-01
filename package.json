@@ -10,8 +10,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test ./tests",
-    "test:schema": "node --test supabase/tests/schema.test.mjs",
-    "test:e2e": "playwright test"
+    "test:schema": "node --test supabase/tests/schema.test.mjs supabase/tests/boundary.test.mjs",
+    "test:e2e": "playwright test",
+    "fetch:boundaries": "node scripts/fetch-onboarding-boundaries.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

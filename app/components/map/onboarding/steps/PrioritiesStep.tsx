@@ -23,14 +23,10 @@ export default function PrioritiesStep({ answers, onChange }: StepProps) {
                 <span className="flex items-center gap-2"><Check aria-hidden="true" className="size-4 text-primary" />Total 100%</span>
                 <button type="button" onClick={() => onChange({ weights: { ...defaultWeights } })} className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline">Pakai saran untuk profilmu</button>
             </div>
-            <p id="weight-help" className="text-xs leading-relaxed text-ink-muted">Bobot lain menyesuaikan otomatis agar total tetap 100%. Angka dan urutan memakai contoh data.</p>
+            <p id="weight-help" className="text-xs leading-relaxed text-ink-muted">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
         </div>
         <CheckboxChoices name="extras" label={<>Tambahan <span className="font-normal text-ink-muted">· opsional, tidak menyaring</span></>}
             values={answers.extras} onToggle={(extra) => onChange({ extras: answers.extras.includes(extra) ? answers.extras.filter((item) => item !== extra) : [...answers.extras, extra] })}
             choices={[{ value: "internet", label: "Internet stabil" }, { value: "healthcare", label: "Dekat layanan kesehatan" }, { value: "quiet", label: "Lingkungan tenang" }]} />
-        <details className="border-t border-rule pt-1 text-xs">
-            <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Tinjau batas dan preferensimu</summary>
-            <p className="leading-relaxed text-ink-muted">Batas sewa, anggaran, dan perjalanan menyaring kecamatan. Bobot serta tambahan mengubah urutan kecamatan yang lolos. Semua pilihan bisa diubah dengan Kembali.</p>
-        </details>
     </div>;
 }

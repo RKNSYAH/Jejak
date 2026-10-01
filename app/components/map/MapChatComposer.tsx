@@ -45,7 +45,7 @@ export default function MapChatComposer({
 
     function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (!canSubmit || !onSubmit) return;
+        if (!onSubmit || !prompt.trim()) return;
         onSubmit(prompt.trim());
         setPrompt("");
     }
@@ -54,7 +54,6 @@ export default function MapChatComposer({
         <div
             ref={containerRef}
             data-hci-region="map-chat"
-            aria-hidden={!visible}
             hidden={!visible}
             className={`pointer-events-none absolute bottom-0 left-0 z-100 flex justify-center px-[max(0.75rem,env(safe-area-inset-left))] md:px-4 ${isDragging ? "" : "transition-[bottom,right] duration-200 ease-out motion-reduce:transition-none"}`}
             style={{
@@ -63,7 +62,7 @@ export default function MapChatComposer({
             }}
         >
             <section aria-label="Tanya tentang peta" className="pointer-events-auto w-full max-w-2xl">
-                <div role="group" className="map-chat-suggestions flex gap-2 overflow-x-auto overscroll-x-contain pb-2" aria-label="Pertanyaan yang disarankan">
+                <div role="group" className="flex gap-2 overflow-x-auto overscroll-x-contain pb-2" aria-label="Pertanyaan yang disarankan">
                     {suggestions.map(({ label, prompt: suggestedPrompt, Icon }) => (
                         <button
                             key={label}

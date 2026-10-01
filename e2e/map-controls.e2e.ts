@@ -1,11 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { openDemoMap, stubZones } from "./fixtures/map";
 
 async function openMap(page: Page) {
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones: [] } }));
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await stubZones(page);
+    await openDemoMap(page);
     await expect(page.getByRole("group", { name: "Kategori peta" })).toBeVisible();
 }
 
@@ -127,19 +126,18 @@ test("overflow updates when sidebar resizes and Reset disappears", async ({ page
     await page.route((url) => url.pathname === "/api/geometry", (route) => route.fulfill({ json: {
         type: "FeatureCollection", features: [],
     } }));
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await openDemoMap(page);
     const right = page.getByRole("button", { name: "Gulir kategori ke kanan", includeHidden: true });
     const left = page.getByRole("button", { name: "Gulir kategori ke kiri", includeHidden: true });
     await expect(right).toBeHidden();
 
     await page.getByRole("searchbox").fill("Pancoran");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Pancoran/ }).click();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Pancoran/ }).click();
     await expect(page.locator("#zone-intelligence-desktop")).toBeVisible();
     await expect(right).toBeVisible();
     const viewport = page.locator("#map-category-scroll");
     const initialWidth = await viewport.evaluate((element) => element.clientWidth);
-    await page.getByRole("separator", { name: "Resize panel" }).press("ArrowLeft");
+    await page.getByRole("separator", { name: "Ubah lebar panel" }).press("ArrowLeft");
     await expect.poll(() => viewport.evaluate((element) => element.clientWidth)).toBeLessThan(initialWidth);
 
     await page.getByRole("button", { name: "Reset semua lapisan peta" }).click();

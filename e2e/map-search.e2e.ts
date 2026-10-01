@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { openDemoMap, stubZones } from "./fixtures/map";
 
 const zones = [
     ["Coblong", "Bandung", "bandung"],
@@ -32,7 +33,7 @@ async function openMap(page: Page) {
             body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
         return route.abort();
     });
-    await page.route((url) => url.pathname === "/api/zones", (route) => route.fulfill({ json: { is_sample: true, zones } }));
+    await stubZones(page, zones, true);
     await page.route((url) => /^\/api\/zones\/[^/]+\/intelligence$/.test(url.pathname), (route) => {
         const url = new URL(route.request().url());
         const zone = zones.find((zone) => zone.zone_id === url.pathname.split("/")[3])!;
@@ -46,13 +47,12 @@ async function openMap(page: Page) {
         return route.fulfill({ json: url.searchParams.get("include_geometry") === "1"
             ? { details, geometry, geometry_error: null } : details });
     });
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
-    await expect(page.locator('[data-hci-region="zone-list"]')).toContainText(`${zones.length} area tersedia`);
+    await openDemoMap(page);
+    await expect(page.locator('[data-hci-region="zone-list"]')).toContainText(`${zones.length} kecamatan tersedia`);
 }
 
 async function openSheet(page: Page) {
-    await page.getByRole("separator", { name: "Resize exploration panel" }).press("End");
+    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await expect(page.locator('[data-hci-region="zone-list"] button')).toHaveCount(zones.length);
 }
 
@@ -60,13 +60,13 @@ async function selectFromSheet(page: Page, name: string) {
     await openSheet(page);
     await page.locator('[data-hci-region="zone-list"] button').filter({ hasText: name }).click();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-    await page.getByRole("button", { name: `Close ${name} details`, exact: true }).click();
+    await page.getByRole("button", { name: `Tutup detail ${name}`, exact: true }).click();
 }
 
 test("search limits local suggestions but can find other cities and submits the first visible result", async ({ page }) => {
     await openMap(page);
     const search = page.getByRole("searchbox");
-    const results = page.getByRole("list", { name: "Supported zones" });
+    const results = page.getByRole("list", { name: "Hasil pencarian kecamatan" });
     await search.click();
     await expect(results.getByRole("button")).toHaveText(["TebetJakarta Selatan", "MentengJakarta Pusat", "Bogor TengahKota Bogor"]);
     await expect(page.getByText(/Maks\. 3 hasil/)).toHaveCount(0);
@@ -94,7 +94,7 @@ test("camera moves switch Jakarta and Bandung search contexts without filtering 
     await openMap(page);
     await selectFromSheet(page, "Coblong");
     const search = page.getByRole("searchbox");
-    const results = page.getByRole("list", { name: "Supported zones" });
+    const results = page.getByRole("list", { name: "Hasil pencarian kecamatan" });
     await search.click();
     await expect(results.getByRole("button")).toHaveText(["CoblongBandung", "SukajadiBandung", "AntapaniBandung"]);
     await search.fill("Tebet");
@@ -104,7 +104,7 @@ test("camera moves switch Jakarta and Bandung search contexts without filtering 
     await search.fill("");
     await expect(results.getByRole("button")).toHaveText(["TebetJakarta Selatan", "MentengJakarta Pusat", "Bogor TengahKota Bogor"]);
     await openSheet(page);
-    await expect(page.locator('[data-hci-region="zone-list"]')).toContainText(`${zones.length} area tersedia`);
+    await expect(page.locator('[data-hci-region="zone-list"]')).toContainText(`${zones.length} kecamatan tersedia`);
     await expect(page.locator('[data-hci-region="zone-list"] button').filter({ hasText: "Coblong" })).toBeVisible();
 });
 
@@ -112,7 +112,7 @@ test("a camera outside the configured search areas still supports searching all 
     await openMap(page);
     await selectFromSheet(page, "Gondokusuman");
     await page.getByRole("searchbox").click();
-    const results = page.getByRole("list", { name: "Supported zones" });
+    const results = page.getByRole("list", { name: "Hasil pencarian kecamatan" });
     await expect(results.getByRole("button")).toHaveText(["CoblongBandung", "TebetJakarta Selatan", "SukajadiBandung"]);
     await page.getByRole("searchbox").fill("Gondokusuman");
     await expect(results.getByRole("button")).toHaveText(["GondokusumanYogyakarta"]);

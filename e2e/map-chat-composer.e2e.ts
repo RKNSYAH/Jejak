@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { openDemoMap, stubZones } from "./fixtures/map";
 
 const zones = [{
     zone_id: "pancoran",
@@ -30,8 +31,7 @@ function geometry() {
 }
 
 async function openMap(page: Page) {
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones } }));
+    await stubZones(page, zones);
     await page.route((url) => /^\/api\/zones\/[^/]+\/intelligence$/.test(url.pathname), (route) => {
         const url = new URL(route.request().url());
         return route.fulfill({
@@ -43,8 +43,7 @@ async function openMap(page: Page) {
     await page.route((url) => url.pathname === "/api/geometry", (route) =>
         route.fulfill({ json: geometry() }));
 
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await openDemoMap(page);
     await expect(page.getByRole("button", { name: "Legenda" })).toBeVisible();
 }
 
@@ -62,7 +61,7 @@ test("composer stays above sheet, hides when expanded, and keeps draft", async (
     await expect(prompt).toHaveAccessibleName("Tanya atau ubah asumsi peta");
     await expect(prompt).toHaveValue("Bagaimana rekomendasi berubah jika saya kerja remote?");
 
-    const sheetHandle = page.getByRole("separator", { name: "Resize exploration panel" });
+    const sheetHandle = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     await sheetHandle.press("End");
     await expect(composer).toBeHidden();
     await expect(prompt).toHaveValue("Bagaimana rekomendasi berubah jika saya kerja remote?");
@@ -75,7 +74,7 @@ test("dragging the sheet moves the composer before the snap", async ({ page }, t
     test.skip(testInfo.project.name === "mobile", "Mouse drag is measured on desktop; keyboard resizing is covered on both viewports");
     await openMap(page);
     const composer = page.locator('[data-hci-region="map-chat"]');
-    const sheetHandle = page.getByRole("separator", { name: "Resize exploration panel" });
+    const sheetHandle = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     const box = (await sheetHandle.boundingBox())!;
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
@@ -98,7 +97,7 @@ test("composer centers in remaining desktop map area when sidebar resizes", asyn
     await openMap(page);
 
     await page.getByRole("searchbox").fill("Pancoran");
-    await page.getByRole("list", { name: "Supported zones" }).getByRole("button", { name: /Pancoran/ }).click();
+    await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Pancoran/ }).click();
 
     const panel = page.locator("#zone-intelligence-desktop");
     const composer = page.locator('[data-hci-region="map-chat"]');
@@ -106,6 +105,6 @@ test("composer centers in remaining desktop map area when sidebar resizes", asyn
     await expect(composer).toBeVisible();
     await expect.poll(() => composer.evaluate((element) => getComputedStyle(element).right)).toBe("420px");
 
-    await page.getByRole("separator", { name: "Resize panel" }).press("ArrowLeft");
+    await page.getByRole("separator", { name: "Ubah lebar panel" }).press("ArrowLeft");
     await expect.poll(() => composer.evaluate((element) => getComputedStyle(element).right)).toBe("440px");
 });

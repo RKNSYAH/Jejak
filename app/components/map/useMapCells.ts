@@ -23,7 +23,7 @@ export function useMapCells(zoneId: string | null, category: MapCategory | null,
             if (!controller.signal.aborted) setEntries((current) => ({ ...current, [key]: { data } }));
         }).catch((error: unknown) => {
             if (!controller.signal.aborted) setEntries((current) => ({
-                ...current, [key]: { error: error instanceof Error ? error.message : "Unable to load heatmap" },
+                ...current, [key]: { error: error instanceof Error ? error.message : "Heatmap belum dapat dimuat." },
             }));
         });
         return () => controller.abort();

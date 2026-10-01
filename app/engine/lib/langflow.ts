@@ -16,13 +16,19 @@ export type LangflowErrorCode =
     | "invalid_response" | "incomplete" | "invalid_output";
 
 export class LangflowError extends Error {
-    code: LangflowErrorCode;
+    name = "LangflowError";
 
-    constructor(code: LangflowErrorCode, message: string) {
+    constructor(readonly code: LangflowErrorCode, message: string) {
         super(message);
-        this.name = "LangflowError";
-        this.code = code;
     }
+}
+
+export type FlowErrorMessages = Record<LangflowErrorCode, [message: string, status: number]>;
+
+// Any non-Langflow failure means the flow's output did not pass validation.
+export function flowErrorResponse(messages: FlowErrorMessages, error: unknown): Response {
+    const [message, status] = messages[error instanceof LangflowError ? error.code : "invalid_output"];
+    return Response.json({ error: message }, { status });
 }
 
 type Environment = Record<string, string | undefined>;

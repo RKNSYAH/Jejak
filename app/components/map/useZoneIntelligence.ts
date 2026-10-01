@@ -13,7 +13,7 @@ const DEFAULT_JAKARTA_ZONE_IDS = [
     "jakarta-pusat-tanah-abang",
 ];
 
-export function useZoneIntelligence(enabled = true) {
+export function useZoneIntelligence(enabled: boolean) {
     const [catalog, setCatalog] = useState<ZoneListResponse>({ is_sample: false, zones: [] });
     const [catalogError, setCatalogError] = useState<string | null>(null);
     const [catalogLoading, setCatalogLoading] = useState(true);
@@ -40,7 +40,7 @@ export function useZoneIntelligence(enabled = true) {
                 const result = await getZoneMapData(zoneId, signal);
                 return {
                     geometry: result.geometry ? { status: "fulfilled" as const, value: result.geometry } :
-                        { status: "rejected" as const, reason: new Error(result.geometryError ?? "Boundary unavailable") },
+                        { status: "rejected" as const, reason: new Error(result.geometryError ?? "Batas kecamatan tidak tersedia.") },
                     details: { status: "fulfilled" as const, value: result.details },
                 };
             } catch (error) {
@@ -64,7 +64,7 @@ export function useZoneIntelligence(enabled = true) {
         getZones(controller.signal).then((data) => {
             if (!controller.signal.aborted) setCatalog(data);
         }).catch((error: unknown) => {
-            if (!controller.signal.aborted) setCatalogError(error instanceof Error ? error.message : "Unable to load zones");
+            if (!controller.signal.aborted) setCatalogError(error instanceof Error ? error.message : "Daftar kecamatan belum dapat dimuat.");
         }).finally(() => {
             if (!controller.signal.aborted) setCatalogLoading(false);
         });
@@ -117,7 +117,7 @@ export function useZoneIntelligence(enabled = true) {
             if (controller.signal.aborted) return;
             commit(results.filter((result) => result !== first));
             if (results.some(({ geometry, details }) => geometry.status === "rejected" || geometry.value.features.length === 0 || details.status === "rejected")) {
-                setRecommendationsError("Some ranked regions could not be loaded. Retry to load missing data.");
+                setRecommendationsError("Sebagian kecamatan rekomendasi gagal dimuat.");
             }
             setRecommendationsLoading(false);
         })();
@@ -156,10 +156,10 @@ export function useZoneIntelligence(enabled = true) {
 
             const errors: string[] = [];
             if (geometry.status === "rejected") {
-                errors.push(geometry.reason instanceof Error ? geometry.reason.message : "Boundary request failed");
+                errors.push(geometry.reason instanceof Error ? geometry.reason.message : "Batas kecamatan gagal dimuat.");
             }
             if (details.status === "rejected") {
-                errors.push(details.reason instanceof Error ? details.reason.message : "Region data request failed");
+                errors.push(details.reason instanceof Error ? details.reason.message : "Data kecamatan gagal dimuat.");
             }
             setError(errors.length ? [...new Set(errors)].join(" ") : null);
             setLoading(false);

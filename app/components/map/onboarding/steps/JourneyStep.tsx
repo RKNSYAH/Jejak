@@ -9,6 +9,7 @@ export default function JourneyStep({ answers, onChange }: StepProps) {
     const [query, setQuery] = useState("");
     const destinations = availableDestinations(answers.goal);
     const selected = destinations.find((item) => item.id === answers.destinationId);
+    const matches = destinations.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()));
     const supported = answers.city === "jakarta-selatan" || answers.city === "unsure";
     return <div className="space-y-6">
         <div data-hci-region="onboarding-destination">
@@ -21,9 +22,9 @@ export default function JourneyStep({ answers, onChange }: StepProps) {
             {searchOpen && <div id="form-destination-picker" className="mt-3">
                 <label htmlFor="form-destination-search" className="input flex h-11 w-full border-ink/25 bg-base-100"><Search aria-hidden="true" className="size-4" /><span className="sr-only">Cari kawasan tujuan</span><input id="form-destination-search" name="destinationSearch" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 text-base md:text-sm" /></label>
                 <ul className="mt-2 space-y-1" aria-label="Kawasan tujuan contoh">
-                    {destinations.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())).map((item) => <li key={item.id}><button type="button" className="btn btn-ghost min-h-11 w-full justify-start text-sm" onClick={() => { onChange({ destinationId: item.id }); setSearchOpen(false); }}>{item.name}</button></li>)}
+                    {matches.map((item) => <li key={item.id}><button type="button" className="btn btn-ghost min-h-11 w-full justify-start text-sm" onClick={() => { onChange({ destinationId: item.id }); setSearchOpen(false); }}>{item.name}</button></li>)}
                 </ul>
-                {!destinations.some((item) => item.name.toLowerCase().includes(query.toLowerCase())) && <p className="mt-2 text-xs text-ink-muted">Belum ada kawasan yang cocok. Coba nama lain.</p>}
+                {!matches.length && <p className="mt-2 text-xs text-ink-muted">Belum ada kawasan yang cocok. Coba nama lain.</p>}
             </div>}
             <button type="button" onClick={() => { onChange({ destinationId: null }); setSearchOpen(false); }} className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary">{answers.goal === "study" ? "Belum tahu kampusnya" : "Belum tahu kantornya"}</button>
         </div>

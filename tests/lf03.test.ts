@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { POST } from "../app/api/lf03/route";
 import { reviewEvidenceConflict } from "../app/engine/controller/conflictReviewController";
 import { parseLF03Output, validateLF03Input } from "../app/engine/lib/lf03Validation";
+import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 
 const group = {
     entity_id: "org-001",
@@ -41,20 +42,6 @@ const recommendation = {
     runtime_usage: null,
 };
 
-function setWorkflowEnvironment() {
-    const previousUrl = process.env.NEXT_LANGFLOW_URL;
-    const previousKey = process.env.NEXT_LANGFLOW_API_KEY;
-    process.env.NEXT_LANGFLOW_URL = "http://localhost:7860/api/v2/workflows";
-    process.env.NEXT_LANGFLOW_API_KEY = "test-api-key";
-
-    return () => {
-        if (previousUrl === undefined) delete process.env.NEXT_LANGFLOW_URL;
-        else process.env.NEXT_LANGFLOW_URL = previousUrl;
-        if (previousKey === undefined) delete process.env.NEXT_LANGFLOW_API_KEY;
-        else process.env.NEXT_LANGFLOW_API_KEY = previousKey;
-    };
-}
-
 test("LF-03 input validation requires one entity, one attribute, provenance, and a real conflict", () => {
     assert.deepEqual(validateLF03Input(group), group);
     assert.throws(() => validateLF03Input({ ...group, run_id: "mine" }), /INVALID_LF03_INPUT/);
@@ -87,11 +74,11 @@ test("LF-03 output validation keeps references inside the sent group", () => {
 });
 
 test("LF-03 controller sends the group with a server run ID and returns the validated recommendation", async (context) => {
-    const restoreEnvironment = setWorkflowEnvironment();
+    const restoreEnvironment = withWorkflowEnvironment();
     let sentPayload: Record<string, unknown> | undefined;
     context.mock.method(globalThis, "fetch", async (_input: string | URL | Request, init?: RequestInit) => {
         sentPayload = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return Response.json({ object: "response", status: "completed", has_errors: false, output: { text: JSON.stringify(recommendation) } });
+        return Response.json(completed({ output: { text: JSON.stringify(recommendation) } }));
     });
 
     try {
@@ -108,15 +95,10 @@ test("LF-03 controller sends the group with a server run ID and returns the vali
     }
 });
 
-test("LF-03 route validates before authentication and never calls Langflow for anonymous callers", async (context) => {
-    const restoreEnvironment = setWorkflowEnvironment();
-    let fetchCalls = 0;
-    context.mock.method(globalThis, "fetch", async () => {
-        fetchCalls += 1;
-        return Response.json({});
-    });
-    const post = (body: string, type = "application/json") =>
-        POST(new Request("http://localhost/api/lf03", { method: "POST", headers: { "content-type": type }, body }));
+test("LF-03 route validates before authentication and never calls Langflow for anonymous users", async (context) => {
+    const restoreEnvironment = withWorkflowEnvironment();
+    const fetches = countFetches(context);
+    const post = (body: string, type?: string) => POST(postJson("/api/lf03", body, type));
 
     try {
         assert.equal((await post(JSON.stringify(group), "text/plain")).status, 415);
@@ -127,7 +109,7 @@ test("LF-03 route validates before authentication and never calls Langflow for a
         const anonymous = await post(JSON.stringify(group));
         assert.equal(anonymous.status, 401);
         assert.equal((await anonymous.json()).code, "SIGN_IN_REQUIRED");
-        assert.equal(fetchCalls, 0);
+        assert.equal(fetches.count, 0);
     } finally {
         restoreEnvironment();
     }

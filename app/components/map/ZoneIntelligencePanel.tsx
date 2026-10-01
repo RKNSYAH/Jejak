@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 
 import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
 import { formatFactValue, mapCategories, metricLabels } from "./mapMetrics";
+import { clamp, prefersReducedMotion } from "./viewport";
 
 type ZoneIntelligencePanelProps = {
   zoneName: string;
@@ -24,11 +25,10 @@ const MAX_PANEL_WIDTH = 720;
 const DEFAULT_PANEL_WIDTH = 420;
 
 function getMaxPanelWidth() {
-  return Math.max(
-    MIN_PANEL_WIDTH,
-    Math.min(MAX_PANEL_WIDTH, Math.floor(window.innerWidth * 0.45)),
-  );
+  return clamp(Math.floor(window.innerWidth * 0.45), MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
 }
+
+const evidenceLabels: Record<string, string> = { observed: "teramati", estimated: "perkiraan", derived: "turunan", unavailable: "tidak tersedia" };
 
 const categoryMetrics: Record<MapCategory, string[]> = {
   summary: ["population", "employment_rate", "average_monthly_wage_idr", "company_count", "universities", "median_monthly_rent_idr", "public_transport_stops"],
@@ -39,61 +39,52 @@ const categoryMetrics: Record<MapCategory, string[]> = {
 };
 
 function PanelContent({ zoneName, details, category, loading, error, isSample, geometryMissing, onRetry, onClose, idPrefix }: ZoneIntelligencePanelProps & { idPrefix: string }) {
-  const facts = categoryMetrics[category].map((metric) => details?.facts.find((fact) => fact.metric === metric));
+  const facts = categoryMetrics[category].flatMap((metric) => details?.facts.find((fact) => fact.metric === metric) ?? []);
   const campuses = category === "education" ? details?.places.filter((place) => place.category === "campus") ?? [] : [];
-  const available = facts.some(Boolean) || campuses.length > 0;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col font-body" aria-busy={loading}>
-    <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
-        <h2 id={`${idPrefix}-title`} className="mt-1 font-sans text-2xl font-bold text-ink">{zoneName}</h2>
+      <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-xs">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
+          <h2 id={`${idPrefix}-title`} className="mt-1 font-sans text-2xl font-bold text-ink">{zoneName}</h2>
+        </div>
+        <button type="button" className="btn btn-ghost btn-square size-11" onClick={onClose} aria-label={`Tutup detail ${zoneName}`}>
+          <X aria-hidden="true" className="size-5" />
+        </button>
       </div>
-      <button type="button" className="btn btn-ghost btn-square size-11" onClick={onClose} aria-label={`Close ${zoneName} details`}>
-        <X aria-hidden="true" className="size-5" />
-      </button>
-    </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 pb-[max(1rem,env(safe-area-inset-bottom))] wrap-break-word md:px-5 md:pb-15">
-      {isSample && <p className="mb-4 text-sm text-ink"><span className="badge badge-neutral badge-sm font-semibold">Sample data</span> Illustrative values, not verified observations.</p>}
-      <div role="status" aria-live="polite" className="text-sm">
-        {loading && <p className="mb-3">Loading regional data…</p>}
-        {error && <p className="mb-3">{error} Previously loaded data may still be shown.</p>}
-        {geometryMissing && <p className="mb-3">A boundary is not available for this region.</p>}
-      </div>
-      {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Retry</button>}
-      {!loading && !available && <p className="text-sm text-ink-muted">No {mapCategories[category].panelLabel.toLowerCase()} data is available for this region yet.</p>}
-      {available && <dl className="grid gap-3">
-        {categoryMetrics[category].map((metric, index) => {
-          const fact = facts[index];
-          if (!fact) return null;
-          const value = formatFactValue(fact);
-          return (
-            <div key={metric} className="card border border-rule shadow-sm p-4">
-              <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
-              <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
-              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Sample · " : ""}{fact.evidence_type} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · period unavailable"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% confidence` : ""}</dd>
-              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">View source</a></dd>}
-              {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
+        {isSample && <p className="mb-4"><span className="badge badge-neutral badge-sm font-semibold">Data contoh</span></p>}
+        <div role="status" aria-live="polite" className="text-sm">
+          {loading && <p className="mb-3">Memuat data kecamatan…</p>}
+          {error && <p className="mb-3">{error}</p>}
+          {geometryMissing && <p className="mb-3">Batas kecamatan tidak tersedia.</p>}
+        </div>
+        {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Coba lagi</button>}
+        {!loading && !facts.length && !campuses.length && <p className="text-sm text-ink-muted">Belum ada data {mapCategories[category].panelLabel.toLowerCase()} untuk kecamatan ini.</p>}
+        {facts.length > 0 && <dl className="grid gap-3">
+          {facts.map((fact) => (
+            <div key={fact.metric} className="card border border-rule shadow-sm p-4">
+              <dt className="text-sm text-ink-muted">{metricLabels[fact.metric] ?? fact.metric}</dt>
+              <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{formatFactValue(fact)}</dd>
+              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Contoh · " : ""}{evidenceLabels[fact.evidence_type]} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : ""}{fact.confidence != null ? ` · keyakinan ${Math.round(fact.confidence * 100)}%` : ""}</dd>
+              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">Lihat sumber</a></dd>}
             </div>
-          );
-        })}
-      </dl>}
-      {campuses.length > 0 && <section className="mt-6" aria-label="Campuses">
-        <h3 className="font-sans text-lg font-bold">Campuses</h3>
-        <ul className="mt-2 space-y-3 text-sm">{campuses.map((place) => <li key={place.id}>
-          <p className="font-semibold">{place.name}</p>
-          <p className="text-xs text-ink-muted">{place.is_sample ? "Sample · " : ""}{place.source}{place.observed_at ? ` · ${place.observed_at.slice(0, 10)}` : ""}</p>
-        </li>)}</ul>
-      </section>}
-      <p className="mt-6 text-xs text-ink-muted">Missing figures are unavailable, not zero. Regional totals do not imply a precise location or a personal fit score.</p>
+          ))}
+        </dl>}
+        {campuses.length > 0 && <section className="mt-6" aria-labelledby={`${idPrefix}-campuses`}>
+          <h3 id={`${idPrefix}-campuses`} className="font-sans text-lg font-bold">Kampus</h3>
+          <ul className="mt-2 space-y-3 text-sm">{campuses.map((place) => <li key={place.id}>
+            <p className="font-semibold">{place.name}</p>
+            <p className="text-xs text-ink-muted">{place.is_sample ? "Contoh · " : ""}{place.source}{place.observed_at ? ` · ${place.observed_at.slice(0, 10)}` : ""}</p>
+          </li>)}</ul>
+        </section>}
+      </div>
     </div>
-  </div>
   );
 }
-export default function ZoneIntelligencePanel(
-  props: ZoneIntelligencePanelProps,
-) {
+
+export default function ZoneIntelligencePanel(props: ZoneIntelligencePanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -131,10 +122,7 @@ export default function ZoneIntelligencePanel(
   function handleResizePointerMove(event: PointerEvent<HTMLDivElement>) {
     const drag = resizeRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    setPanelWidth(Math.max(
-      MIN_PANEL_WIDTH,
-      Math.min(getMaxPanelWidth(), Math.round(drag.startWidth + drag.startX - event.clientX)),
-    ));
+    setPanelWidth(clamp(Math.round(drag.startWidth + drag.startX - event.clientX), MIN_PANEL_WIDTH, getMaxPanelWidth()));
   }
 
   function handleResizePointerEnd(event: PointerEvent<HTMLDivElement>) {
@@ -155,17 +143,19 @@ export default function ZoneIntelligencePanel(
     event.preventDefault();
   }
 
+  function clearCloseTimer() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }
+
   function finishClose() {
     if (!closingRef.current) return;
     closingRef.current = false;
-    if (closeTimer.current) window.clearTimeout(closeTimer.current);
-    closeTimer.current = null;
+    clearCloseTimer();
     props.onClose();
   }
 
-  function requestMobileClose() {
-    dialogRef.current?.close();
-  }
+  const requestMobileClose = () => dialogRef.current?.close();
 
   // Every user close (close button, backdrop, Escape, drag) closes the native dialog.
   // daisyUI's modal transition slides the sheet out; the parent is told once it finishes.
@@ -177,7 +167,7 @@ export default function ZoneIntelligencePanel(
     if (closingRef.current) return;
     closingRef.current = true;
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (prefersReducedMotion()) {
       finishClose();
       return;
     }
@@ -234,26 +224,17 @@ export default function ZoneIntelligencePanel(
     const mobileViewport = window.matchMedia("(max-width: 767px)");
     const syncDialog = () => {
       const shouldOpen = mobileViewport.matches && props.mobileOpen;
-      if (shouldOpen && !dialog.open) {
-        closingRef.current = false;
-        sheet?.style.removeProperty("translate");
-        sheet?.removeAttribute("data-dragging");
+      if (shouldOpen === dialog.open) return;
+      closingRef.current = false;
+      sheet?.style.removeProperty("translate");
+      sheet?.removeAttribute("data-dragging");
+      if (shouldOpen) {
         dialog.showModal();
         return;
       }
-      if (!shouldOpen && dialog.open) {
-        if (closeTimer.current) {
-          window.clearTimeout(closeTimer.current);
-        }
-
-        closeTimer.current = null;
-        closingRef.current = false;
-        sheet?.style.removeProperty("translate");
-        sheet?.removeAttribute("data-dragging");
-
-        ignoreProgrammaticClose.current = true;
-        dialog.close();
-      }
+      clearCloseTimer();
+      ignoreProgrammaticClose.current = true;
+      dialog.close();
     };
 
     syncDialog();
@@ -261,7 +242,7 @@ export default function ZoneIntelligencePanel(
 
     return () => {
       mobileViewport.removeEventListener("change", syncDialog);
-      if (closeTimer.current) window.clearTimeout(closeTimer.current);
+      clearCloseTimer();
       if (dialog.open) {
         ignoreProgrammaticClose.current = true;
         dialog.close();
@@ -282,7 +263,7 @@ export default function ZoneIntelligencePanel(
         <div
           role="separator"
           tabIndex={0}
-          aria-label="Resize panel"
+          aria-label="Ubah lebar panel"
           aria-orientation="vertical"
           aria-controls="zone-intelligence-desktop"
           aria-valuemin={MIN_PANEL_WIDTH}
@@ -332,7 +313,7 @@ export default function ZoneIntelligencePanel(
           </div>
         </div>
         <form method="dialog" className="modal-backdrop">
-          <button>Close</button>
+          <button>Tutup</button>
         </form>
       </dialog>
     </>
