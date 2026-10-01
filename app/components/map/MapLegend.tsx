@@ -49,6 +49,18 @@ function CellStatus({ layer, summary, loading, error, zoneName }: {
     return <CellKey layer={layer} summary={summary} zoneName={zoneName} />;
 }
 
+// Swatches mirror the summary fill and selected outline in zoneLayers.ts.
+function SummaryKey() {
+    return <ul className="mt-2 space-y-2 text-xs">
+        <li className="flex items-center gap-2">
+            <span className="h-3 w-4 shrink-0 rounded-xs border border-[#5F84B1]/60 bg-[#9ED9EB]/40" aria-hidden="true" />Kecamatan rekomendasi
+        </li>
+        <li className="flex items-center gap-2">
+            <span className="h-3 w-4 shrink-0 rounded-xs border-2 border-[#006AD8] outline-[1.5px] outline-[#21297C]" aria-hidden="true" />Kecamatan dipilih
+        </li>
+    </ul>;
+}
+
 export default function MapLegend({ category, range, detailsByZone, visibleZoneIds, selectedZoneName,
     cellLayerOptions, activeCellLayer, cellSummary, cellsLoading, cellsError, onCellLayerChange, companyPointShown }: {
     category: MapCategory;
@@ -85,7 +97,7 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
             </div>}
             <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 max-h-[min(65dvh,32rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
                 <h2 className="font-semibold">{config.label}</h2>
-                {category !== "summary" && <>
+                {category === "summary" ? <SummaryKey /> : <>
                     <p className="mt-1 text-xs text-ink-muted">Warna kecamatan · {provenance(sources, periods)}</p>
                     {range ? <RangeKey range={range} format={config.format} /> : <p className="mt-3">Belum ada nilai kecamatan yang ditampilkan.</p>}
                     {companyPointShown && selectedZoneName && <p className="mt-2 flex items-center gap-2 text-xs"><span className="size-3 shrink-0 rounded-full bg-ink/85" aria-hidden="true" />Perusahaan di {selectedZoneName}, ditampilkan di titik tengah kecamatan</p>}
