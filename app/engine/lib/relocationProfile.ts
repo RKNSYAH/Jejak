@@ -43,7 +43,7 @@ export function normalizeRelocationProfileInputs(
     const soft: Record<string, unknown> = {
         target_fields: [], target_occupations: [], occupation: null, study_field: null, education_level: null,
         work_arrangement: null, language_preferences: [], housing_types: [], transport_mode: null,
-        destination: null, career_stage: null, departure_time: null, extras: [], ...softPreferences,
+        destination: null, career_stage: null, departure_time: null, extras: [], over_budget: "mark", ...softPreferences,
     };
     delete soft.goal;
     // LF-05 can put an explicit limit in either group. Keep one canonical location.
@@ -88,7 +88,7 @@ export function buildFormRelocationProfile(value: unknown): PersistedRelocationP
         // not silently submit defaults the user cannot review or change.
         career_stage: null,
         housing_types: answers.housing.filter((type) => type !== "unsure"),
-        transport_mode: answers.transport, departure_time: answers.departure, extras: [],
+        transport_mode: answers.transport, departure_time: answers.departure, extras: [], over_budget: answers.overBudget,
         destination: destination ? {
             name: destination.name,
             precision: "precision" in destination ? destination.precision : "area",

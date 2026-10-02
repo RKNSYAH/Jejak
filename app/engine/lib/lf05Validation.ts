@@ -21,15 +21,16 @@ export type LF05ProposedProfile = {
 const PROFILE_FIELDS = new Set([
     "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
     "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
-    "transport_mode", "destination",
+    "transport_mode", "destination", "housing_types", "occupation", "study_field", "career_stage",
+    "departure_time", "extras", "over_budget",
 ]);
-const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living"]);
+const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living", "environment"]);
 // Decimal coordinates are not identity-number strings.
 export const SENSITIVE_TEXT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<![\d.])(?:\d[ -]?){16}(?![\d.])/iu;
 
 function validateBudget(value: unknown) {
     return isRecord(value) && Object.keys(value).length === 3 &&
-        typeof value.amount === "number" && Number.isFinite(value.amount) && value.amount >= 0 && value.amount <= 1_000_000_000 &&
+        typeof value.amount === "number" && Number.isSafeInteger(value.amount) && value.amount >= 0 && value.amount <= 1_000_000_000 &&
         value.currency === "IDR" && value.period === "month";
 }
 
@@ -57,6 +58,24 @@ function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Ta
             if (typeof value !== "string" || !["transit", "motorcycle", "car", "active"].includes(value)) return false;
             continue;
         }
+        if (field === "over_budget") {
+            if (value !== "mark" && value !== "hide") return false;
+            continue;
+        }
+        if (["occupation", "study_field", "career_stage", "departure_time"].includes(field)) {
+            if (typeof value !== "string" || value.length > 200 || SENSITIVE_TEXT.test(value)) return false;
+            continue;
+        }
+        if (["housing_types", "extras"].includes(field)) {
+            if (!isStringList(value, 20) || value.some((item) => item.length > 100 || SENSITIVE_TEXT.test(item))) return false;
+            continue;
+        }
+        if (["target_fields", "target_occupations", "destination_cities", "language_preferences", "priorities", "deal_breakers"].includes(field)) {
+            if (!isStringList(value, 50) || value.some((item) => item.length > 200)) return false;
+            if (field === "target_fields" && value.some((id) => !sectorIds.has(id))) return false;
+            if (field === "target_occupations" && value.some((id) => !occupationIds.has(id))) return false;
+            continue;
+        }
         if (field === "destination") {
             if (!isLF05Destination(value)) return false;
             continue;
@@ -70,12 +89,13 @@ function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Ta
             continue;
         }
         if (Array.isArray(value)) {
-            if (!isStringList(value)) return false;
-            if (field === "target_fields" && value.some((id) => !sectorIds.has(id))) return false;
-            if (field === "target_occupations" && value.some((id) => !occupationIds.has(id))) return false;
+            if (!isStringList(value, 50) || value.some((item) => item.length > 200)) return false;
             continue;
         }
-        if (typeof value === "string") continue;
+        if (typeof value === "string") {
+            if (value.length > 2000 || SENSITIVE_TEXT.test(value)) return false;
+            continue;
+        }
         if (typeof value !== "number" || !Number.isFinite(value)) return false;
     }
 
@@ -88,8 +108,9 @@ export function validateLF05Proposal(value: unknown, taxonomy: LF05Taxonomy): LF
     if (
         !isRecord(value.hard_constraints) || !validateProfileValues(value.hard_constraints, taxonomy) ||
         !isRecord(value.soft_preferences) || !validateProfileValues(value.soft_preferences, taxonomy) ||
-        !isRecord(value.priority_weights) || !isStringList(value.inferred_fields) ||
-        !isStringList(value.clarification_questions) || value.requires_confirmation !== true || value.confirmed !== false ||
+        !isRecord(value.priority_weights) || !isStringList(value.inferred_fields, PROFILE_FIELDS.size) ||
+        !isStringList(value.clarification_questions, 20) || value.clarification_questions.some((question) => !question.trim() || question.length > 4000) ||
+        value.requires_confirmation !== true || value.confirmed !== false ||
         value.taxonomy_version !== taxonomy.version || value.contract_version !== "lf05-v2" || value.writes_performed !== false ||
         !isRecord(value.decision_trace) || !("runtime_usage" in value)
     ) {

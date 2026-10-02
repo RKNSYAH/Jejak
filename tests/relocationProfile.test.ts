@@ -170,3 +170,14 @@ test("profile endpoint refuses to save before inferred fields are confirmed", as
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /Konfirmasi semua kesimpulan/);
 });
+
+test("revision-based refinement save refuses unresolved clarification questions", async () => {
+  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({
+    proposal: { ...proposal, clarification_questions: ["Which city do you prefer?"] },
+    confirmed_fields: proposal.inferred_fields,
+    base_revision: 4,
+  })));
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /pertanyaan lanjutan/);
+});

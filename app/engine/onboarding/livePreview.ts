@@ -31,7 +31,7 @@ function withinBudget(value: number, limit: number): boolean {
 
 function amount(value: unknown): number | null {
     const raw = isRecord(value) ? value.amount : value;
-    return typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+    return typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
 }
 
 function cityKey(value: string): string {
@@ -53,10 +53,27 @@ function normalizedWeights(raw: [number, number, number, number]): LivePreviewPr
     };
 }
 
+type ProfilePriorityWeights = NonNullable<LivePreviewPreferences["priorityWeights"]>;
+
+function normalizedProfileWeights(weights: Record<string, number>): ProfilePriorityWeights {
+    const dimensions = ["career", "education", "housing", "cost_of_living", "commute", "environment"] as const;
+    const values = dimensions.map((dimension) => {
+        const value = weights[dimension];
+        return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+    });
+    const total = values.reduce((sum, value) => sum + value, 0);
+    const normalized = total > 0 ? values.map((value) => value / total) : values;
+    return {
+        career: normalized[0], education: normalized[1], housing: normalized[2],
+        cost_of_living: normalized[3], commute: normalized[4], environment: normalized[5],
+    };
+}
+
 export function profilePreviewPreferences(profile: PersistedRelocationProfile, cities: OnboardingCity[]): LivePreviewPreferences | null {
     const hard = profile.hard_constraints;
     const soft = profile.soft_preferences;
-    const targets = Array.isArray(hard.destination_cities) ? hard.destination_cities.filter((item): item is string => typeof item === "string") : [];
+    const rawTargets = hard.destination_cities ?? soft.destination_cities;
+    const targets = Array.isArray(rawTargets) ? rawTargets.filter((item): item is string => typeof item === "string") : [];
     const normalizedTargets = new Set(targets.map(cityKey).filter(Boolean));
     const matches = cities.filter((city) => normalizedTargets.has(cityKey(city.city_id)) || normalizedTargets.has(cityKey(city.city_name)));
     const cityId = matches.length === 1 ? matches[0].city_id : null;
@@ -84,13 +101,14 @@ export function profilePreviewPreferences(profile: PersistedRelocationProfile, c
         destinationPoint,
         transport,
         commuteMinutes: typeof hard.commute_minutes === "number" && Number.isFinite(hard.commute_minutes) ? hard.commute_minutes : null,
-        overBudget: "mark",
+        overBudget: soft.over_budget === "hide" ? "hide" : "mark",
         weights: normalizedWeights([
             valueWeight(weights, ["career", "education"]),
             valueWeight(weights, ["housing", "cost_of_living"]),
             valueWeight(weights, ["commute"]),
             valueWeight(weights, ["environment"]),
         ]),
+        priorityWeights: normalizedProfileWeights(weights),
     };
 }
 
@@ -150,6 +168,27 @@ function featureScore(area: OnboardingArea, goal: LivePreviewPreferences["goal"]
             companyCount !== null ? Math.log1p(companyCount) : campuses ? Math.log1p(campuses) : null;
     }
     return companyCount !== null ? Math.log1p(companyCount) : null;
+}
+
+function profileDimensionScore(area: OnboardingArea, dimension: keyof ProfilePriorityWeights, housing: Housing[] = ["unsure"]): number | null {
+    if (dimension === "career") {
+        const rawCompanyCount = numericFact(area, "company_count")?.value;
+        return typeof rawCompanyCount === "number" && Number.isFinite(rawCompanyCount) && rawCompanyCount >= 0
+            ? Math.log1p(rawCompanyCount) : null;
+    }
+    if (dimension === "education") return area.campuses.length > 0 ? area.campuses.length : null;
+    if (dimension === "housing") {
+        const rent = rentFacts(area, housing.filter((type): type is Exclude<Housing, "unsure"> => type !== "unsure"))
+            .reduce<number | null>((lowest, fact) =>
+            lowest === null || fact.value < lowest ? fact.value : lowest, null);
+        return rent !== null && rent > 0 ? 1 / rent : null;
+    }
+    if (dimension === "cost_of_living") {
+        const cost = area.living_cost?.value;
+        return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? 1 / cost : null;
+    }
+    if (dimension === "commute") return area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null;
+    return null;
 }
 
 function normalize(values: Array<number | null>, invert = false): Array<number | null> {
@@ -224,9 +263,22 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
     const affordability = normalize(raw.map((item) => item.affordabilityRaw), true);
     const opportunity = normalize(raw.map((item) => item.opportunityRaw));
     const mobility = normalize(raw.map((item) => item.mobilityRaw));
+    const profileDimensions = answers.priorityWeights ? {
+        career: normalize(input.areas.map((area) => profileDimensionScore(area, "career"))),
+        education: normalize(input.areas.map((area) => profileDimensionScore(area, "education"))),
+        housing: normalize(input.areas.map((area) => profileDimensionScore(area, "housing", answers.housing))),
+        cost_of_living: normalize(input.areas.map((area) => profileDimensionScore(area, "cost_of_living"))),
+        commute: normalize(input.areas.map((area) => profileDimensionScore(area, "commute"))),
+    } : null;
     const weights = answers.weights;
     const districts: LiveDistrictRecommendation[] = raw.map((item, index) => {
-        const dimensions = [
+        const dimensions = profileDimensions && answers.priorityWeights ? [
+            [answers.priorityWeights.career, profileDimensions.career[index]],
+            [answers.priorityWeights.education, profileDimensions.education[index]],
+            [answers.priorityWeights.housing, profileDimensions.housing[index]],
+            [answers.priorityWeights.cost_of_living, profileDimensions.cost_of_living[index]],
+            [answers.priorityWeights.commute, profileDimensions.commute[index]],
+        ] as const : [
             [weights.affordability, affordability[index]],
             [weights.opportunity, opportunity[index]],
             // Stop counts describe mapped access only; they are not commute minutes.

@@ -9,7 +9,7 @@ import { FORM_DRAFT_KEY, type FormAnswers, type FormSession, type FormStep, type
 
 const emptyData: OnboardingDataResponse = { cities: [], areas: [], destinations: [] };
 
-export function useFormOnboarding() {
+export function useFormOnboarding(skipRestoredDraft = false) {
     const [session, setSession] = useState<FormSession | null>(null);
     const [ready, setReady] = useState(false);
     const [storyOpenRequest, setStoryOpenRequest] = useState(0);
@@ -24,6 +24,11 @@ export function useFormOnboarding() {
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
+            // Keep unfinished inputs in storage, but don't let them replace a newly saved profile.
+            if (skipRestoredDraft) {
+                setReady(true);
+                return;
+            }
             try {
                 const saved = sessionStorage.getItem(FORM_DRAFT_KEY);
                 const parsed = saved ? parseFormSession(JSON.parse(saved)) : null;
@@ -32,7 +37,7 @@ export function useFormOnboarding() {
             setReady(true);
         }, 0);
         return () => window.clearTimeout(timer);
-    }, []);
+    }, [skipRestoredDraft]);
 
     useEffect(() => {
         if (!ready || !session) return;

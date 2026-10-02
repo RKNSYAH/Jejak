@@ -1,7 +1,7 @@
 export default function Footer(){
 
     return (
-        <footer className="bg-panel-surface sticky bottom-0 border-t border-rule text-on-surface-muted text-sm py-4 px-6 flex justify-between items-between gap-2">
+        <footer className="bg-panel-surface border-t border-rule text-on-surface-muted text-sm py-4 px-6 flex justify-between items-between gap-2">
             <span>© 2026 Jejak</span>
             <div className="flex gap-4">
 

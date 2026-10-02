@@ -50,6 +50,7 @@ type RelocationOnboardingProps = {
   onProposalChange: (proposal: LF05ProposedProfile | null) => void;
   savedProfile: StoredRelocationProfile | null;
   savedProfileLoaded: boolean;
+  skipRestoredDraft?: boolean;
   onSaveProfile: (profile: StoredRelocationProfile) => void;
   mapPoint: MapPoint | null;
   onMapPointChange: (point: MapPoint | null) => void;
@@ -211,6 +212,7 @@ export default function RelocationOnboarding({
   onProposalChange: setProposal,
   savedProfile,
   savedProfileLoaded,
+  skipRestoredDraft = false,
   onSaveProfile,
   mapPoint,
   onMapPointChange,
@@ -269,7 +271,7 @@ export default function RelocationOnboarding({
 
     const timer = window.setTimeout(() => {
       const alreadyOnboarded = !demoRequested && savedProfile !== null;
-      const draft = readDraft();
+      const draft = skipRestoredDraft ? null : readDraft();
 
       if (draft) {
         const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
@@ -316,7 +318,7 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep]);
+  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep, skipRestoredDraft]);
 
   useEffect(() => {
     if (!storyOpenRequest) return;
@@ -327,13 +329,13 @@ export default function RelocationOnboarding({
   useEffect(() => {
     if (!hydrated) return;
     if (step === 0) {
-      try { if (!formSession) sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Browser storage is optional. */ }
+      try { if (!formSession && !skipRestoredDraft) sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Browser storage is optional. */ }
       return;
     }
 
     const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, language };
     try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
-  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, step, story, transport]);
+  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport]);
 
   useEffect(() => {
     const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
