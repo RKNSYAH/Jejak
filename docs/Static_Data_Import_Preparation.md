@@ -2,6 +2,76 @@
 
 ## Current status
 
+### Education and housing refresh: 2026-10-02
+
+The user supplied an updated workbook and authorized re-pushing sheet
+`09_education_facilities` and `13_housing_statistics`. The scoped refresh is
+**committed and reconciled** on `https://zucvrejoloiuxpaotedt.supabase.co`.
+The updated workbook SHA-256 is
+`158503212de2d5f4164bb12143a6b2abae206dcf94977ac43e7a335dd1ff0a75`.
+
+- Education: 21 existing workbook rows changed, six added; destination now has
+  **86 rows**. Housing: all 77 workbook rows changed; destination still has
+  **77 rows**. The quality-audit tab also changed; it is not a destination table.
+- The refresh staged **163 scoped rows**, including 83 accepted baselines
+  (77 housing and six new education rows), under `static-research-v1-baseline`.
+  Original cells and all citations remain in private staging. Housing remains
+  derived with unknown observation periods; retrieval dates are not periods.
+- All **157 existing destination IDs** survived. Source names are part of SQL
+  uniqueness, so the refresh updates matched prior IDs before upserting rather
+  than retaining stale duplicates with old source labels.
+- All 15 other contract/reference tables have exactly unchanged row fingerprints,
+  including all 689 regions, boundaries/provenance, enrollment corrections and
+  both 32-row cost-scenario tables. No schema migration, LF-01 run, UI changes,
+  or scenario recalculation was part of this refresh.
+- Preflight found a live edit to Pancoran's old kos row: median 2,200,000,
+  average 1,950,000 and maximum 4,500,000 IDR, compared with the previous workbook's
+  500,000 for each field. Those exact live edits were reviewed and backed up;
+  the user's new kos values are median 1,600,000, average 1,679,857 and maximum
+  3,918,000 IDR. Unexpected additional live edits would block backup.
+- Local verification passed exact live snapshot restoration, changed-data guard,
+  late-failure rollback, payload reconciliation, ID preservation, repeat import,
+  recovery approval and scoped recovery. The exact hosted recovery artifact was
+  also tested locally after reconciliation. Sequence increments are not rewound.
+- All 163 live payloads match preparation. Public RPC checks passed eight parent
+  district lists and four updated district reads (33 updated metric/source checks).
+  Scenario and private-audit browser access remain denied. Application UI was
+  not tested and enrichment was not triggered.
+- Preparation tests: 18 passed; schema tests: 30 passed. TypeScript passed. Lint had no errors; one
+  unrelated unused-variable warning remains in `RelocationOnboarding.tsx`.
+
+Private artifacts and scoped recovery live in
+`ingestion/data/prepared/static_research_refresh_158503212de2/scoped/refresh-backup/`.
+`backup.json` captures actual pre-refresh rows, reviewed drift and all table
+fingerprints; `verification.json` pins the tested backup/promotion hashes;
+`remote-verification.json` records reconciliation; `hosted-api-verification.json`
+records updated public facts. `restore-data.sql` requires separate explicit
+approval and unchanged post-refresh scoped fingerprints. It restores only the
+two destination tables, retaining import audit/history; it is not a project,
+Auth, Storage or physical backup. It was **not run remotely**.
+
+Implementation order:
+
+1. `scope_manifest()` in `ingestion/prepare_static_research.py` validates the
+   whole workbook first, then filters selected rows and recomputes scoped report
+   counts. `--scope education_facilities housing_statistics` prevents unrelated
+   tables from being included in the compiled import.
+2. `ingestion/refresh_static_research.mjs backup` matches previous workbook
+   identities to live IDs, captures actual rows and rejects unreviewed live drift.
+3. `verify` restores live rows locally and tests the exact transaction envelope.
+   `promote` checks project/workbook/artifact hashes, locks and checks table
+   fingerprints, updates existing IDs, then stages/upserts in one transaction.
+4. `reconcile` compares every scoped field, checks untouched tables and ID
+   preservation, and tests a recovery file bound to the actual hosted result.
+
+The refresh runner is guarded against the original approved manifest and this
+two-table scope; it is not an automatic arbitrary future-workbook uploader.
+Do not rerun the initial-load promotion runner or overwrite its historical
+backup. Future refreshes need a new artifact folder, reviewed predecessor
+manifest/identity mapping and fresh backup, verification and scope approval.
+
+### Initial full promotion: 2026-10-01
+
 `public/Jejak_Static_Data_Research_Completed.xlsx` is preserved byte-for-byte.
 Preparation is offline; neither script reads database credentials or writes to
 the linked Supabase project. **Remote promotion completed on 2026-10-01** for

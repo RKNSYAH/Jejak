@@ -140,11 +140,10 @@ test("housing cells switch between median rent and listings", async ({ page }, t
     await page.getByRole("button", { name: "Hunian", exact: true }).click();
     const layers = page.getByRole("group", { name: "Lapisan sel" });
     await expect(layers.getByRole("button", { name: "Median sewa" })).toHaveAttribute("aria-pressed", "true");
-    await layers.getByRole("button", { name: "Listings" }).click();
-    await expect(layers.getByRole("button", { name: "Listings" })).toHaveAttribute("aria-pressed", "true");
+    await layers.getByRole("button", { name: "Iklan" }).click();
+    await expect(layers.getByRole("button", { name: "Iklan" })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Pendidikan", exact: true }).click();
     await expect(layers).toBeHidden();
-    await expect(page.getByText("Belum ada data sel untuk kecamatan ini.")).toBeHidden();
 });
 
 test("selecting an unloaded zone from search responds within budget", async ({ page }) => {

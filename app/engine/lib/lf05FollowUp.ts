@@ -96,6 +96,20 @@ export function applyLF05ExplicitDetails(proposal: LF05ProposedProfile, goal?: R
         inferred_fields: proposal.inferred_fields.filter((field) => !(goal && field === "goal") && !Object.hasOwn(details, field)) };
 }
 
+// A value the user corrected on the review step replaces LF-05's and is no longer an inference.
+export function applyLF05FieldEdit(proposal: LF05ProposedProfile, field: string, value: unknown): LF05ProposedProfile {
+    const hard = { ...proposal.hard_constraints };
+    const soft = { ...proposal.soft_preferences };
+    const inSoft = Object.hasOwn(soft, field) && !Object.hasOwn(hard, field);
+    // New values follow applyLF05ExplicitDetails: places and travel mode are preferences, the rest constraints.
+    const target = inSoft || (!Object.hasOwn(hard, field) && (field === "transport_mode" || field === "destination")) ? soft : hard;
+    delete hard[field];
+    delete soft[field];
+    target[field] = value;
+    return { ...proposal, hard_constraints: hard, soft_preferences: soft,
+        inferred_fields: proposal.inferred_fields.filter((item) => item !== field) };
+}
+
 export function getLF05TargetCity(proposal: LF05ProposedProfile | null, story: string): string | null {
     const cities = proposal?.hard_constraints.destination_cities ?? proposal?.soft_preferences.destination_cities;
     const city = Array.isArray(cities) ? cities.find((item) => typeof item === "string" && item.trim()) : typeof cities === "string" ? cities : null;

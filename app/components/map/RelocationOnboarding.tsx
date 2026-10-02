@@ -12,9 +12,11 @@ import { formatRupiah } from "../../engine/onboarding/demoData";
 import { STORY_DRAFT_KEY, type FormSession } from "../../engine/onboarding/types";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
-import { applyLF05ExplicitDetails, getLF05ClarificationField, getLF05TargetCity, groundLF05Transport, parseLF05CommuteAnswer, type LF05ClarificationAnswer, type LF05FollowUpDetails } from "../../engine/lib/lf05FollowUp";
+import { applyLF05ExplicitDetails, applyLF05FieldEdit, getLF05ClarificationField, getLF05TargetCity, groundLF05Transport, parseLF05CommuteAnswer, type LF05ClarificationAnswer, type LF05FollowUpDetails } from "../../engine/lib/lf05FollowUp";
 import { getLF05TransportQuestion, parseLF05TransportAnswer } from "../../engine/lib/lf05Transport";
 import { RadioChoices } from "./onboarding/FormControls";
+import type { MonthlyCostRange } from "../../engine/onboarding/livePreview";
+import ProfileFieldEditor, { editableProfileFields } from "./onboarding/ProfileFieldEditor";
 
 const MAX_STORY_LENGTH = 1000;
 
@@ -59,6 +61,10 @@ type RelocationOnboardingProps = {
   formReady: boolean;
   storyOpenRequest: number;
   onOpenForm: () => void;
+  // Estimated monthly spending across the target city's districts, shown on the review step.
+  costRange?: MonthlyCostRange | null;
+  costCityName?: string | null;
+  costLoading?: boolean;
 };
 
 // Profile fields in display order, with their labels.
@@ -216,6 +222,9 @@ export default function RelocationOnboarding({
   formReady,
   storyOpenRequest,
   onOpenForm,
+  costRange = null,
+  costCityName = null,
+  costLoading = false,
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const ignoreCloseRef = useRef(false);
@@ -229,6 +238,8 @@ export default function RelocationOnboarding({
   const [isSaving, setIsSaving] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const extractedProfile = extractUserProfile(story);
   const profileRows = proposal ? getProfileRows(proposal) : [];
@@ -365,7 +376,21 @@ export default function RelocationOnboarding({
   }
 
   function goToStep(nextStep: Exclude<Step, 0>) {
+    setEditingField(null);
     setStep(nextStep);
+  }
+
+  // A review-step correction replaces LF-05's value; the server re-validates the proposal on save.
+  function saveFieldEdit(field: string, value: unknown) {
+    if (!proposal) return;
+    try {
+      setProposal(validateLF05Proposal(applyLF05FieldEdit(proposal, field, value), onboardingTaxonomy));
+      setEditingField(null);
+      setEditError(null);
+      setSaveError(null);
+    } catch {
+      setEditError("Nilai ini belum bisa disimpan. Coba nilai lain.");
+    }
   }
 
   function getFollowUpRequest(): { answers: LF05ClarificationAnswer[]; details: LF05FollowUpDetails } {
@@ -778,20 +803,39 @@ export default function RelocationOnboarding({
             </h1>
             <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Bagian yang disorot disimpulkan dari ceritamu.</p>
 
+            {(costRange || costLoading) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-4 rounded-xl border border-rule px-3 py-2.5">
+              <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan{costCityName ? ` · ${costCityName}` : ""}</h2>
+              <p className="mt-0.5 font-sans text-xl font-bold tabular-nums text-ink">
+                {!costRange ? "Menghitung…" : costRange.high === null ? `mulai Rp${formatRupiah(costRange.low)} / bulan`
+                  : costRange.low === costRange.high ? `sekitar Rp${formatRupiah(costRange.low)} / bulan`
+                  : `Rp${formatRupiah(costRange.low)} – Rp${formatRupiah(costRange.high)} / bulan`}
+              </p>
+              {costRange && <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                {costRange.high === null ? "Belum ada kecamatan yang masuk anggaranmu" : "Sewa + biaya hidup di kecamatan yang masuk anggaranmu"}
+                {costRange.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
+              </p>}
+            </section>}
+
 
             <div className="mt-3 grid gap-x-5 gap-y-3 sm:grid-cols-2">
               {profileRows.map((row) => (
-                <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing} onEdit={() => goToStep(1)}>
-                  {row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
+                <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing}
+                  editing={editingField === row.field}
+                  onEdit={editableProfileFields.has(row.field) ? () => { setEditError(null); setEditingField(row.field); } : undefined}>
+                  {editingField === row.field && proposal ? <ProfileFieldEditor field={row.field} label={row.label}
+                    value={proposal.hard_constraints[row.field] ?? proposal.soft_preferences[row.field]}
+                    onSave={(value) => saveFieldEdit(row.field, value)} onCancel={() => setEditingField(null)} />
+                    : row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
                 </ReviewSummary>
               ))}
             </div>
+            {editError && <p role="alert" className="mt-2 text-sm font-semibold text-error">{editError}</p>}
 
             <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-3">
               <button type="button" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
                 <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
               </button>
-              <button type="button" disabled={!canConfirmProfile || isSaving} onClick={() => void saveProfile()} className="btn btn-primary min-h-11 rounded-xl px-4">
+              <button type="button" disabled={!canConfirmProfile || isSaving || editingField !== null} onClick={() => void saveProfile()} className="btn btn-primary min-h-11 rounded-xl px-4">
                 {isSaving ? "Menyimpan profil…" : "Simpan dan selesaikan"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
               </button>
             </footer>
@@ -843,12 +887,14 @@ function ReviewSummary({
   title,
   children,
   inferred = false,
+  editing = false,
   onEdit,
 }: {
   title: string;
   children: React.ReactNode;
   inferred?: boolean;
-  onEdit: () => void;
+  editing?: boolean;
+  onEdit?: () => void;
 }) {
   // Inferred values are highlighted in place instead of a separate confirmation list.
   return (
@@ -858,7 +904,7 @@ function ReviewSummary({
           <h2 className="text-sm font-semibold text-ink">{title}</h2>
           {inferred && <span className="text-xs text-ink-muted">· disimpulkan</span>}
         </div>
-        <button type="button" onClick={onEdit} className="btn btn-ghost btn-xs min-h-9 px-1 text-primary underline">Ubah</button>
+        {onEdit && !editing && <button type="button" onClick={onEdit} aria-label={`Ubah ${title}`} className="btn btn-ghost btn-xs min-h-9 px-1 text-primary underline">Ubah</button>}
       </div>
       <div className="text-xs leading-relaxed text-ink">{children}</div>
     </section>

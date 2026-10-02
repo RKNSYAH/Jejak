@@ -116,6 +116,28 @@ export function isLiveRecommendationSample(item: Pick<LiveDistrictRecommendation
         item.district.facts.some((fact) => fact.is_sample) || item.district.campuses.some((campus) => campus.is_sample);
 }
 
+const COST_ROUNDING = 500_000;
+
+// `high` is null when no district fits the budget; only the cheapest starting cost is known then.
+export type MonthlyCostRange = { low: number; high: number | null; is_sample: boolean };
+
+// Estimated monthly spending (cheapest requested rent + city living cost) across the districts that fit the
+// user's budget, widened to whole Rp500.000 steps so it reads as an estimate rather than an exact figure.
+// Without a budget every priced district counts.
+export function monthlyCostRange(preview: Pick<LiveOnboardingPreview, "districts">): MonthlyCostRange | null {
+    const priced = preview.districts.filter((item): item is LiveDistrictRecommendation & { monthlyCost: number } => item.monthlyCost !== null);
+    if (!priced.length) return null;
+    const budgeted = priced.some((item) => item.eligible !== null);
+    const fitting = budgeted ? priced.filter((item) => item.eligible === true) : priced;
+    const counted = fitting.length ? fitting : priced;
+    const costs = counted.map((item) => item.monthlyCost);
+    return {
+        low: Math.floor(Math.min(...costs) / COST_ROUNDING) * COST_ROUNDING,
+        high: fitting.length ? Math.ceil(Math.max(...costs) / COST_ROUNDING) * COST_ROUNDING : null,
+        is_sample: counted.some(isLiveRecommendationSample),
+    };
+}
+
 function featureScore(area: OnboardingArea, goal: LivePreviewPreferences["goal"], dimension: "opportunity" | "mobility"): number | null {
     if (dimension === "mobility") return area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null;
     if (goal === "study") return area.campuses.length > 0 ? area.campuses.length : null;

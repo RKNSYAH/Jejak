@@ -22,7 +22,7 @@ test("preview card stays compact across steps and keeps the district disclosure 
     await startForm(page);
     const preview = page.locator('[data-hci-region="onboarding-preview"]');
     const mobile = testInfo.project.name === "mobile";
-    await expect(preview).toContainText("Jakarta Selatan");
+    await expect(preview).toContainText("Jabodetabek");
 
     for (let step = 1; step <= 4; step++) {
         if (step > 1) await page.getByRole("button", { name: "Lanjut", exact: true }).click();
@@ -283,7 +283,7 @@ test("city changes update live data and invalid budgets block navigation", async
     await startForm(page);
     const city = page.getByLabel("Kota tujuan", { exact: true });
     await city.selectOption("bandung-kota");
-    await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText("Kota Bandung");
+    await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText("Bandung Raya");
     await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
     const districts = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     await expect(districts).toContainText("Kecamatan Bandung");

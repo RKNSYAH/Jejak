@@ -216,6 +216,33 @@ class PreparationTests(unittest.TestCase):
         self.assertNotIn("geometry = excluded.geometry", sql)
         self.assertIn("case when regions.geometry is not null then regions.source_name", sql)
 
+    def test_scope_reports_and_compiles_only_selected_rows(self):
+        full = self.prepare(include_review_as_baseline=True,
+            education_facilities=[{**PROVENANCE, "region_code": "district", "schools": 3}],
+            housing_statistics=[{**PROVENANCE, "region_code": "district", "housing_type": "kos",
+                                 "observation_count": 6, "period_start": None, "period_end": None}],
+            population=[{**PROVENANCE, "region_code": "district", "population": 100}])
+        scoped = prep.scope_manifest(full, ["education_facilities", "housing_statistics"])
+        self.assertEqual(scoped["report"]["input_rows"], 2)
+        self.assertEqual(scoped["report"]["prepared_rows"], 1)
+        self.assertEqual(scoped["report"]["baseline_rows"], 1)
+        self.assertEqual(scoped["report"]["issue_counts"], {"missing_observation_period": 1})
+        self.assertEqual(full["report"]["input_rows"], 7, "Full manifest remains unchanged")
+        sql = prep.compile_import(scoped)
+        self.assertIn("insert into public.education_facilities", sql)
+        self.assertIn("insert into public.housing_statistics", sql)
+        self.assertNotIn("insert into public.regions", sql)
+        self.assertNotIn("insert into public.population", sql)
+
+    def test_scope_retains_dependency_failures_and_rejects_unknown_tables(self):
+        full = self.prepare(education_facilities=[{**PROVENANCE, "region_code": "missing", "schools": 3}])
+        scoped = prep.scope_manifest(full, ["education_facilities"])
+        self.assertEqual(scoped["report"]["review_rows"], 1)
+        self.assertNotIn("insert into public.education_facilities", prep.compile_import(scoped))
+        for scope in [[], ["not_a_table"]]:
+            with self.assertRaises(ValueError):
+                prep.scope_manifest(full, scope)
+
 
 if __name__ == "__main__":
     unittest.main()

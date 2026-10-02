@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, type PointerEvent } from "react";
 import { X } from "lucide-react";
 
 import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
 import { formatFactValue, mapCategories, metricLabels } from "./mapMetrics";
-import { clamp, prefersReducedMotion } from "./viewport";
+import { SHEET_MIN_HEIGHT } from "./MapBottomSheet";
+import { prefersReducedMotion } from "./viewport";
 
 type ZoneIntelligencePanelProps = {
   zoneName: string;
@@ -20,14 +21,6 @@ type ZoneIntelligencePanelProps = {
   mobileOpen: boolean;
 };
 
-const MIN_PANEL_WIDTH = 320;
-const MAX_PANEL_WIDTH = 720;
-const DEFAULT_PANEL_WIDTH = 420;
-
-function getMaxPanelWidth() {
-  return clamp(Math.floor(window.innerWidth * 0.45), MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
-}
-
 const categoryMetrics: Record<MapCategory, string[]> = {
   summary: ["population", "employment_rate", "average_monthly_wage_idr", "company_count", "universities", "median_monthly_rent_idr", "public_transport_stops"],
   employment: ["employment_rate", "average_monthly_wage_idr", "company_count"],
@@ -37,7 +30,11 @@ const categoryMetrics: Record<MapCategory, string[]> = {
 };
 
 function PanelContent({ zoneName, details, category, loading, error, isSample, geometryMissing, onRetry, onClose, idPrefix }: ZoneIntelligencePanelProps & { idPrefix: string }) {
-  const facts = categoryMetrics[category].flatMap((metric) => details?.facts.find((fact) => fact.metric === metric) ?? []);
+  const facts = categoryMetrics[category].flatMap((metric) => details?.facts.find((fact) => fact.metric === metric && fact.evidence_type !== "unavailable") ?? []);
+  const metricRows = categoryMetrics[category].flatMap((metric) => {
+    const fact = facts.find((item) => item.metric === metric);
+    return fact || category === "education" ? [{ metric, fact }] : [];
+  });
   const campuses = category === "education" ? details?.places.filter((place) => place.category === "campus") ?? [] : [];
 
   return (
@@ -51,7 +48,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
           <X aria-hidden="true" className="size-5" />
         </button>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 pb-[max(1rem,env(safe-area-inset-bottom))] wrap-break-word md:px-5 md:pb-15">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 pb-[max(1rem,env(safe-area-inset-bottom))] wrap-break-word md:px-5 md:pb-5">
         {isSample && <p className="mb-4"><span className="badge badge-neutral badge-sm font-semibold">Data contoh</span></p>}
         <div role="status" aria-live="polite" className="text-sm">
           {loading && <p className="mb-3">Memuat data kecamatan…</p>}
@@ -60,12 +57,18 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
         </div>
         {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Coba lagi</button>}
         {!loading && !facts.length && !campuses.length && <p className="text-sm text-ink-muted">Belum ada data {mapCategories[category].panelLabel.toLowerCase()} untuk kecamatan ini.</p>}
-        {facts.length > 0 && <dl className="grid gap-3">
-          {facts.map((fact) => (
-            <div key={fact.metric} className="card border border-rule shadow-sm p-4">
-              <dt className="text-sm text-ink-muted">{metricLabels[fact.metric] ?? fact.metric}</dt>
-              <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{formatFactValue(fact)}</dd>
-              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>
+        {metricRows.length > 0 && <dl className="grid gap-3">
+          {metricRows.map(({ metric, fact }) => (
+            <div key={metric} className="card border border-rule shadow-sm p-4">
+              <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
+              <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{fact ? formatFactValue(fact) : loading ? "Memuat…" : "Belum tersedia"}</dd>
+              {fact && <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>}
+              {fact && category === "education" && <>
+                <dd className="mt-1 text-xs text-ink-muted">{fact.source_url
+                  ? <a className="link link-hover" href={fact.source_url} target="_blank" rel="noreferrer">{fact.source}</a>
+                  : fact.source}</dd>
+                {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
+              </>}
             </div>
           ))}
         </dl>}
@@ -82,63 +85,12 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
 }
 
 export default function ZoneIntelligencePanel(props: ZoneIntelligencePanelProps) {
-  const panelRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const ignoreProgrammaticClose = useRef(false);
   const closingRef = useRef(false);
   const closeTimer = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; startY: number; startTime: number } | null>(null);
-  const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
-  const [maxPanelWidth, setMaxPanelWidth] = useState(MAX_PANEL_WIDTH);
-
-  useEffect(() => {
-    function syncWidth() {
-      if (window.innerWidth < 768) return;
-      const maximum = getMaxPanelWidth();
-      setMaxPanelWidth(maximum);
-      setPanelWidth((width) => Math.min(width, maximum));
-    }
-
-    syncWidth();
-    window.addEventListener("resize", syncWidth);
-    return () => window.removeEventListener("resize", syncWidth);
-  }, []);
-
-  function handleResizePointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!event.isPrimary || event.button !== 0) return;
-    resizeRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth: panelRef.current?.getBoundingClientRect().width ?? panelWidth,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function handleResizePointerMove(event: PointerEvent<HTMLDivElement>) {
-    const drag = resizeRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    setPanelWidth(clamp(Math.round(drag.startWidth + drag.startX - event.clientX), MIN_PANEL_WIDTH, getMaxPanelWidth()));
-  }
-
-  function handleResizePointerEnd(event: PointerEvent<HTMLDivElement>) {
-    if (resizeRef.current?.pointerId !== event.pointerId) return;
-    resizeRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  function handleResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const maximum = getMaxPanelWidth();
-    if (event.key === "ArrowLeft") setPanelWidth((width) => Math.min(maximum, width + 20));
-    else if (event.key === "ArrowRight") setPanelWidth((width) => Math.max(MIN_PANEL_WIDTH, width - 20));
-    else if (event.key === "Home") setPanelWidth(MIN_PANEL_WIDTH);
-    else if (event.key === "End") setPanelWidth(maximum);
-    else return;
-    event.preventDefault();
-  }
 
   function clearCloseTimer() {
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
@@ -249,33 +201,14 @@ export default function ZoneIntelligencePanel(props: ZoneIntelligencePanelProps)
 
   return (
     <>
+      {/* Floating card below the top-right account cluster and above the collapsed bottom sheet. */}
       <aside
-        ref={panelRef}
         id="zone-intelligence-desktop"
         data-hci-region="zone-panel"
-        className="absolute inset-y-0 right-0 z-200 hidden min-w-[320px] max-w-[min(45vw,720px)] border-l border-t border-rule bg-panel-surface shadow-overlay md:block"
+        className="absolute top-22 right-4 z-200 hidden w-100 max-w-[calc(100%-2rem)] overflow-hidden rounded-box border border-rule bg-base-100 shadow-overlay md:block"
         aria-labelledby="zone-intelligence-desktop-title"
-        style={{ width: panelWidth }}
+        style={{ bottom: SHEET_MIN_HEIGHT + 16 }}
       >
-        <div
-          role="separator"
-          tabIndex={0}
-          aria-label="Ubah lebar panel"
-          aria-orientation="vertical"
-          aria-controls="zone-intelligence-desktop"
-          aria-valuemin={MIN_PANEL_WIDTH}
-          aria-valuemax={maxPanelWidth}
-          aria-valuenow={panelWidth}
-          onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={handleResizePointerEnd}
-          onPointerCancel={handleResizePointerEnd}
-          onLostPointerCapture={() => { resizeRef.current = null; }}
-          onKeyDown={handleResizeKeyDown}
-          className="absolute top-1/2 left-0 z-10 flex h-16 w-5 -translate-y-1/2 touch-none cursor-col-resize items-center justify-center gap-1 rounded-md bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          <span className="h-6 w-0.75 mr-2 rounded-full bg-ink-muted" aria-hidden="true" />
-        </div>
         <PanelContent {...props} idPrefix="zone-intelligence-desktop" />
       </aside>
 
