@@ -1,6 +1,6 @@
 import { isRecord } from "./zoneGeometry";
 
-export type LF03Claim = {
+type LF03Claim = {
     evidence_id: string;
     entity_id: string;
     attribute: string;
@@ -15,28 +15,29 @@ export type LF03ConflictGroup = {
     claims: LF03Claim[];
 };
 
-export type LF03ReasonCode = "source_priority" | "newer_evidence" | "expired_vacancy" | "geographic_precision" | "headcount_scope_mismatch" | "unresolved";
+const REASON_CODES = ["source_priority", "newer_evidence", "expired_vacancy", "geographic_precision", "headcount_scope_mismatch", "unresolved"] as const;
+const DECISION_METHODS = ["deterministic_policy", "gemini_review"] as const;
 
 export type LF03Recommendation = {
     preferred_evidence_id: string | null;
     supporting_evidence_ids: string[];
     conflicting_evidence_ids: string[];
-    reason_code: LF03ReasonCode;
+    reason_code: typeof REASON_CODES[number];
     reason: string;
     requires_policy_decision: true;
     entity_id: string;
     attribute: string;
     contract_version: "lf03-v2";
     writes_performed: false;
-    decision_method: "deterministic_policy" | "gemini_review";
+    decision_method: typeof DECISION_METHODS[number];
     policy_trace: Record<string, unknown> | null;
 };
 
 const GROUP_FIELDS = new Set(["entity_id", "attribute", "claims"]);
-const REASON_CODES = new Set(["source_priority", "newer_evidence", "expired_vacancy", "geographic_precision", "headcount_scope_mismatch", "unresolved"]);
-const DECISION_METHODS = new Set(["deterministic_policy", "gemini_review"]);
+const reasonCodes = new Set<string>(REASON_CODES);
+const decisionMethods = new Set<string>(DECISION_METHODS);
 
-function isIdentifier(value: unknown): value is string {
+export function isIdentifier(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0 && value.length <= 200;
 }
 
@@ -87,9 +88,9 @@ export function validateLF03Input(value: unknown): LF03ConflictGroup {
 export function parseLF03Output(value: unknown, group: LF03ConflictGroup): LF03Recommendation {
     if (!isRecord(value) || value.contract_version !== "lf03-v2" || value.writes_performed !== false ||
         value.entity_id !== group.entity_id || value.attribute !== group.attribute ||
-        typeof value.reason_code !== "string" || !REASON_CODES.has(value.reason_code) ||
+        typeof value.reason_code !== "string" || !reasonCodes.has(value.reason_code) ||
         typeof value.reason !== "string" || value.reason.length === 0 || value.reason.length > 4000 ||
-        value.requires_policy_decision !== true || typeof value.decision_method !== "string" || !DECISION_METHODS.has(value.decision_method) ||
+        value.requires_policy_decision !== true || typeof value.decision_method !== "string" || !decisionMethods.has(value.decision_method) ||
         !isIdentifierList(value.supporting_evidence_ids) || !isIdentifierList(value.conflicting_evidence_ids) ||
         (value.preferred_evidence_id !== null && typeof value.preferred_evidence_id !== "string") ||
         (value.policy_trace !== undefined && value.policy_trace !== null && !isRecord(value.policy_trace))) {
@@ -110,7 +111,7 @@ export function parseLF03Output(value: unknown, group: LF03ConflictGroup): LF03R
         preferred_evidence_id: preferred,
         supporting_evidence_ids: value.supporting_evidence_ids,
         conflicting_evidence_ids: value.conflicting_evidence_ids,
-        reason_code: value.reason_code as LF03ReasonCode,
+        reason_code: value.reason_code as LF03Recommendation["reason_code"],
         reason: value.reason,
         requires_policy_decision: true,
         entity_id: group.entity_id,

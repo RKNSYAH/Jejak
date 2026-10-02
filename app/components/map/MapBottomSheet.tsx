@@ -13,10 +13,11 @@ import {
 import type { ZoneSummary } from "@/app/engine/types";
 import type { LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
+import { clamp } from "./viewport";
 
 const MIN_HEIGHT = 30;
 const CENTER_HEIGHT = 290;
-const DEFAULT_HEIGHT = MIN_HEIGHT;
+const KEY_STEP = 40;
 
 function getMinHeight() {
     return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 44 : MIN_HEIGHT;
@@ -59,7 +60,7 @@ export default function MapBottomSheet({
     recommendations?: LiveDistrictRecommendation[];
     onEditPreferences?: () => void;
 }) {
-    const [height, setHeight] = useState(DEFAULT_HEIGHT);
+    const [height, setHeight] = useState(MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
     const sheetRef = useRef<HTMLElement>(null);
     const dragHandleRef = useRef<HTMLDivElement>(null);
@@ -68,20 +69,11 @@ export default function MapBottomSheet({
     const pendingHeight = useRef<number | null>(null);
     const dragFrame = useRef<number | null>(null);
 
-    useEffect(() => {
-        onHeightChange(getMinHeight());
-        onStateChange({ height: getMinHeight(), isExpanded: false, isDragging: false });
-    }, [onHeightChange, onStateChange]);
-
     const setSheetHeight = useCallback((nextHeight: number) => {
         if (sheetRef.current) sheetRef.current.style.height = `${nextHeight}px`;
         dragHandleRef.current?.setAttribute("aria-valuenow", String(Math.round(nextHeight)));
         onHeightChange(nextHeight);
-        onStateChange({
-            height: nextHeight,
-            isExpanded: nextHeight > getCenterHeight(),
-            isDragging: false,
-        });
+        onStateChange({ height: nextHeight, isExpanded: nextHeight > getCenterHeight(), isDragging: false });
         setHeight(nextHeight);
     }, [onHeightChange, onStateChange]);
 
@@ -108,29 +100,12 @@ export default function MapBottomSheet({
         focusHandle: () => dragHandleRef.current?.focus(),
     }), [setSheetHeight]);
 
-    const clampHeight = (value: number) => {
-        return Math.min(Math.max(value, getMinHeight()), getMaxHeight());
-    }
-
-    const getSnapPoints = () => {
-        const max = getMaxHeight();
-
-        return [
-            getMinHeight(),
-            Math.min(getCenterHeight(), max),
-            max,
-        ];
-    };
+    const clampHeight = (value: number) => clamp(value, getMinHeight(), getMaxHeight());
 
     const snapToNearestHeight = (currentHeight: number) => {
-        const snapPoints = getSnapPoints();
-
-        const nearest = snapPoints.reduce((prev, curr) => {
-            return Math.abs(curr - currentHeight) < Math.abs(prev - currentHeight) ? curr : prev;
-        }, snapPoints[0]);
-
-        setSheetHeight(nearest);
-    }
+        const snapPoints = [getMinHeight(), getCenterHeight(), getMaxHeight()];
+        setSheetHeight(snapPoints.reduce((prev, curr) => Math.abs(curr - currentHeight) < Math.abs(prev - currentHeight) ? curr : prev));
+    };
 
     const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -170,27 +145,10 @@ export default function MapBottomSheet({
         if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
     }, []);
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        const step = 40;
-
-        if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setSheetHeight(clampHeight(height + step));
-        }
-
-        if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setSheetHeight(clampHeight(height - step));
-        }
-
-        if (event.key === "Home") {
-            event.preventDefault();
-            setSheetHeight(getMinHeight());
-        }
-
-        if (event.key === "End") {
-            event.preventDefault();
-            setSheetHeight(getMaxHeight());
-        }
+        const next = ({ ArrowUp: height + KEY_STEP, ArrowDown: height - KEY_STEP, Home: getMinHeight(), End: getMaxHeight() } as Record<string, number>)[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        setSheetHeight(clampHeight(next));
     };
 
     const isExpanded = height > getCenterHeight();
@@ -200,22 +158,13 @@ export default function MapBottomSheet({
             <div
                 ref={dragHandleRef}
                 role="separator"
-                aria-label="Resize exploration panel"
+                aria-label="Ubah tinggi daftar kecamatan"
                 aria-orientation="horizontal"
                 aria-valuemin={getMinHeight()}
                 aria-valuemax={Math.round(getMaxHeight())}
                 aria-valuenow={Math.round(height)}
                 tabIndex={0}
-                className="
-          flex h-11 shrink-0
-          cursor-ns-resize
-          touch-none
-          items-center
-          justify-center
-          outline-none
-          focus-visible:ring-2
-          focus-visible:ring-primary
-        "
+                className="flex h-11 shrink-0 cursor-ns-resize touch-none items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -267,7 +216,7 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
                 {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(recommendation.rent)}`}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
-                    <span className="hidden md:inline">Jelajahi area ini</span>
+                    <span className="hidden md:inline">Jelajahi kecamatan ini</span>
                 </span>
             </span>
         </button>

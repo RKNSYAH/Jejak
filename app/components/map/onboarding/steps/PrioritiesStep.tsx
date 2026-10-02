@@ -22,7 +22,7 @@ export default function PrioritiesStep({ answers, onChange }: StepProps) {
                 <span className="flex items-center gap-2"><Check aria-hidden="true" className="size-4 text-primary" />Total 100%</span>
                 <button type="button" onClick={() => onChange({ weights: { ...defaultWeights } })} className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline">Pakai saran untuk profilmu</button>
             </div>
-            <p id="weight-help" className="text-xs leading-relaxed text-ink-muted">Bobot lain menyesuaikan otomatis agar total tetap 100%. Angka dan urutan memakai contoh data.</p>
+            <p id="weight-help" className="text-xs leading-relaxed text-ink-muted">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
         </div>
     </div>;
 }

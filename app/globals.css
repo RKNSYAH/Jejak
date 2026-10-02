@@ -61,7 +61,6 @@
   --color-on-ink-muted: color-mix(in oklab, var(--color-base-100) 72%, transparent);
   --color-panel-surface: color-mix(in oklab, var(--color-base-100) 96%, transparent);
   --color-primary-tint: color-mix(in oklab, var(--color-primary) 10%, transparent);
-  --color-primary-tint-strong: color-mix(in oklab, var(--color-primary) 20%, transparent);
 
   /* DESIGN.md shadow limit for surfaces over the map */
   --shadow-overlay: 0 2px 8px color-mix(in oklab, var(--color-base-content) 8%, transparent);
@@ -89,28 +88,6 @@
   &:focus-within {
     --input-color: var(--color-primary);
   }
-}
-
-@keyframes footprintFade {
-  0% {
-    opacity: 0;
-  }
-
-  20% {
-    opacity: 0.5;
-  }
-
-  70% {
-    opacity: 0.5;
-  }
-
-  100% {
-    opacity: 0;
-  }
-}
-
-.animate-footprint {
-  animation: footprintFade 1.5s ease-in-out forwards;
 }
 
 .map-category-scroll {

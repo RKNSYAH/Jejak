@@ -2,23 +2,23 @@ import "server-only";
 import { createAdminClient } from "../lib/admin";
 import { createClient } from "../lib/server";
 import {
-  RELOCATION_PROFILE_NAME,
-  type PersistedRelocationProfile,
-  type StoredRelocationProfile,
+    RELOCATION_PROFILE_NAME,
+    type PersistedRelocationProfile,
+    type StoredRelocationProfile,
 } from "../lib/relocationProfile";
 import { isStoredRelocationProfile } from "../lib/relocationProfileCache";
 
 export async function getSavedRelocationProfile(userId: string): Promise<StoredRelocationProfile | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("relocation_profiles")
-    .select("id, profile_name, revision, profile, confirmed_at, updated_at")
-    .eq("user_id", userId)
-    .eq("profile_name", RELOCATION_PROFILE_NAME)
-    .eq("confirmed", true)
-    .order("revision", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    const supabase = await createClient();
+    const { data, error } = await supabase
+        .from("relocation_profiles")
+        .select("id, profile_name, revision, profile, confirmed_at, updated_at")
+        .eq("user_id", userId)
+        .eq("profile_name", RELOCATION_PROFILE_NAME)
+        .eq("confirmed", true)
+        .order("revision", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
     if (error) throw error;
     if (!data) return null;
@@ -28,8 +28,8 @@ export async function getSavedRelocationProfile(userId: string): Promise<StoredR
 }
 
 export async function saveConfirmedRelocationProfile(
-  userId: string,
-  profile: PersistedRelocationProfile,
+    userId: string,
+    profile: PersistedRelocationProfile,
 ): Promise<StoredRelocationProfile> {
     const supabase = createAdminClient();
     const { data, error } = await supabase.rpc("save_confirmed_relocation_profile", {
@@ -38,11 +38,11 @@ export async function saveConfirmedRelocationProfile(
         p_profile: profile,
     });
 
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : null;
-  if (!row || typeof row.id !== "string" && typeof row.id !== "number") {
-    throw new Error("Profile save returned no revision");
-  }
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row || typeof row.id !== "string" && typeof row.id !== "number") {
+        throw new Error("Profile save returned no revision");
+    }
 
     // Read the actual inserted row, not an echo of the submitted profile.
     const { data: saved, error: readError } = await supabase.from("relocation_profiles")

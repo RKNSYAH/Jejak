@@ -5,15 +5,15 @@ import { buildFormRelocationProfile, buildPersistedRelocationProfile } from "@/a
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 
 export async function GET() {
-  const userId = await getAuthenticatedUserId().catch(() => null);
-  if (!userId) return Response.json({ error: "Masuk untuk memuat profil." }, { status: 401 });
+    const userId = await getAuthenticatedUserId().catch(() => null);
+    if (!userId) return Response.json({ error: "Masuk untuk memuat profil." }, { status: 401 });
 
-  try {
-    return Response.json({ profile: await getSavedRelocationProfile(userId) });
-  } catch (error) {
-    console.error("Unable to load relocation profile", error);
-    return Response.json({ error: "Profil tersimpan belum dapat dimuat." }, { status: 503 });
-  }
+    try {
+        return Response.json({ profile: await getSavedRelocationProfile(userId) });
+    } catch (error) {
+        console.error("Unable to load relocation profile", error);
+        return Response.json({ error: "Profil tersimpan belum dapat dimuat." }, { status: 503 });
+    }
 }
 
 export async function POST(request: Request) {
@@ -39,14 +39,13 @@ export async function POST(request: Request) {
         return Response.json({ error: message }, { status: 400 });
     }
 
-  const userId = await getAuthenticatedUserId().catch(() => null);
-  if (!userId) return Response.json({ error: "Masuk kembali untuk menyimpan profil." }, { status: 401 });
+    const userId = await getAuthenticatedUserId().catch(() => null);
+    if (!userId) return Response.json({ error: "Masuk kembali untuk menyimpan profil." }, { status: 401 });
 
-  try {
-    const savedProfile = await saveConfirmedRelocationProfile(userId, profile);
-    return Response.json({ profile: savedProfile }, { status: 201 });
-  } catch (error) {
-    console.error("Unable to save relocation profile", error);
-    return Response.json({ error: "Profil belum tersimpan. Coba lagi." }, { status: 503 });
-  }
+    try {
+        return Response.json({ profile: await saveConfirmedRelocationProfile(userId, profile) }, { status: 201 });
+    } catch (error) {
+        console.error("Unable to save relocation profile", error);
+        return Response.json({ error: "Profil belum tersimpan. Coba lagi." }, { status: 503 });
+    }
 }

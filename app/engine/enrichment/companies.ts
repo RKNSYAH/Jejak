@@ -26,7 +26,7 @@ export function sameCompany(left: string, right: string): boolean {
     return words.every((word) => longerWords.has(word));
 }
 
-export type CompanyOffice = {
+type CompanyOffice = {
     companyKey: string;
     rawAddress: string;
     buildingName: string | null;
@@ -64,14 +64,10 @@ export function officeForPosting(offices: CompanyOffice[], postingAddress: strin
     const mentions = (office: CompanyOffice, city: string) => normalizePlaceName(office.rawAddress).includes(normalizePlaceName(city));
     const postingCity = postingAddress?.trim();
     if (postingCity) return offices.find((office) => mentions(office, postingCity)) ?? null;
-    const inZoneCity = offices.filter((office) => mentions(office, zoneCity));
-    if (inZoneCity.length) return inZoneCity[0];
-    return offices.length === 1 ? offices[0] : null;
+    return offices.find((office) => mentions(office, zoneCity)) ?? (offices.length === 1 ? offices[0] : null);
 }
 
 // Postings whose own location can't place them below city level.
 export function needsCompanyOffice(candidate: LF01Candidate): boolean {
-    return !candidate.rawAddress && !candidate.buildingName
-        ? true
-        : ["city", "region", "unknown"].includes(candidate.precision);
+    return (!candidate.rawAddress && !candidate.buildingName) || ["city", "region", "unknown"].includes(candidate.precision);
 }

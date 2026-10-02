@@ -1,13 +1,14 @@
-import { isRecord } from "./zoneGeometry";
+import { isIdentifier } from "./lf03Validation";
+import { isRecord, isRegionCode } from "./zoneGeometry";
 
-export type LF04Snapshot = {
+type LF04Snapshot = {
     zone_id: string;
     snapshot_at: string;
     validation_status: "accepted";
     evidence_ids: string[];
 } & Record<string, unknown>;
 
-// The caller's part of an LF-04 request. The confirmed profile is never part of it:
+// The user's part of an LF-04 request. The confirmed profile is never part of it:
 // the server loads the user's saved, confirmed profile itself.
 export type LF04Request = {
     fit_components: Record<string, number | { score: number }>;
@@ -17,7 +18,7 @@ export type LF04Request = {
     language?: "id" | "en";
 };
 
-export type LF04NumericClaim = { text: string; snapshot_path: string; value: number };
+type LF04NumericClaim = { text: string; snapshot_path: string; value: number };
 
 export type LF04Explanation = {
     headline: string;
@@ -49,10 +50,10 @@ function isScore(value: unknown) {
 
 function isAcceptedSnapshot(value: unknown): value is LF04Snapshot {
     return isRecord(value) && value.validation_status === "accepted" &&
-        typeof value.zone_id === "string" && value.zone_id.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.zone_id) &&
+        typeof value.zone_id === "string" && isRegionCode(value.zone_id) &&
         typeof value.snapshot_at === "string" && !Number.isNaN(Date.parse(value.snapshot_at)) &&
         isStringList(value.evidence_ids) && value.evidence_ids.length > 0 &&
-        value.evidence_ids.every((id) => id.trim().length > 0 && id.length <= 200) &&
+        value.evidence_ids.every(isIdentifier) &&
         new Set(value.evidence_ids).size === value.evidence_ids.length;
 }
 

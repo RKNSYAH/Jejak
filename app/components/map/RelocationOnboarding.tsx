@@ -343,10 +343,6 @@ export default function RelocationOnboarding({
     onOnboardingActiveChange(!hydrated || step > 0 || formSession?.status === "active");
   }, [formSession, hydrated, onOnboardingActiveChange, step]);
 
-  useEffect(() => {
-    if (mapPoint) onOfficeChange("Dipilih di peta");
-  }, [mapPoint, onOfficeChange]);
-
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
   function dismiss() {
@@ -423,7 +419,7 @@ export default function RelocationOnboarding({
         }),
       });
       if (handleAuthFailure(response)) {
-        setRequestError("Masuk untuk menganalisis rencanamu. Draf tetap tersimpan di perangkat ini.");
+        setRequestError("Masuk untuk menganalisis rencanamu.");
         return null;
       }
       const result: unknown = await response.json();
@@ -716,9 +712,7 @@ export default function RelocationOnboarding({
               Ceritakan rencana pindahmu
             </h1>
             {savedProfile && <p role="status" className="mt-1 text-xs text-ink-muted">Profil tersimpan · revisi {savedProfile.revision}</p>}
-            <p className="mt-1 text-sm leading-relaxed text-ink-muted">
-              Tulis seperti bercerita ke teman. Kamu bisa memeriksa ringkasannya sebelum peta disesuaikan.
-            </p>
+            <p className="mt-1 text-sm leading-relaxed text-ink-muted">Tulis seperti bercerita ke teman.</p>
 
             <label htmlFor="relocation-story" className="sr-only">Ceritakan rencana pindahmu</label>
             <div className="mt-4 rounded-xl border-2 border-primary bg-base-100 p-3 focus-within:ring-2 focus-within:ring-primary/20 md:p-4">
@@ -759,8 +753,7 @@ export default function RelocationOnboarding({
               </div>
             </section>
 
-            {requestError && <p role="alert" className="mt-3 text-sm font-semibold text-error">{requestError}</p>}
-            {requestError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
+            <RequestError error={requestError} />
 
             <footer className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-4">
               <div className="flex items-center gap-2">
@@ -786,11 +779,6 @@ export default function RelocationOnboarding({
             <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Bagian yang disorot disimpulkan dari ceritamu.</p>
 
 
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-muted">
-              <span className="badge badge-outline badge-sm border-rule text-ink-muted">Usulan profilmu</span>
-              <span>Belum disimpan.</span>
-            </div>
-
             <div className="mt-3 grid gap-x-5 gap-y-3 sm:grid-cols-2">
               {profileRows.map((row) => (
                 <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing} onEdit={() => goToStep(1)}>
@@ -807,11 +795,10 @@ export default function RelocationOnboarding({
                 {isSaving ? "Menyimpan profil…" : "Simpan dan selesaikan"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
               </button>
             </footer>
-            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}{!saveError.startsWith("Masuk") && " Draf tetap tersimpan di sesi ini."}</div>}
+            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
             {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
           </fieldset>
         )}
-        {step !== 1 && step !== 3 && <span className="sr-only">Dialog ditutup</span>}
       </dialog>
     </>
   );

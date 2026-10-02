@@ -36,15 +36,16 @@ export async function POST(request: Request) {
             ? "Hapus data pribadi sensitif sebelum melanjutkan." : "Jawaban pertanyaan lanjutan tidak valid." }, { status: 400 });
     }
 
-  // LF-05 spends model credits, so only signed-in users can run it.
-  const claims = await getAuthenticatedClaims().catch(() => null);
-  if (!claims) {
-    return Response.json({ error: "Masuk terlebih dahulu untuk menganalisis rencana." }, { status: 401 });
-  }
+    // LF-05 spends model credits, so only signed-in users can run it.
+    const claims = await getAuthenticatedClaims().catch(() => null);
+    if (!claims) {
+        return Response.json({ error: "Masuk terlebih dahulu untuk menganalisis rencana." }, { status: 401 });
+    }
 
-  if (!isLangflowConfigured()) {
-    return Response.json({ error: "Fitur analisis cerita belum siap. Coba lagi nanti." }, { status: 503 });
-  }
+    if (!isLangflowConfigured()) {
+        const [error, status] = flowErrors.config;
+        return Response.json({ error }, { status });
+    }
 
     try {
         return Response.json({ profile: await interpretOnboardingStory(body.message, body.language, answers, isRelocationGoal(body.goal) ? body.goal : undefined, details) });
@@ -54,11 +55,11 @@ export async function POST(request: Request) {
 }
 
 const flowErrors: FlowErrorMessages = {
-  config: ["Fitur analisis cerita belum siap. Coba lagi nanti.", 503],
-  timeout: ["Analisis rencana memerlukan waktu terlalu lama. Coba lagi.", 504],
-  unreachable: ["Rencana belum bisa dianalisis. Coba lagi.", 502],
-  upstream: ["Rencana belum bisa dianalisis. Coba lagi.", 502],
-  invalid_response: ["Ringkasan rencana tidak bisa dibaca. Coba lagi.", 502],
-  incomplete: ["Analisis rencana belum selesai. Coba lagi.", 502],
-  invalid_output: ["Ringkasan rencana tidak dapat digunakan. Coba lagi.", 502],
+    config: ["Fitur analisis cerita belum siap. Coba lagi nanti.", 503],
+    timeout: ["Analisis rencana memerlukan waktu terlalu lama. Coba lagi.", 504],
+    unreachable: ["Rencana belum bisa dianalisis. Coba lagi.", 502],
+    upstream: ["Rencana belum bisa dianalisis. Coba lagi.", 502],
+    invalid_response: ["Ringkasan rencana tidak bisa dibaca. Coba lagi.", 502],
+    incomplete: ["Analisis rencana belum selesai. Coba lagi.", 502],
+    invalid_output: ["Ringkasan rencana tidak dapat digunakan. Coba lagi.", 502],
 };

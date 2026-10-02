@@ -16,12 +16,10 @@ export type LangflowErrorCode =
     | "invalid_response" | "incomplete" | "invalid_output";
 
 export class LangflowError extends Error {
-    code: LangflowErrorCode;
+    name = "LangflowError";
 
-    constructor(code: LangflowErrorCode, message: string) {
+    constructor(readonly code: LangflowErrorCode, message: string) {
         super(message);
-        this.name = "LangflowError";
-        this.code = code;
     }
 }
 

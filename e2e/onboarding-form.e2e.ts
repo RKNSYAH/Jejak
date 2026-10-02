@@ -127,10 +127,10 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     expect(liveCalls).toEqual([]);
     expect(errors).toEqual([]);
 
-    await page.getByRole("separator", { name: "Resize exploration panel" }).press("End");
+    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await expect(page.getByRole("heading", { name: "Kecamatan dalam pratinjau" })).toBeVisible();
     await expect(page.locator('[data-hci-region="zone-list"]')).toContainText("Kecamatan A");
-    const separator = page.getByRole("separator", { name: "Resize exploration panel" });
+    const separator = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     const resultCard = page.locator('[data-hci-region="zone-list"]').getByRole("button", { name: /Kecamatan A/ });
     await resultCard.click();
     const detail = page.getByRole("region", { name: "Data Kecamatan A" });
@@ -145,7 +145,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.reload();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sesuaikan rencana" })).toHaveCount(1);
-    await page.getByRole("separator", { name: "Resize exploration panel" }).press("End");
+    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await page.getByRole("button", { name: "Sesuaikan rencana" }).click();
     await expect(page.getByRole("heading", { name: "Apa yang paling penting untukmu?" })).toBeVisible();
 });
@@ -252,7 +252,7 @@ test("failed form save keeps inputs and allows a real backend retry", async ({ p
     await stubZones(page);
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
     await page.reload();
-    await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await expect(page.locator('[data-hci-region="profile-completion-banner"]')).toHaveCount(0);
 });
 
@@ -271,10 +271,10 @@ test("back, refresh, story switching, and skip preserve the form draft", async (
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Data analyst");
     await page.getByRole("button", { name: "Lewati", exact: true }).click();
-    await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
-    await page.getByRole("button", { name: "Complete profile", exact: true }).click();
+    await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
+    await page.getByRole("button", { name: "Lengkapi profil", exact: true }).click();
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Data analyst");
 });

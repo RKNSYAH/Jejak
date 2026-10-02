@@ -68,7 +68,17 @@ export function createCellFillData(
     };
 }
 
-export type CellSummary = {
+export type FactSummary = { sources: string[]; periods: string[]; isSample: boolean };
+
+export function summarizeFacts(facts: { source: string; period_end: string | null; is_sample: boolean }[]): FactSummary {
+    return {
+        sources: [...new Set(facts.map((fact) => fact.source))],
+        periods: [...new Set(facts.map((fact) => fact.period_end ?? "periode tidak tersedia"))],
+        isSample: facts.some((fact) => fact.is_sample),
+    };
+}
+
+export type CellSummary = FactSummary & {
     cells: number;
     withValue: number;
     min: number;
@@ -77,9 +87,6 @@ export type CellSummary = {
     // Bounds of the highest cell and of the district total, when the layer has them.
     maxBounds: { low: number; high: number } | null;
     totalBounds: { low: number; high: number } | null;
-    sources: string[];
-    periods: string[];
-    isSample: boolean;
 };
 
 export function summarizeCells(cells: MapCell[], layer: CellLayer): CellSummary | null {
@@ -91,7 +98,6 @@ export function summarizeCells(cells: MapCell[], layer: CellLayer): CellSummary 
     const boundsOf = (cell: MapCell) => bounds && cell.facts[bounds.low] && cell.facts[bounds.high]
         ? { low: cell.facts[bounds.low].value, high: cell.facts[bounds.high].value } : null;
     const allBounds = valued.map(boundsOf).filter((b): b is { low: number; high: number } => b !== null);
-    const facts = valued.map((cell) => cell.facts[layer.metric]);
     return {
         cells: cells.length,
         withValue: valued.length,
@@ -102,8 +108,6 @@ export function summarizeCells(cells: MapCell[], layer: CellLayer): CellSummary 
         totalBounds: bounds && allBounds.length === valued.length
             ? allBounds.reduce((sum, b) => ({ low: sum.low + b.low, high: sum.high + b.high }), { low: 0, high: 0 })
             : null,
-        sources: [...new Set(facts.map((fact) => fact.source))],
-        periods: [...new Set(facts.map((fact) => fact.period_end ?? "period unavailable"))],
-        isSample: facts.some((fact) => fact.is_sample),
+        ...summarizeFacts(valued.map((cell) => cell.facts[layer.metric])),
     };
 }

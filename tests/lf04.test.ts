@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { POST } from "../app/api/lf04/route";
 import { explainZoneFit } from "../app/engine/controller/explanationController";
 import { parseLF04Output, validateLF04Request } from "../app/engine/lib/lf04Validation";
+import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
 const request = {
@@ -45,21 +46,7 @@ const profile: PersistedRelocationProfile = {
     contract_version: "lf05-v2",
 };
 
-function setWorkflowEnvironment() {
-    const previousUrl = process.env.NEXT_LANGFLOW_URL;
-    const previousKey = process.env.NEXT_LANGFLOW_API_KEY;
-    process.env.NEXT_LANGFLOW_URL = "http://localhost:7860/api/v2/workflows";
-    process.env.NEXT_LANGFLOW_API_KEY = "test-api-key";
-
-    return () => {
-        if (previousUrl === undefined) delete process.env.NEXT_LANGFLOW_URL;
-        else process.env.NEXT_LANGFLOW_URL = previousUrl;
-        if (previousKey === undefined) delete process.env.NEXT_LANGFLOW_API_KEY;
-        else process.env.NEXT_LANGFLOW_API_KEY = previousKey;
-    };
-}
-
-test("LF-04 request validation rejects caller profiles, unaccepted snapshots, and bad scores", () => {
+test("LF-04 request validation rejects user-supplied profiles, unaccepted snapshots, and bad scores", () => {
     assert.deepEqual(validateLF04Request(request), request);
     for (const invalid of [
         { ...request, confirmed_profile: { confirmed: true } },
@@ -96,11 +83,11 @@ test("LF-04 output validation re-checks evidence IDs and numeric grounding", () 
 });
 
 test("LF-04 controller sends the stored profile as confirmed and returns the validated explanation", async (context) => {
-    const restoreEnvironment = setWorkflowEnvironment();
+    const restoreEnvironment = withWorkflowEnvironment();
     let sentPayload: Record<string, unknown> | undefined;
     context.mock.method(globalThis, "fetch", async (_input: string | URL | Request, init?: RequestInit) => {
         sentPayload = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return Response.json({ object: "response", status: "completed", has_errors: false, output: { text: JSON.stringify(explanation) } });
+        return Response.json(completed({ output: { text: JSON.stringify(explanation) } }));
     });
 
     try {
@@ -123,22 +110,17 @@ test("LF-04 controller sends the stored profile as confirmed and returns the val
     }
 });
 
-test("LF-04 route validates before authentication and never calls Langflow for anonymous callers", async (context) => {
-    const restoreEnvironment = setWorkflowEnvironment();
-    let fetchCalls = 0;
-    context.mock.method(globalThis, "fetch", async () => {
-        fetchCalls += 1;
-        return Response.json({});
-    });
-    const post = (body: string, type = "application/json") =>
-        POST(new Request("http://localhost/api/lf04", { method: "POST", headers: { "content-type": type }, body }));
+test("LF-04 route validates before authentication and never calls Langflow for anonymous users", async (context) => {
+    const restoreEnvironment = withWorkflowEnvironment();
+    const fetches = countFetches(context);
+    const post = (body: string, type?: string) => POST(postJson("/api/lf04", body, type));
 
     try {
         assert.equal((await post(JSON.stringify(request), "text/plain")).status, 415);
         assert.equal((await post("{")).status, 400);
         assert.equal((await post(JSON.stringify({ ...request, confirmed_profile: { confirmed: true } }))).status, 400);
         assert.equal((await post(JSON.stringify(request))).status, 401);
-        assert.equal(fetchCalls, 0);
+        assert.equal(fetches.count, 0);
     } finally {
         restoreEnvironment();
     }

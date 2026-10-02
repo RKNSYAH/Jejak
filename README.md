@@ -28,7 +28,7 @@ Use **Bun 1.4.2**, as specified in `package.json`, and **Node.js 20.9 or newer**
 | Checks | ESLint 9, Bun test runner, Playwright Test |
 | Database tests | PGlite and its PostGIS extension |
 
-Check [`package.json`](package.json) for dependency ranges and `bun.lock` for resolved versions. The database test package has its own manifest and lockfile in `supabase/`.
+Check [`package.json`](package.json) for dependency ranges and `bun.lock` for resolved versions.
 
 ## Run locally
 
@@ -78,8 +78,6 @@ Git ignores `.env.local`. Restart the development server after changing environm
 
 Use a Supabase project that contains the Jejak schema, map-read RPCs, and regional data. The schema lives in [`supabase/migrations/`](supabase/migrations/); [`supabase/SCHEMA.md`](supabase/SCHEMA.md) describes the tables, access rules, and evidence model. Installing JavaScript packages does not provision or populate the database.
 
-**Fresh-database blocker:** the schema test currently fails while applying `20260926_global_map_regions.sql` because `r.is_sample` does not exist at that point in the migration chain. Resolve the migration dependency order before provisioning a fresh database from these files.
-
 The app reads stored boundaries first and falls back to Indonesia's BIG boundary service when needed. Map tiles and fallback boundaries require network access.
 
 ### 4. Start development
@@ -90,7 +88,7 @@ bun run dev
 
 Open [http://localhost:3000/map](http://localhost:3000/map). Signed-out visitors are redirected to `/login`, with their map query parameters preserved for after sign-in. Protected map APIs return `403` JSON for missing or invalid sessions; authenticated requests for unknown regions return `404`.
 
-The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/`. Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change.
+The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/` (gitignored). Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change. `bun run fetch:boundaries` regenerates the onboarding preview boundaries in `public/onboarding/`.
 
 ### Production build
 
@@ -128,32 +126,15 @@ bun test tests/enrichment.test.ts
 bun test tests/hci.test.ts
 ```
 
-- `mapping.test.ts`: boundary validation, sample labels, map metrics, ranking, API response validation, and partial-load failures.
-- `lf01.test.ts`: LF-01 request validation.
-- `lf05.test.ts`, `extractUserProfile.test.ts`: onboarding input, LF-05 call, and proposal validation.
-- `lf03.test.ts`, `lf04.test.ts`: conflict-review and zone-explanation input/output contracts, flow calls, and route guards.
-- `langflow.test.ts`: Langflow URL handling, workflow envelopes, and transport errors.
-- `enrichment.test.ts`: scope hashing, LF-01 parsing, acceptance, locality, confidence, snapshots, geocoding, and the pipeline with fakes.
-- `enrichmentRoutes.test.ts`: enrichment route validation and sign-in requirement.
-- `mapAuth.test.ts`, `authDestination.test.ts`: map API access checks, login return paths, and client-side handling of expired sessions.
-
-`bunfig.toml` preloads `tests/setup.mjs`, which stubs Next's `server-only` module so route tests can import server controllers.
-- `hci.test.ts`: click payload validation and malformed-request handling.
-
-These tests use fixtures and mocks for external data. The root `bun run test` command runs `bun test` without a directory filter, so it also discovers `supabase/tests/schema.test.mjs`. That database test can exceed Bun's default five-second timeout; use its Node test command below.
+Each file in `tests/` covers one module or route; shared test helpers live in `tests/helpers.ts`. These tests use fixtures and mocks for external data. `bunfig.toml` preloads `tests/setup.mjs`, which stubs Next's `server-only` module so route tests can import server controllers.
 
 ### Database contract tests
 
-Install the separate test dependencies and run the suite from `supabase/`:
-
 ```bash
-cd supabase
-bun install --frozen-lockfile
-bun run test
-cd ..
+bun run test:schema
 ```
 
-This command invokes `node --test tests/schema.test.mjs` against an in-memory PostgreSQL/PostGIS instance. You do not need remote database credentials. The suite checks migration replay, database access rules, and data contracts. The migration-order failure noted above currently blocks the later checks.
+This runs the Node tests in `supabase/tests/` against an in-memory PostgreSQL/PostGIS instance. You do not need remote database credentials. The suite checks migration replay, database access rules, and data contracts.
 
 ### Browser and interaction-latency tests
 
@@ -187,8 +168,9 @@ app/
   map/page.tsx         Map route
   stores/              Client state
 docs/                  Product, design, AI, and data-research specifications
-e2e/                   Playwright interaction-latency tests
-scripts/               MapLibre worker setup
+e2e/                   Playwright browser, auth, and interaction-latency tests
+ingestion/             Python scripts that prepare static data sources
+scripts/               MapLibre worker copy and onboarding boundary download
 supabase/              Migrations, schema documentation, and database tests
 tests/                 Application and route tests
 instrumentation-client.ts  Click-telemetry startup

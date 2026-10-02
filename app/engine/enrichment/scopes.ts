@@ -3,7 +3,7 @@ import type { MissingEvidence } from "../types";
 
 // Evidence scopes a caller may refresh. Each maps to cache policy evidence types
 // (public.evidence_cache_policies) that share one public snapshot.
-export const enrichmentScopes = ["career", "housing"] as const;
+const enrichmentScopes = ["career", "housing"] as const;
 export type EnrichmentScope = (typeof enrichmentScopes)[number];
 
 export type EvidenceType =
@@ -52,14 +52,14 @@ export function sha256Hex(text: string): string {
 }
 
 // Lowercase "base|key=value" with sorted keys, so equal filters always hash equally.
-export function canonicalScopeKey(base: string, filters: Record<string, string> = {}): string {
+function canonicalScopeKey(base: string, filters: Record<string, string> = {}): string {
     const parts = Object.keys(filters).sort().map((key) => `${key}=${filters[key]}`);
     const key = [base, ...parts].join("|").toLowerCase();
     if (key.length > 200) throw new Error("Scope key is too long");
     return key;
 }
 
-export type ScopeIdentity = { scopeKey: string; scopeHash: string };
+type ScopeIdentity = { scopeKey: string; scopeHash: string };
 
 function identity(scopeKey: string): ScopeIdentity {
     return { scopeKey, scopeHash: sha256Hex(scopeKey) };
