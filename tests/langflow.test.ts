@@ -1,22 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getLangflowConfig, isLangflowConfigured, LangflowError, parseFlowEnvelope, runFlow } from "../app/engine/lib/langflow";
-
-const completed = (output: unknown) => ({ object: "response", status: "completed", has_errors: false, ...output as object });
-
-function withEnvironment(url: string | undefined, key: string | undefined) {
-    const previous = { url: process.env.NEXT_LANGFLOW_URL, key: process.env.NEXT_LANGFLOW_API_KEY };
-    const set = (name: "NEXT_LANGFLOW_URL" | "NEXT_LANGFLOW_API_KEY", value: string | undefined) => {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-    };
-    set("NEXT_LANGFLOW_URL", url);
-    set("NEXT_LANGFLOW_API_KEY", key);
-    return () => {
-        set("NEXT_LANGFLOW_URL", previous.url);
-        set("NEXT_LANGFLOW_API_KEY", previous.key);
-    };
-}
+import { completed, withEnvironment } from "./helpers";
 
 test("Langflow config accepts a base URL or the workflows endpoint and nothing else", () => {
     const endpoint = (url: string) => getLangflowConfig({ NEXT_LANGFLOW_URL: url, NEXT_LANGFLOW_API_KEY: "key" }).endpoint.toString();

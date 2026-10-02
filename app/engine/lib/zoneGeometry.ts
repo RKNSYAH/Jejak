@@ -74,26 +74,23 @@ export function normalizeGeometry(value: unknown, zone: Zone): ZoneGeometry {
         return { geometry: feature.geometry, properties: feature.properties };
     }).filter(({ properties }) => districtKey(String(properties.WADMKC ?? "")) === zoneName &&
         matchesCity(String(properties.WADMKK ?? ""), zone.city_name));
-    if (value.features.length === 0) throw new Error("No boundary found for the requested zone");
-    if (matches.length === 0) throw new Error("Boundary does not match the requested zone");
+    if (value.features.length === 0) throw new Error("Batas kecamatan tidak ditemukan");
+    if (matches.length === 0) throw new Error("Batas tidak cocok dengan kecamatan yang diminta");
     // A shorthand must not silently combine a kota and kabupaten of the same name.
     const cities = new Set(matches.map(({ properties }) => cityKey(String(properties.WADMKK ?? ""))));
-    if (cities.size > 1) throw new Error("Boundary matches multiple administrative areas");
+    if (cities.size > 1) throw new Error("Batas cocok dengan beberapa wilayah administratif");
     return {
         type: "FeatureCollection",
-        features: matches.map((feature, index) => {
-            const properties = feature.properties;
-            return {
-                type: "Feature",
-                id: `${zone.zone_id}-${index}`,
-                geometry: feature.geometry,
-                properties: {
-                    zone_id: zone.zone_id,
-                    zone_name: zone.zone_name,
-                    source_region_code: properties.KDCBPS == null ? undefined : String(properties.KDCBPS),
-                },
-            };
-        }),
+        features: matches.map(({ geometry, properties }, index) => ({
+            type: "Feature",
+            id: `${zone.zone_id}-${index}`,
+            geometry,
+            properties: {
+                zone_id: zone.zone_id,
+                zone_name: zone.zone_name,
+                source_region_code: properties.KDCBPS == null ? undefined : String(properties.KDCBPS),
+            },
+        })),
     };
 }
 

@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/auth";
+import { openDemoMap, stubZones } from "./fixtures/map";
 
 const zones = Array.from({ length: 30 }, (_, index) => ({
     zone_id: `area-${index + 1}`,
@@ -14,13 +15,11 @@ const zones = Array.from({ length: 30 }, (_, index) => ({
 }));
 
 test("expanded exploration sheet wraps cards and scrolls vertically", async ({ page }) => {
-    await page.route((url) => url.pathname === "/api/zones", (route) =>
-        route.fulfill({ json: { is_sample: false, zones } }));
-    await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await stubZones(page, zones);
+    await openDemoMap(page);
 
     const sheet = page.locator('[data-hci-region="zone-list"]');
-    const handle = sheet.getByRole("separator", { name: "Resize exploration panel" });
+    const handle = sheet.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     const scroller = sheet.locator(".\\@container");
     const cards = sheet.locator("button.card");
     await expect(cards).toHaveCount(zones.length);

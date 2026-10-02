@@ -14,17 +14,3 @@ export async function getAuthenticatedUserId() {
         ? userId
         : null;
 }
-
-export async function registerUser(email: string, password: string, name: string, emailRedirectTo: string) {
-    const supabase = await createClient();
-    return supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name }, emailRedirectTo },
-    });
-}
-
-export async function loginUser(email: string, password: string) {
-    const supabase = await createClient();
-    return supabase.auth.signInWithPassword({ email, password });
-}

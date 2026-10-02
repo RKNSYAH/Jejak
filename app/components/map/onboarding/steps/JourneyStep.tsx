@@ -28,7 +28,7 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
                 <ul className="mt-2 space-y-1" aria-label="Kampus dari basis data">
                     {matches.map((item) => <li key={item.id}><button type="button" className="btn btn-ghost min-h-11 w-full justify-start text-left text-sm" onClick={() => { onChange({ destinationId: item.id, destinationName: item.name, destinationPoint: item.center }); setSearchOpen(false); }}>{item.name}</button></li>)}
                 </ul>
-                {!destinations.some((item) => item.name.toLowerCase().includes(query.toLowerCase())) && <p className="mt-2 text-xs text-ink-muted">Belum ada kawasan yang cocok. Coba nama lain.</p>}
+                {!matches.length && <p className="mt-2 text-xs text-ink-muted">Belum ada kawasan yang cocok. Coba nama lain.</p>}
             </div>}
             <div className="mt-1 flex flex-wrap items-center gap-x-3">
                 <button type="button" onClick={onMapPick} aria-pressed={pickingDestination} className="btn btn-ghost min-h-11 px-0 text-xs text-primary">{pickingDestination ? "Pilih titik pada peta" : "Pilih titik di peta"}</button>

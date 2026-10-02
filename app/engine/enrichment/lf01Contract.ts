@@ -1,6 +1,6 @@
 import { isRecord } from "../lib/zoneGeometry";
 
-export const precisions = ["building", "street", "neighborhood", "district", "city", "region", "unknown"] as const;
+const precisions = ["building", "street", "neighborhood", "district", "city", "region", "unknown"] as const;
 export type Precision = (typeof precisions)[number];
 
 export type LF01Candidate = {
@@ -29,7 +29,7 @@ export type LF01Candidate = {
     raw: Record<string, unknown>;
 };
 
-export type LF01Result = {
+type LF01Result = {
     status: string;
     candidates: LF01Candidate[];
     skipped: { index: number; reason: string }[];

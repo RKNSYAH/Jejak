@@ -1,10 +1,8 @@
 import { isRecord } from "../lib/zoneGeometry";
 import type { LocalityTier } from "./locality";
-import { approxCount } from "./labels";
 import { isPublicSnapshot } from "./snapshotContract";
 import { scopeEvidenceTypes, type EnrichmentScope, type EvidenceType } from "./scopes";
-
-export { isPublicSnapshot };
+import type { Coverage, EvidenceRange as Range } from "../types";
 
 // Accepted rows as public.get_zone_evidence() returns them (subset used here).
 export type StoredEvidence = {
@@ -21,8 +19,6 @@ export type StoredEvidence = {
     expires_at: string;
 };
 
-export type Coverage = "complete" | "partial" | "unavailable";
-
 export type SnapshotDraft = {
     snapshot: Record<string, unknown>;
     evidenceCount: number;
@@ -33,8 +29,6 @@ export type SnapshotDraft = {
     refreshAfter: string;
     expiresAt: string;
 };
-
-type Range = { minimum: number; maximum: number; status: "observed" | "estimated"; method_version?: string } | { status: "unavailable" };
 
 const unavailable: Range = { status: "unavailable" };
 const MIN_EMPLOYMENT_CONTRIBUTORS = 3;
@@ -151,7 +145,7 @@ export function buildSnapshot(input: {
     const nearby = rows.length - zoneRows.length;
     const limitations = ["Counts describe observed web sources, not every company, vacancy, or listing in the area."];
     if (nearby > 0) {
-        limitations.push(`${approxCount(nearby, "more observation", "more observations")} found elsewhere in or beyond ${input.cityName} ${nearby === 1 ? "is" : "are"} not counted for this zone.`);
+        limitations.push(`approx. ${nearby} more ${nearby === 1 ? "observation" : "observations"} found elsewhere in or beyond ${input.cityName} ${nearby === 1 ? "is" : "are"} not counted for this zone.`);
     }
 
     const fields = input.scope === "career" ? careerFields(input.evidence, limitations) : housingFields(input.evidence, limitations);

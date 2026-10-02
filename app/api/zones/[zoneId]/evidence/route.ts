@@ -2,13 +2,14 @@ import { getZoneEvidence } from "@/app/engine/controller/enrichmentController";
 import { isEnrichmentScope } from "@/app/engine/enrichment/scopes";
 import { isAdminConfigured } from "@/app/engine/lib/admin";
 import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
+import { isRegionCode } from "@/app/engine/lib/zoneGeometry";
 
 export async function GET(req: Request, context: { params: Promise<{ zoneId: string }> }) {
     const denied = await mapAccessDenied();
     if (denied) return denied;
     const { zoneId } = await context.params;
     const scope = new URL(req.url).searchParams.get("scope");
-    if (zoneId.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(zoneId)) {
+    if (!isRegionCode(zoneId)) {
         return Response.json({ error: "Unsupported zone_id" }, { status: 400 });
     }
     if (!isEnrichmentScope(scope)) return Response.json({ error: "scope must be career or housing" }, { status: 400 });

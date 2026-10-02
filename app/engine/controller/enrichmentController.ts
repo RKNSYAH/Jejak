@@ -7,19 +7,17 @@ import type { LocalityTier } from "../enrichment/locality";
 import { runEnrichment, type ClaimedRun, type EnrichmentDb, type EnrichmentJob, type EnrichmentOutcome, type ScopeType } from "../enrichment/pipeline";
 import { evidenceScope, scopeEvidenceTypes, snapshotScope, type EnrichmentScope, type EvidenceType } from "../enrichment/scopes";
 import type { StoredEvidence } from "../enrichment/snapshot";
-import type { EnrichmentRunSummary, EvidenceClustersResponse, EvidenceSnapshotData, ZoneEvidenceResponse } from "../types";
+import type { Coverage, EnrichmentRunSummary, EvidenceClustersResponse, EvidenceSnapshotData, ZoneEvidenceResponse } from "../types";
 import { mergeLocatedEvidence, toEvidenceClusters, type ClusterRow } from "../enrichment/clusters";
 import { getZoneRow, includeSample, supportedSector, toZone, type RegionDetailRow } from "./zoneController";
 
-export type EnrichmentErrorCode = "UNKNOWN_ZONE" | "BOUNDARY_REQUIRED";
+type EnrichmentErrorCode = "UNKNOWN_ZONE" | "BOUNDARY_REQUIRED";
 
 export class EnrichmentRequestError extends Error {
-    code: EnrichmentErrorCode;
+    name = "EnrichmentRequestError";
 
-    constructor(code: EnrichmentErrorCode, message: string) {
+    constructor(readonly code: EnrichmentErrorCode, message: string) {
         super(message);
-        this.name = "EnrichmentRequestError";
-        this.code = code;
     }
 }
 
@@ -41,7 +39,7 @@ type ClaimRow = {
     retry_at: string | null;
 };
 
-export type ClaimSummary = { evidence_type: EvidenceType; status: string; run_id: string | null; retry_at: string | null };
+type ClaimSummary = { evidence_type: EvidenceType; status: string; run_id: string | null; retry_at: string | null };
 
 async function getRegion(zoneId: string) {
     const { data, error } = await createAdminClient().from("regions").select("id").eq("region_code", zoneId).maybeSingle();
@@ -64,8 +62,7 @@ export async function requestZoneEnrichment(zoneId: string, scope: EnrichmentSco
     const admin = createAdminClient();
     const runs: ClaimedRun[] = [];
     const scopeTypes: ScopeType[] = [];
-    const claims: ClaimSummary[] = [];
-    const internalRunIds: (number | null)[] = [];
+    const claims: (ClaimSummary & { internalId: number | null })[] = [];
 
     for (const evidenceType of scopeEvidenceTypes[scope]) {
         const { scopeKey, scopeHash } = evidenceScope(evidenceType, supportedSector);
@@ -76,20 +73,16 @@ export async function requestZoneEnrichment(zoneId: string, scope: EnrichmentSco
         const claim = (data as ClaimRow[])[0];
         scopeTypes.push({ evidenceType, scopeHash, minimumRequiredCount: claim.minimum_required_count });
         if (claim.call_lf01 && claim.run_id !== null) runs.push({ id: claim.run_id, evidenceType, sourceBudget: claim.source_budget });
-        claims.push({ evidence_type: evidenceType, status: claim.status, run_id: null, retry_at: claim.retry_at });
-        internalRunIds.push(claim.run_id);
+        claims.push({ evidence_type: evidenceType, status: claim.status, run_id: null, retry_at: claim.retry_at, internalId: claim.run_id });
     }
 
-    // Callers only ever see the external UUID of a run.
-    const internalIds = internalRunIds.filter((id): id is number => id !== null);
+    // Users only ever see the external UUID of a run.
+    let external = new Map<number, string>();
+    const internalIds = claims.flatMap((claim) => claim.internalId ?? []);
     if (internalIds.length) {
         const { data, error } = await admin.from("enrichment_runs").select("id, external_run_id").in("id", internalIds);
         if (error) throw error;
-        const external = new Map((data as { id: number; external_run_id: string }[]).map((run) => [run.id, run.external_run_id]));
-        claims.forEach((claim, index) => {
-            const id = internalRunIds[index];
-            claim.run_id = id === null ? null : external.get(id) ?? null;
-        });
+        external = new Map((data as { id: number; external_run_id: string }[]).map((run) => [run.id, run.external_run_id]));
     }
 
     const job: EnrichmentJob | null = runs.length ? {
@@ -104,7 +97,7 @@ export async function requestZoneEnrichment(zoneId: string, scope: EnrichmentSco
         runs,
         scopeTypes,
     } : null;
-    return { job, claims };
+    return { job, claims: claims.map(({ internalId, ...claim }) => ({ ...claim, run_id: internalId === null ? null : external.get(internalId) ?? null })) };
 }
 
 function createGeocodeCache(admin: ReturnType<typeof createAdminClient>): GeocodeCache {
@@ -186,7 +179,7 @@ function createEnrichmentDb(admin: ReturnType<typeof createAdminClient>): Enrich
 }
 
 // Runs after the HTTP response (next/server after()); every failure is recorded
-// on the runs themselves, so nothing is thrown back to the caller.
+// on the runs themselves, so nothing is thrown back to the user.
 export async function runZoneEnrichment(job: EnrichmentJob): Promise<EnrichmentOutcome> {
     const admin = createAdminClient();
     const box = job.zone.boundingBox;
@@ -247,7 +240,7 @@ export async function getRunStatus(externalRunId: string) {
 
 type SnapshotRow = {
     snapshot: EvidenceSnapshotData;
-    coverage: "complete" | "partial" | "unavailable";
+    coverage: Coverage;
     confidence: number | null;
     evidence_count: number;
     generated_at: string;
@@ -318,12 +311,7 @@ export async function getEvidenceClusters(cityId: string, scope: EnrichmentScope
         p_include_sample: includeSample,
     });
     if (error) throw error;
-    return {
-        city_id: cityId,
-        scope,
-        clusters: toEvidenceClusters(data as ClusterRow[], types),
-        note: "Counts are approximate: they cover the web sources Jejak monitored, not every company, job, or listing.",
-    };
+    return { city_id: cityId, scope, clusters: toEvidenceClusters(data as ClusterRow[], types) };
 }
 
 // The district's facts with its located evidence merged in (see mergeLocatedEvidence).

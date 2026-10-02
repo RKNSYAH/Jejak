@@ -103,17 +103,22 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
         completed.add(runId);
     }
 
+    // Shared by the main LF-01 run and the company-office pass.
+    const zoneInput = {
+        zone_id: job.zone.code,
+        zone_name: job.zone.name,
+        city_name: job.zone.cityName,
+        requested_at: job.requestedAt,
+        ...(job.zone.boundingBox ? { bounding_box: job.zone.boundingBox } : {}),
+    };
+
     try {
         await db.markRunStage(runIds, "lf01");
         const lf01Input = validateLF01Input({
+            ...zoneInput,
             run_id: job.jobId,
-            zone_id: job.zone.code,
-            zone_name: job.zone.name,
-            city_name: job.zone.cityName,
-            requested_at: job.requestedAt,
             missing_evidence: [...new Set(job.runs.map((run) => lf01EvidenceByType[run.evidenceType]))],
             maximum_sources: Math.min(MAX_LF01_SOURCES, Math.max(1, job.runs.reduce((sum, run) => sum + run.sourceBudget, 0))),
-            ...(job.zone.boundingBox ? { bounding_box: job.zone.boundingBox } : {}),
             ...(job.scope === "career" ? { target_sectors: [job.sectorId] } : {}),
         });
         const lf01 = parseLF01Output(await deps.runFlow(LANGFLOW_FLOWS.lf01, lf01Input, {
@@ -168,15 +173,11 @@ export async function runEnrichment(deps: EnrichmentDeps, job: EnrichmentJob): P
                 : Promise.resolve(new Map<string, SectorClassification>()),
             runOffices
                 ? deps.runFlow(LANGFLOW_FLOWS.lf01, validateLF01Input({
+                    ...zoneInput,
                     run_id: officesRunId,
-                    zone_id: job.zone.code,
-                    zone_name: job.zone.name,
-                    city_name: job.zone.cityName,
-                    requested_at: job.requestedAt,
                     missing_evidence: ["company_presence"],
                     maximum_sources: Math.min(MAX_LF01_SOURCES, lookups.size * 2),
                     company_names: [...lookups.values()],
-                    ...(job.zone.boundingBox ? { bounding_box: job.zone.boundingBox } : {}),
                 }), { timeoutMs: 90_000, maxBytes: 2_000_000, contract: "lf01-v2", sessionId: job.jobId })
                     .then((output) => parseLF01Output(output, officesRunId).candidates)
                 : Promise.resolve([] as LF01Candidate[]),

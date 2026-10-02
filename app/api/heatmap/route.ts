@@ -4,16 +4,16 @@ import { mapAccessDenied } from "@/app/engine/lib/mapAuth";
 export async function GET(req: Request) {
     const denied = await mapAccessDenied();
     if (denied) return denied;
-    let query: ReturnType<typeof validateCellQuery>;
+    const params = new URL(req.url).searchParams;
+    let query;
     try {
-        query = validateCellQuery(new URL(req.url).searchParams);
+        query = validateCellQuery(params);
     } catch (error) {
         return Response.json({ error: error instanceof Error ? error.message : "Invalid query" }, { status: 400 });
     }
     try {
-        const includeGeometry = new URL(req.url).searchParams.get("geometry") !== "0";
-        return Response.json(await getMapCells(query.zoneId, query.category, includeGeometry));
+        return Response.json(await getMapCells(query.zoneId, query.category, params.get("geometry") !== "0"));
     } catch {
-        return Response.json({ error: "Unable to load heatmap cells" }, { status: 503 });
+        return Response.json({ error: "Heatmap belum dapat dimuat." }, { status: 503 });
     }
 }

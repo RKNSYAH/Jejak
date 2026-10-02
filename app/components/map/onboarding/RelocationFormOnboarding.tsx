@@ -58,7 +58,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
         const nextErrors = session.step === 4 ? Object.assign({}, ...stepErrors) : stepErrors[session.step - 1];
         setErrors(nextErrors);
         if (Object.keys(nextErrors).length) {
-            const invalidStep = ([1, 2, 3, 4] as FormStep[]).find((step) => Object.keys(validateFormStep(session.answers, step)).length);
+            const invalidStep = stepNumbers.find((step) => Object.keys(stepErrors[step - 1]).length);
             if (invalidStep && invalidStep !== session.step) onStepChange(invalidStep);
             window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>(`[name="${Object.keys(nextErrors)[0]}"]`)?.focus(), 0);
             return;
@@ -74,7 +74,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
         }
     }
 
-    return <dialog ref={dialogRef} aria-labelledby="form-onboarding-title" aria-describedby="form-demo-note" lang="id"
+    return <dialog ref={dialogRef} aria-labelledby="form-onboarding-title"
         data-hci-region={`onboarding-form-step-${session.step}`} className="onboarding-form-panel absolute inset-x-0 bottom-0 z-200 m-0 flex h-[74dvh] max-h-[74dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-rule bg-base-100 p-0 font-body text-ink shadow-overlay md:inset-y-4 md:left-auto md:right-4 md:h-auto md:max-h-none md:w-[min(35rem,43vw)] md:rounded-2xl"
         onKeyDown={(event) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement && event.target.type === "search")) { event.preventDefault(); if (!isSaving) onDismiss(); } }}>
         <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-ink/20 md:hidden" />

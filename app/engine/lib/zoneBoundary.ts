@@ -1,6 +1,5 @@
-import type { RegionDetailRow } from "../controller/zoneController";
+import { toZone, type RegionDetailRow } from "../controller/zoneController";
 import type { Zone, ZoneGeometry } from "../types";
-import { toZone } from "../controller/zoneController";
 import { cityKey, districtKey, isBoundary, isRecord, normalizeGeometry } from "./zoneGeometry";
 import { BOUNDARY_PROVIDER_TIMEOUT_MS } from "./zoneRequestTimeouts";
 import type { MultiPolygon } from "geojson";
@@ -28,18 +27,9 @@ export async function getZoneBoundary(row: RegionDetailRow): Promise<ZoneGeometr
         }] };
     }
 
-    const key = JSON.stringify([
-        zone.zone_id,
-        zone.zone_name,
-        zone.city_id,
-        zone.city_name,
-    ]);
-
+    const key = JSON.stringify([zone.zone_id, zone.zone_name, zone.city_id, zone.city_name]);
     const entry = boundaries.get(key);
-    const cached = entry && entry.expiresAt > Date.now()
-        ? entry
-        : undefined;
-
+    const cached = entry && entry.expiresAt > Date.now() ? entry : undefined;
     if (!cached) boundaries.delete(key);
     if (cached?.persisted) return cached.geometry;
 
@@ -125,20 +115,13 @@ async function insertZoneBoundary(row: RegionDetailRow, geometry: ZoneGeometry):
             throw new Error("Invalid geometry type");
         }),
     };
-
-    if (!isBoundary(boundary)) throw new Error("Invalid boundary geometry");
-    
-    const {error} = await createAdminClient().rpc("store_region_boundary", {
-        p_region_code: row.region_code,
-        p_geometry: boundary,
-    });
+    const { error } = await createAdminClient().rpc("store_region_boundary", { p_region_code: row.region_code, p_geometry: boundary });
     if (error) throw error;
-};
+}
 
 async function fetchProviderBoundary(zone: Zone): Promise<ZoneGeometry> {
     // "Asemrowo" -> 'A%S%E%M%R%O%W%O%' finds "Asem Rowo".
     const name = `${districtKey(zone.zone_name).toUpperCase().split("").join("%")}%`;
-    // city name normalization.
     const city = cityKey(zone.city_name).replace(/^kota /, "").toUpperCase().replaceAll("'", "''");
     const query = new URLSearchParams({
         where: `UPPER(WADMKC) LIKE '${name}' AND UPPER(WADMKK) LIKE '%${city}'`,
@@ -156,23 +139,24 @@ async function fetchProviderBoundary(zone: Zone): Promise<ZoneGeometry> {
         res = await fetch(`${boundaryUrl}?${query}`, { signal, cache: "no-store" });
     } catch (error) {
         const timedOut = signal.aborted || (error instanceof Error && error.name === "TimeoutError");
-        throw new Error(timedOut ? "Boundary provider timed out. Please retry." : "Boundary provider unavailable. Please retry.", { cause: error });
+        console.log("Failed to fetch zone boundary:", error);
+        throw new Error(timedOut ? "Layanan batas wilayah tidak merespons. Coba lagi." : "Layanan batas wilayah tidak tersedia. Coba lagi.", { cause: error });
     }
-    if (!res.ok) throw new Error(`Boundary provider unavailable (HTTP ${res.status}). Please retry.`);
+    if (!res.ok) throw new Error(`Layanan batas wilayah tidak tersedia (HTTP ${res.status}). Coba lagi.`);
     let data: unknown;
     try {
         data = await res.json();
     } catch (error) {
-        throw new Error(signal.aborted ? "Boundary provider timed out. Please retry." : "Boundary provider returned invalid data. Please retry.", { cause: error });
+        throw new Error(signal.aborted ? "Layanan batas wilayah tidak merespons. Coba lagi." : "Data batas wilayah tidak valid. Coba lagi.", { cause: error });
     }
     if (isRecord(data) && isRecord(data.error)) {
         const code = typeof data.error.code === "number" ? ` (${data.error.code})` : "";
-        throw new Error(`Boundary provider returned an error${code}. Please retry.`);
+        throw new Error(`Layanan batas wilayah mengembalikan galat${code}. Coba lagi.`);
     }
     try {
         return normalizeGeometry(data, zone);
     } catch (error) {
-        throw new Error(`${error instanceof Error ? error.message : "Invalid boundary response"}. Please retry.`, { cause: error });
+        throw new Error(`${error instanceof Error ? error.message : "Invalid boundary response"}. Coba lagi.`, { cause: error });
     }
 }
 

@@ -6,7 +6,8 @@ import { parseLF01Output, type LF01Candidate } from "../app/engine/enrichment/lf
 import { resolveLocality, type LocalityTier } from "../app/engine/enrichment/locality";
 import { runEnrichment, type EnrichmentDeps, type EnrichmentJob, type RunStatus } from "../app/engine/enrichment/pipeline";
 import { evidenceScope, evidenceTypeForClaim, scopeEvidenceTypes, snapshotScope, type EvidenceType } from "../app/engine/enrichment/scopes";
-import { buildSnapshot, isPublicSnapshot, type SnapshotDraft, type StoredEvidence } from "../app/engine/enrichment/snapshot";
+import { buildSnapshot, type SnapshotDraft, type StoredEvidence } from "../app/engine/enrichment/snapshot";
+import { isPublicSnapshot } from "../app/engine/enrichment/snapshotContract";
 import { mergeLocatedEvidence, toEvidenceClusters } from "../app/engine/enrichment/clusters";
 import { approxEvidenceLabel } from "../app/engine/enrichment/labels";
 import { LangflowError, LANGFLOW_FLOWS } from "../app/engine/lib/langflow";
@@ -482,8 +483,8 @@ test("postings without a precise location borrow their company's office at distr
 });
 
 test("evidence clusters pivot per district with approximate labels, never exact totals", () => {
-    assert.equal(approxEvidenceLabel("active_opening", 1), "approx. 1 opening");
-    assert.equal(approxEvidenceLabel("office_presence", 3), "approx. 3 offices");
+    assert.equal(approxEvidenceLabel("active_opening", 1), "sekitar 1 lowongan");
+    assert.equal(approxEvidenceLabel("office_presence", 3), "sekitar 3 kantor");
     const point = (lng: number, lat: number) => ({ type: "Point" as const, coordinates: [lng, lat] as [number, number] });
     const clusters = toEvidenceClusters([
         { region_code: "setiabudi", region_name: "Setiabudi", centroid: point(106.83, -6.22), evidence_type: "active_opening", evidence_count: 1, organization_count: 1, latest_retrieved_at: "2026-09-28T08:00:00Z" },
@@ -492,7 +493,7 @@ test("evidence clusters pivot per district with approximate labels, never exact 
     ], scopeEvidenceTypes.career);
     assert.equal(clusters.length, 1, "a district without a centroid can't be drawn");
     assert.deepEqual(clusters[0].centroid, [106.83, -6.22]);
-    assert.deepEqual(clusters[0].labels, ["approx. 3 offices", "approx. 1 opening"]);
+    assert.deepEqual(clusters[0].labels, ["sekitar 3 kantor", "sekitar 1 lowongan"]);
     assert.deepEqual(clusters[0].counts.office_presence, { count: 3, organizations: 3 });
     assert.equal(clusters[0].latest_retrieved_at, "2026-09-28T09:00:00Z");
 });
@@ -505,7 +506,7 @@ test("located offices become the district's company count instead of a separate 
             evidence_type: "observed" as const, limitations: null, is_sample: true },
     ];
     const cluster = { zone_id: "setiabudi", zone_name: "Setiabudi", centroid: [106.83, -6.22] as [number, number],
-        counts: { office_presence: { count: 3, organizations: 2 } }, labels: ["approx. 3 offices"], latest_retrieved_at: "2026-09-28T08:09:44Z" };
+        counts: { office_presence: { count: 3, organizations: 2 } }, labels: ["sekitar 3 kantor"], latest_retrieved_at: "2026-09-28T08:09:44Z" };
 
     const merged = mergeLocatedEvidence(stored, cluster);
     assert.equal(merged.length, 2);

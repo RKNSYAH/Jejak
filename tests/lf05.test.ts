@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { POST } from "../app/api/lf05/route";
 import { interpretOnboardingStory } from "../app/engine/controller/preferenceController";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
+import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 import { validateLF05Proposal } from "../app/engine/lib/lf05Validation";
 import { buildLF05Message, getLF05ClarificationField, getLF05ClarificationQuestions, parseLF05CommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/lf05FollowUp";
 import { extractLF05TransportMode, parseLF05TransportAnswer } from "../app/engine/lib/lf05Transport";
-import { completed, postJson, withWorkflowEnvironment } from "./helpers";
 
 const validProfile = {
   hard_constraints: {
@@ -30,20 +30,6 @@ const validProfile = {
   decision_trace: { route: "accepted" },
   runtime_usage: null,
 };
-
-function setWorkflowEnvironment() {
-  const previousUrl = process.env.NEXT_LANGFLOW_URL;
-  const previousKey = process.env.NEXT_LANGFLOW_API_KEY;
-  process.env.NEXT_LANGFLOW_URL = "http://localhost:7860/api/v2/workflows";
-  process.env.NEXT_LANGFLOW_API_KEY = "test-api-key";
-
-  return () => {
-    if (previousUrl === undefined) delete process.env.NEXT_LANGFLOW_URL;
-    else process.env.NEXT_LANGFLOW_URL = previousUrl;
-    if (previousKey === undefined) delete process.env.NEXT_LANGFLOW_API_KEY;
-    else process.env.NEXT_LANGFLOW_API_KEY = previousKey;
-  };
-}
 
 test("LF-05 profile validation checks confirmation, taxonomy, budgets, and weights", () => {
   assert.deepEqual(validateLF05Proposal(validProfile, onboardingTaxonomy), validProfile);
@@ -271,7 +257,7 @@ test("map-picked office coordinates are sent through LF-05 and retained without 
 });
 
 test("LF-05 controller sends screened server-built input and returns validated profile", async (context) => {
-  const restoreEnvironment = setWorkflowEnvironment();
+  const restoreEnvironment = withWorkflowEnvironment();
   const upstreamProfile = {
     ...validProfile,
     clarification_questions: [
@@ -287,12 +273,7 @@ test("LF-05 controller sends screened server-built input and returns validated p
     sentUrl = String(input);
     sentHeaders = init?.headers;
     sentPayload = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    return Response.json({
-      object: "response",
-      status: "completed",
-      has_errors: false,
-      output: { text: JSON.stringify(upstreamProfile) },
-    });
+    return Response.json(completed({ output: { text: JSON.stringify(upstreamProfile) } }));
   });
 
   try {
@@ -321,37 +302,22 @@ test("LF-05 controller sends screened server-built input and returns validated p
   }
 });
 
-test("LF-05 route rejects sensitive text and caller-injected trusted fields", async (context) => {
-  const restoreEnvironment = setWorkflowEnvironment();
-  let fetchCalls = 0;
-  context.mock.method(globalThis, "fetch", async () => {
-    fetchCalls += 1;
-    return Response.json({});
-  });
+test("LF-05 route rejects sensitive text and user-injected trusted fields", async (context) => {
+  const restoreEnvironment = withWorkflowEnvironment();
+  const fetches = countFetches(context);
+  const post = (body: object) => POST(postJson("/api/lf05", JSON.stringify(body)));
 
   try {
-    const sensitive = await POST(new Request("http://localhost/api/lf05", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Alamat rumah saya ...", language: "id" }),
-    }));
-    const injected = await POST(new Request("http://localhost/api/lf05", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Mau kerja", language: "id", privacy_screened: true }),
-    }));
+    const sensitive = await post({ message: "Alamat rumah saya ...", language: "id" });
+    const injected = await post({ message: "Mau kerja", language: "id", privacy_screened: true });
 
     // A valid story without a session never reaches Langflow.
-    const anonymous = await POST(new Request("http://localhost/api/lf05", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Mau kerja di bidang IT di Jakarta", language: "id" }),
-    }));
+    const anonymous = await post({ message: "Mau kerja di bidang IT di Jakarta", language: "id" });
 
     assert.equal(sensitive.status, 400);
     assert.equal(injected.status, 400);
     assert.equal(anonymous.status, 401);
-    assert.equal(fetchCalls, 0);
+    assert.equal(fetches.count, 0);
   } finally {
     restoreEnvironment();
   }
