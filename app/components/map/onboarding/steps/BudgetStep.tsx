@@ -15,6 +15,6 @@ export default function BudgetStep({ answers, onChange, errors }: StepProps) {
             choices={[{ value: "mark", label: "Tampilkan dengan tanda", shortLabel: "Tampilkan, diarsir", description: "Diarsir di peta" }, { value: "hide", label: "Sembunyikan", description: "Hanya yang dalam batas" }]} />
         <CheckboxChoices name="housing" label={<>Jenis hunian <span className="font-normal text-ink-muted">· boleh lebih dari satu</span></>}
             values={answers.housing} onToggle={(choice) => onChange({ housing: toggleHousing(answers.housing, choice) })} error={errors.housing}
-            choices={[{ value: "kos", label: "Kos" }, { value: "apartment", label: "Apartemen" }, { value: "house", label: "Kontrakan" }, { value: "unsure", label: "Belum yakin" }]} />
+            choices={[{ value: "kos", label: "Kos" }, { value: "apartment", label: "Apartemen" },{ value: "unsure", label: "Belum yakin" }]} />
     </div>;
 }

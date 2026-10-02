@@ -22,14 +22,14 @@ const placeholderStory = "Saya berencana pindah untuk bekerja di bidang teknolog
 
 export type OfficeChoice = "Belum tahu" | "Dipilih di peta";
 type TransportChoice = "Transport umum" | "Motor" | "Mobil";
-type Step = 0 | 1 | 2 | 3;
+export type StoryStep = 0 | 1 | 2 | 3;
+type Step = StoryStep;
 
 type Draft = {
   step: Exclude<Step, 0>;
   story: string;
   office: OfficeChoice;
   transport: TransportChoice | null;
-  confirmedFields?: Record<string, boolean>;
   proposal?: LF05ProposedProfile | null;
   clarificationAnswers?: Record<string, string>;
   explicitGoal?: RelocationGoal | null;
@@ -41,6 +41,11 @@ type Draft = {
 export type MapPoint = { longitude: number; latitude: number };
 
 type RelocationOnboardingProps = {
+  // The map previews step 2's unsaved proposal, so the parent owns both values.
+  step: StoryStep;
+  onStepChange: (step: StoryStep) => void;
+  proposal: LF05ProposedProfile | null;
+  onProposalChange: (proposal: LF05ProposedProfile | null) => void;
   savedProfile: StoredRelocationProfile | null;
   savedProfileLoaded: boolean;
   onSaveProfile: (profile: StoredRelocationProfile) => void;
@@ -60,7 +65,6 @@ type RelocationOnboardingProps = {
 const profileFields: [field: string, label: string][] = [
   ["goal", "Tujuan"],
   ["target_occupations", "Pekerjaan"],
-  ["target_fields", "Sektor"],
   ["destination_cities", "Kota tujuan"],
   ["housing_budget", "Batas sewa"],
   ["monthly_budget", "Anggaran bulanan"],
@@ -68,7 +72,6 @@ const profileFields: [field: string, label: string][] = [
   ["transport_mode", "Moda transportasi"],
   ["destination", "Lokasi tujuan"],
 ];
-const profileFieldLabels: Record<string, string> = { ...Object.fromEntries(profileFields), priorities: "Prioritas" };
 
 const priorityLabels: Record<string, string> = {
   career: "Karier",
@@ -79,13 +82,18 @@ const priorityLabels: Record<string, string> = {
   environment: "Lingkungan",
 };
 
+function followUpInputKey(clarificationAnswers: Record<string, string>, explicitGoal: RelocationGoal | null,
+  transport: TransportChoice | null, selectedOffice: string, mapPoint: MapPoint | null) {
+  return JSON.stringify({ clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint });
+}
+
 function formatWeight(key: string, weight: number) {
   return `${priorityLabels[key] ?? key} ${Math.round(weight * 100)}%`;
 }
 
 function formatProfileValue(field: string, value: unknown): string {
-  if (value === null || value === undefined) return "Belum disebut";
-  if (Array.isArray(value) && value.length === 0) return "Belum disebut";
+  if (value === null || value === undefined) return "Belum ada";
+  if (Array.isArray(value) && value.length === 0) return "Belum ada";
   if ((field === "monthly_budget" || field === "housing_budget") && isRecord(value) && typeof value.amount === "number") {
     return `Rp${formatRupiah(value.amount)} / bulan`;
   }
@@ -95,15 +103,12 @@ function formatProfileValue(field: string, value: unknown): string {
   }
   if (field === "transport_mode" && typeof value === "string") return ({ transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Jalan atau sepeda" } as Record<string, string>)[value] ?? value;
   if (field === "destination" && isRecord(value) && typeof value.name === "string") return value.name;
-  if (field === "target_fields" && Array.isArray(value)) {
-    return value.map((id) => onboardingTaxonomy.sectors.find((item) => item.id === id)?.label ?? String(id)).join(", ");
-  }
   if (field === "target_occupations" && Array.isArray(value)) {
     return value.map((id) => onboardingTaxonomy.occupations.find((item) => item.id === id)?.label ?? String(id)).join(", ");
   }
   if (Array.isArray(value)) return value.map(String).join(", ");
   if (typeof value === "string" || typeof value === "number") return String(value);
-  return "Belum disebut";
+  return "Belum ada";
 }
 
 type ProfileDisplayRow = {
@@ -144,12 +149,6 @@ function getProfileRows(profile: LF05ProposedProfile): ProfileDisplayRow[] {
   return rows;
 }
 
-function getInferredValue(field: string, rows: ProfileDisplayRow[]) {
-  if (field === "priorities") {
-    return rows.find((row) => row.field === field)?.value ?? "Prioritas belum ditentukan";
-  }
-  return rows.find((row) => row.field === field)?.value ?? "Periksa kembali cerita Anda";
-}
 
 function priorityColor(key: string) {
   return `var(--color-priority-${key.replaceAll("_", "-")}, var(--color-ink))`;
@@ -200,6 +199,10 @@ function readDraft(): Draft | null {
 }
 
 export default function RelocationOnboarding({
+  step,
+  onStepChange: setStep,
+  proposal,
+  onProposalChange: setProposal,
   savedProfile,
   savedProfileLoaded,
   onSaveProfile,
@@ -216,12 +219,9 @@ export default function RelocationOnboarding({
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const ignoreCloseRef = useRef(false);
-  const [step, setStep] = useState<Step>(0);
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
   const [language, setLanguage] = useState("Bahasa Indonesia");
-  const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
-  const [proposal, setProposal] = useState<LF05ProposedProfile | null>(null);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [explicitGoal, setExplicitGoal] = useState<RelocationGoal | null>(null);
   const [analyzedInput, setAnalyzedInput] = useState<string | null>(null);
@@ -238,13 +238,12 @@ export default function RelocationOnboarding({
   const transportQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "transport_mode");
   const targetCity = getLF05TargetCity(proposal, story);
   const profileGoal = proposal ? getRelocationGoal(proposal) : null;
-  const currentInput = JSON.stringify({ clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint });
+  const currentInput = followUpInputKey(clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint);
   const followUpDirty = proposal !== null && analyzedInput !== currentInput;
-  const canConfirmProfile = !!proposal && profileGoal !== null && !followUpDirty && proposal.inferred_fields.every((field) => confirmedFields[field]);
+  const canConfirmProfile = !!proposal && profileGoal !== null && !followUpDirty;
 
   function answerClarification(question: string, answer: string) {
     setClarificationAnswers((current) => ({ ...current, [question]: answer }));
-    setConfirmedFields({});
     setRequestError(null);
     setSaveError(null);
   }
@@ -271,7 +270,6 @@ export default function RelocationOnboarding({
             Number.isFinite(draft.mapPoint.longitude) && Math.abs(draft.mapPoint.longitude) <= 180) onMapPointChange(draft.mapPoint);
         setLanguage(draft.language === "English" ? "English" : "Bahasa Indonesia");
         setTransport(draft.transport);
-        setConfirmedFields(draft.confirmedFields ?? {});
         // Old drafts may contain a model-picked mode. Only restore user-supplied transport.
         let restoredProposal = draft.proposal ?? null;
         if (restoredProposal) {
@@ -307,13 +305,13 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded]);
+  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep]);
 
   useEffect(() => {
     if (!storyOpenRequest) return;
     const timer = window.setTimeout(() => setStep(1), 0);
     return () => window.clearTimeout(timer);
-  }, [storyOpenRequest]);
+  }, [setStep, storyOpenRequest]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -322,15 +320,15 @@ export default function RelocationOnboarding({
       return;
     }
 
-    const draft: Draft = { step, story, office: selectedOffice, transport, confirmedFields, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, language };
+    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, language };
     try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
-  }, [analyzedInput, clarificationAnswers, confirmedFields, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, step, story, transport]);
+  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, step, story, transport]);
 
   useEffect(() => {
     const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
     const dialog = dialogRef.current;
 
-    onMapPickingChange(step === 2 && officeQuestionIndex >= 0 && !isSubmitting);
+    onMapPickingChange(step === 2 && officeQuestionIndex >= 0 && selectedOffice === "Dipilih di peta" && !isSubmitting);
     if (!dialog) return;
 
     if (shouldShowDialog && !dialog.open) {
@@ -339,7 +337,7 @@ export default function RelocationOnboarding({
       ignoreCloseRef.current = true;
       dialog.close();
     }
-  }, [formSession, isSubmitting, officeQuestionIndex, onMapPickingChange, step]);
+  }, [formSession, isSubmitting, officeQuestionIndex, onMapPickingChange, selectedOffice, step]);
 
   useEffect(() => {
     onOnboardingActiveChange(!hydrated || step > 0 || formSession?.status === "active");
@@ -400,7 +398,8 @@ export default function RelocationOnboarding({
     return { answers: boundAnswers, details };
   }
 
-  async function requestProfile(followUp?: ReturnType<typeof getFollowUpRequest>) {
+  // `fresh` analyzes the story alone, ignoring step-2 state that has been reset but not yet re-rendered.
+  async function requestProfile(followUp?: ReturnType<typeof getFollowUpRequest>, fresh = false) {
     if (isSubmitting) return null;
     if (!story.trim()) {
       setRequestError("Ceritakan rencana pindahmu terlebih dahulu.");
@@ -419,7 +418,7 @@ export default function RelocationOnboarding({
           message: story,
           language: language === "English" ? "en" : "id",
           clarification_answers: submitted.answers,
-          ...(explicitGoal ? { goal: explicitGoal } : {}),
+          ...(explicitGoal && !fresh ? { goal: explicitGoal } : {}),
           details: submitted.details,
         }),
       });
@@ -434,8 +433,7 @@ export default function RelocationOnboarding({
 
       const nextProposal = validateLF05Proposal(result.profile, onboardingTaxonomy);
       setProposal(nextProposal);
-      setConfirmedFields({});
-      setAnalyzedInput(currentInput);
+      setAnalyzedInput(fresh ? followUpInputKey({}, null, null, "Belum tahu", null) : currentInput);
       return nextProposal;
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Gagal membaca rencana. Coba lagi.");
@@ -446,8 +444,19 @@ export default function RelocationOnboarding({
   }
 
   async function handleStorySubmit() {
-    const result = await requestProfile();
+    // A (re)submitted story starts over: step-2 answers from an earlier story are asked again, not reused.
+    resetFollowUps();
+    const result = await requestProfile({ answers: [], details: {} }, true);
     if (result) setStep(2);
+  }
+
+  function resetFollowUps() {
+    setClarificationAnswers({});
+    setExplicitGoal(null);
+    setAnalyzedInput(null);
+    setTransport(null);
+    onOfficeChange("Belum tahu");
+    onMapPointChange(null);
   }
 
   async function continueToReview() {
@@ -497,9 +506,8 @@ export default function RelocationOnboarding({
     try {
       const saved = await saveRelocationProfile({
         proposal,
-        confirmed_fields: Object.entries(confirmedFields)
-          .filter(([, confirmed]) => confirmed)
-          .map(([field]) => field),
+        // Saving the reviewed summary confirms every inferred field, including backend-only ones like the sector.
+        confirmed_fields: proposal.inferred_fields,
       });
       onSaveProfile(saved);
       dismiss();
@@ -513,7 +521,6 @@ export default function RelocationOnboarding({
   function updateStory(value: string) {
     setStory(value);
     setProposal(null);
-    setConfirmedFields({});
     setSaveError(null);
     setRequestError(null);
   }
@@ -521,20 +528,9 @@ export default function RelocationOnboarding({
   function changeLanguage(value: string) {
     setLanguage(value);
     setProposal(null);
-    setConfirmedFields({});
     setSaveError(null);
     setRequestError(null);
-    setClarificationAnswers({});
-    setExplicitGoal(null);
-    setAnalyzedInput(null);
-    setTransport(null);
-    onOfficeChange("Belum tahu");
-    onMapPointChange(null);
-  }
-
-  function toggleFieldConfirmation(field: string) {
-    setConfirmedFields((current) => ({ ...current, [field]: !current[field] }));
-    setSaveError(null);
+    resetFollowUps();
   }
 
   function chooseOffice(office: OfficeChoice) {
@@ -549,7 +545,7 @@ export default function RelocationOnboarding({
         <aside
           aria-labelledby="onboarding-step-two-title"
           data-hci-region="relocation-onboarding-step-2"
-          className="absolute inset-x-2 bottom-2 z-400 flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
+          className="onboarding-story-panel absolute inset-x-2 bottom-2 z-400 flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
         >
           <StepHeader step={2} onSkip={dismiss} disabled={isSubmitting} className="border-b border-rule px-4 py-3 md:px-5" />
 
@@ -738,13 +734,6 @@ export default function RelocationOnboarding({
                 className="textarea min-h-40 w-full resize-y border-0 bg-transparent p-0 text-sm leading-relaxed text-ink outline-none focus:border-0 focus:outline-none md:min-h-52 md:text-base"
               />
               <div className="mt-2 flex items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-xs text-ink-muted">
-                  <span className="sr-only">Bahasa cerita</span>
-                  <select name="language" value={language} disabled={isSubmitting} onChange={(event) => changeLanguage(event.target.value)} className="select select-bordered select-xs min-h-9 rounded-lg bg-base-100 text-xs text-ink">
-                    <option>Bahasa Indonesia</option>
-                    <option>English</option>
-                  </select>
-                </label>
                 <span className="text-xs tabular-nums text-ink-muted">{story.length} / {MAX_STORY_LENGTH}</span>
                 <button type="button" disabled aria-label="Input suara belum tersedia" title="Input suara belum tersedia" className="btn btn-ghost btn-square btn-sm min-h-9 text-ink">
                   <Mic aria-hidden="true" className="size-4" />
@@ -794,30 +783,8 @@ export default function RelocationOnboarding({
             <h1 id="onboarding-step-three-title" className="mt-4 font-sans text-2xl font-bold leading-tight text-ink md:text-[1.75rem]">
               Apakah sudah sesuai?
             </h1>
-            <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Usulan belum dikonfirmasi atau diterapkan.</p>
+            <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Bagian yang disorot disimpulkan dari ceritamu.</p>
 
-            {proposal?.inferred_fields.length ? (
-              <section className="mt-3 rounded-xl border border-ink px-3 py-2" aria-label="Kesimpulan yang perlu dikonfirmasi">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2 text-xs">
-                  <p className="font-semibold">{proposal?.inferred_fields.length ?? 0} kesimpulan dari ceritamu</p>
-                  <span className="badge badge-outline badge-sm border-ink-muted text-ink-muted">Perlu konfirmasi</span>
-                </div>
-                <div className="grid gap-2 pt-2 text-xs md:grid-cols-2">
-                  {proposal.inferred_fields.map((field) => (
-                    <ConfirmationRow
-                      key={field}
-                      label={profileFieldLabels[field] ?? field}
-                      value={getInferredValue(field, profileRows)}
-                      confirmed={!!confirmedFields[field]}
-                      onConfirm={() => toggleFieldConfirmation(field)}
-                      onEdit={() => goToStep(1)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <></>
-            )}
 
             <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-muted">
               <span className="badge badge-outline badge-sm border-rule text-ink-muted">Usulan profilmu</span>
@@ -826,7 +793,7 @@ export default function RelocationOnboarding({
 
             <div className="mt-3 grid gap-x-5 gap-y-3 sm:grid-cols-2">
               {profileRows.map((row) => (
-                <ReviewSummary key={row.key} title={row.label} onEdit={() => goToStep(1)}>
+                <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing} onEdit={() => goToStep(1)}>
                   {row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
                 </ReviewSummary>
               ))}
@@ -884,35 +851,26 @@ function RequestError({ error }: { error: string | null }) {
   </>;
 }
 
-function ConfirmationRow({ label, value, confirmed, onConfirm, onEdit }: {
-  label: string; value: string; confirmed: boolean; onConfirm: () => void; onEdit: () => void;
-}) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-      <p className="min-w-0 leading-snug wrap-break-word">{value ? <><span className="font-semibold">{label}:</span> {value}</> : label}</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={onConfirm} aria-pressed={confirmed} className={`btn btn-xs min-h-11 rounded-lg px-2 ${confirmed ? "btn-primary" : "btn-outline border-ink-muted text-ink"}`}>
-          <Check aria-hidden="true" className="size-3" /> {confirmed ? "Dikonfirmasi" : "Benar"}
-        </button>
-        <button type="button" onClick={onEdit} className="btn btn-ghost btn-xs min-h-11 px-2 text-primary">Ubah</button>
-      </div>
-    </div>
-  );
-}
 
 function ReviewSummary({
   title,
   children,
+  inferred = false,
   onEdit,
 }: {
   title: string;
   children: React.ReactNode;
+  inferred?: boolean;
   onEdit: () => void;
 }) {
+  // Inferred values are highlighted in place instead of a separate confirmation list.
   return (
-    <section className="border-t-2 border-ink pt-1.5">
+    <section className={`border-t-2 pt-1.5 ${inferred ? "-mx-2 rounded-b-lg border-primary bg-primary-tint px-2 pb-1.5" : "border-ink"}`}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        <div className="flex items-baseline gap-1.5">
+          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+          {inferred && <span className="text-xs text-ink-muted">· disimpulkan</span>}
+        </div>
         <button type="button" onClick={onEdit} className="btn btn-ghost btn-xs min-h-9 px-1 text-primary underline">Ubah</button>
       </div>
       <div className="text-xs leading-relaxed text-ink">{children}</div>

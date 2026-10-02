@@ -48,7 +48,7 @@ export function evaluateOnboarding(answers: FormAnswers, step: FormStep = 4): On
     const available = answers.city === "jakarta-selatan" || answers.city === "unsure";
     if (!available) return { available, districts: [], ranked: [], affordableCount: 0, eligibleCount: 0 };
     const housing = answers.housing.filter((item): item is Exclude<Housing, "unsure"> => item !== "unsure");
-    const types = housing.length ? housing : ["kos", "apartment", "house"] as const;
+    const types = housing.length ? housing : ["kos", "apartment"] as const;
     const transportCost = { transit: 450_000, motorcycle: 650_000, car: 1_100_000, active: 150_000 }[answers.transport];
     const districts = demoDistricts.map((district) => {
         const rent = Math.min(...types.map((type) => district.rent[type]));

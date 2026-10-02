@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { X } from "lucide-react";
 
-import type { MapCategory, RegionFact, ZoneDetailResult } from "@/app/engine/types";
+import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
 import { formatFactValue, mapCategories, metricLabels } from "./mapMetrics";
 
 type ZoneIntelligencePanelProps = {
@@ -29,13 +29,6 @@ function getMaxPanelWidth() {
     Math.min(MAX_PANEL_WIDTH, Math.floor(window.innerWidth * 0.45)),
   );
 }
-
-const evidenceLabels: Record<RegionFact["evidence_type"], string> = {
-  observed: "Data tercatat",
-  estimated: "Estimasi dari data tersedia",
-  derived: "Dihitung dari data",
-  unavailable: "Belum ada data",
-};
 
 const categoryMetrics: Record<MapCategory, string[]> = {
   summary: ["population", "employment_rate", "average_monthly_wage_idr", "company_count", "universities", "median_monthly_rent_idr", "public_transport_stops"],
@@ -79,9 +72,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
             <div key={metric} className="card border border-rule shadow-sm p-4">
               <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
               <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
-              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Contoh · " : ""}{evidenceLabels[fact.evidence_type]} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · periode belum tersedia"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% keyakinan` : ""}</dd>
-              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">Lihat sumber</a></dd>}
-              {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
+              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>
             </div>
           );
         })}
@@ -90,7 +81,7 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
         <h3 className="font-sans text-lg font-bold">Kampus</h3>
         <ul className="mt-2 space-y-3 text-sm">{campuses.map((place) => <li key={place.id}>
           <p className="font-semibold">{place.name}</p>
-          <p className="text-xs text-ink-muted">{place.is_sample ? "Contoh · " : ""}{place.source}{place.observed_at ? ` · ${place.observed_at.slice(0, 10)}` : ""}</p>
+          {place.is_sample && <p className="text-xs text-ink-muted">Data contoh</p>}
         </li>)}</ul>
       </section>}
       <p className="mt-6 text-xs text-ink-muted">Data yang belum tersedia bukan berarti nol. Total wilayah tidak menunjukkan lokasi persis atau skor kecocokan pribadi.</p>

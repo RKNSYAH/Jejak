@@ -20,13 +20,13 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
             <p className="mb-2 text-sm font-semibold">{answers.goal === "study" ? "Kampus atau kawasan tujuan" : "Kantor atau kawasan tujuan"}</p>
             <div className="flex min-h-14 items-center gap-3 rounded-xl border border-primary bg-primary-tint px-3.5 py-2 ring-1 ring-primary">
                 <MapPin aria-hidden="true" className="size-5 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{selected?.name ?? (hasPoint ? answers.destinationName : "Belum ditentukan")}</p><p className="mt-0.5 text-xs text-ink-muted">{selected ? `Lokasi kampus · ${selected.source}` : hasPoint ? "Titik pilihanmu di peta" : "Belum ada estimasi rute terverifikasi"}</p></div>
+                <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{selected?.name ?? (hasPoint ? answers.destinationName : "Belum ditentukan")}</p><p className="mt-0.5 text-xs text-ink-muted">{selected ? "Lokasi kampus" : hasPoint ? "Titik pilihanmu di peta" : "Belum ada estimasi rute terverifikasi"}</p></div>
                 {campusChoices.length > 0 && <button type="button" aria-expanded={searchOpen} aria-controls="form-destination-picker" onClick={() => setSearchOpen(!searchOpen)} className="btn btn-ghost min-h-11 px-1 text-xs text-primary">Cari kampus</button>}
             </div>
             {searchOpen && <div id="form-destination-picker" className="mt-3">
                 <label htmlFor="form-destination-search" className="input flex h-11 w-full border-ink/25 bg-base-100"><Search aria-hidden="true" className="size-4" /><span className="sr-only">Cari kawasan tujuan</span><input id="form-destination-search" name="destinationSearch" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 text-base md:text-sm" /></label>
                 <ul className="mt-2 space-y-1" aria-label="Kampus dari basis data">
-                    {matches.map((item) => <li key={item.id}><button type="button" className="btn btn-ghost min-h-11 w-full justify-start text-left text-sm" onClick={() => { onChange({ destinationId: item.id, destinationName: item.name, destinationPoint: item.center }); setSearchOpen(false); }}>{item.name}<span className="ml-auto text-xs text-ink-muted">{item.source}</span></button></li>)}
+                    {matches.map((item) => <li key={item.id}><button type="button" className="btn btn-ghost min-h-11 w-full justify-start text-left text-sm" onClick={() => { onChange({ destinationId: item.id, destinationName: item.name, destinationPoint: item.center }); setSearchOpen(false); }}>{item.name}</button></li>)}
                 </ul>
                 {!destinations.some((item) => item.name.toLowerCase().includes(query.toLowerCase())) && <p className="mt-2 text-xs text-ink-muted">Belum ada kawasan yang cocok. Coba nama lain.</p>}
             </div>}

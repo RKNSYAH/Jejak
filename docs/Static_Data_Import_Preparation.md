@@ -1,0 +1,290 @@
+# Static research import preparation
+
+## Current status
+
+`public/Jejak_Static_Data_Research_Completed.xlsx` is preserved byte-for-byte.
+Preparation is offline; neither script reads database credentials or writes to
+the linked Supabase project. **Remote promotion completed on 2026-10-01** for
+`https://zucvrejoloiuxpaotedt.supabase.co`, after the user explicitly accepted the
+static baseline, including the flagged research rows. Migration
+`20261001100106_prepare_static_research_import.sql` and the complete import ran
+in one explicit transaction through the CLI's direct database connection.
+All 270 previous region IDs and all six stored boundaries/provenance survived;
+boundary EWKB bytes also match the pre-import backup exactly.
+
+The reviewed source SHA-256 is:
+
+```text
+4e65839f83cc2b979dcc54e49cb44583c88bcd300400572dc9b5f2e6b6afb2dc
+```
+
+All **11,403 data rows are imported: 11,196 prepared and 207 flagged baselines**.
+The opt-in method is `static-research-v1-baseline`; no structurally invalid rows
+were admitted. Strict preparation still holds these 207 rows for source review.
+The workbook's quality-audit tab is not a data table; the archived workbook
+retains it. All 96 scenario formulas are checked against their cached values,
+components, and referenced region/tier. A prepared row is not a certification of
+its source's accuracy, licensing, geographic assignment, or freshness.
+
+Accepted baseline rows whose source-quality issues remain unresolved:
+
+| Table | Rows | Required resolution |
+|---|---:|---|
+| `regions` | 1 | Resolve the unsupported `unclassified_area` without inventing an administrative unit. |
+| `population` | 114 | Reconstruct independently sourced fields as separate source/period observations. This includes 64 manually merged district rows, not just the 50 marked “Consolidated”. |
+| `wages_income` | 1 | Separate DKI 2025 formal-worker wages from the 2026 statutory minimum. |
+| `transport_infrastructure` | 5 | Separate observations with different sources/reporting periods. |
+| `housing_statistics` | 77 | Establish quote observation periods and retain nonrepresentative-sample limitations. Retrieval dates are not substitutes. |
+| `cost_of_living` | 9 | Separate historical BPS observations from modeled budget components. |
+
+The 17 nonreconciling population totals remain unchanged and flagged. No values
+are forced to balance. A human must validate the original sources before these
+rows are split; the importer does not turn narrative notes into asserted facts.
+
+### Verified repair and remaining input requirements
+
+The ITS source page's April 2026 section confirms **29,819 students**. Its single
+current institution-wide observation does not combine several periods. The
+hash-bound correction in `ingestion/static_research_verified_repairs.json`
+replaces the misleading consolidated note and records the 2026-10-01 source
+recheck without changing the count, scope, or April reporting period. Original
+cells remain in the audit. The captured source HTML is stored at
+`ingestion/data/prepared/static_research/source_checks/its_april_2026.html`.
+
+Independently certifying the flagged baselines still requires source material
+that this workbook does not contain:
+
+- The **dated, offer-level rental export** used to calculate the 77 housing
+  aggregates: source/listing identity, quoted price, crawl/observation date,
+  housing type, and district. Current listing pages cannot establish when the
+  original quotes were observed or reproduce a historical aggregate.
+- The **pre-consolidation statistical observations/source extracts**, especially
+  the manually merged population fields, with each value's publisher, table,
+  population definition, and reporting period. Many narrative notes identify
+  candidate splits, but they are not sufficient to verify every reassignment.
+- A source-supported disposition for the single unclassified BIG feature. It
+  cannot be silently relabeled as a kelurahan or made a supported kecamatan.
+
+The user superseded repair-before-publication with an all-row static-baseline
+push. `include_static_baseline()` accepts only known source-quality issues, not
+invalid numbers, formulas, identities or relationships. Mixed-source rows keep
+their numbers and original field-specific notes, but shared observation and
+publication dates/confidence become `NULL`, with `evidence_type='estimated'`.
+Housing summaries stay `derived`, with unknown observation periods left `NULL`.
+The unclassified feature remains unsupported, without geometry or official codes.
+
+LF-01 is intended to take priority for comparable accepted current evidence; this
+import does not run LF-01 or make static retrieval dates imply freshness. Current
+`withLocatedEvidence()` merges company evidence only. A general housing/static
+override is **not yet wired**; this push does not claim otherwise.
+
+## Run preparation locally
+
+Prerequisites: Python 3.10+, `openpyxl==3.1.5` (also pinned in
+`ingestion/requirements.txt`), and the repository's installed Bun/Node dependencies.
+
+```powershell
+bun run test:research
+bun run prepare:research
+bun run check:research
+bun run test:schema
+```
+
+To regenerate the **promoted baseline policy**, use this instead of strict
+`prepare:research`, then rerun `check:research`:
+
+```powershell
+python -B ingestion/prepare_static_research.py --include-review-as-baseline
+```
+
+- `test:research` tests validation and normalization with synthetic workbooks.
+- `prepare:research` reads the original workbook, validates rows, and generates
+  a complete audit manifest and guarded SQL. It does not connect to any database.
+- `check:research` applies the migration chain and the complete prepared import
+  to an isolated in-memory PGlite/PostGIS database, then repeats the import. Its
+  fixtures and reconciliation checks are specific to the completed workbook.
+- `test:schema` runs the existing schema/boundary tests plus focused research
+  contract and permission tests, without remote credentials.
+
+To inspect a workbook without writing preparation artifacts:
+
+```powershell
+python -B ingestion/prepare_static_research.py --check-only
+```
+
+Optional positional workbook path and `--output` select another input/folder.
+The output cannot be under `public/`. Missing reference sheets are reported, not
+fabricated; this workbook does not include `sector_mapping`,
+`geospatial_sources`, or `estimation_parameters`, or adjacent map source files.
+
+## Generated artifacts
+
+Default folder: `ingestion/data/prepared/static_research/` (already gitignored).
+
+- `source.xlsx`: an unchanged copy, checked against the source hash.
+- `manifest.json`: every original data row, normalized payload, formula, issue,
+  transformation, source sheet/row number, and disposition.
+- `report.json`: counts, issue/transform summaries, and missing reference sheets.
+- `review.jsonl`: unresolved review/baseline rows, including their accepted caveats.
+- `import.sql`: transactional staging and upserts for prepared rows and, only
+  under the explicit baseline opt-in, accepted flagged rows.
+- `local-verification.json`: successful full-workbook test results, including
+  the source and generated SQL hashes. Regenerate this verification after any
+  workbook, contract, migration, or importer change.
+- `remote-verification.json`: all-row payload/key/count reconciliation, preserved
+  catalog IDs/boundaries and hosted database permission checks.
+- `hosted-api-verification.json`: read-only hosted RPC/API smoke results.
+- `remote-backup/`: pre-import affected-table snapshot, migration/schema/RPC
+  references, local restore verification, deployment artifact and guarded
+  `restore-data.sql`. This is a **scoped data backup**, not a complete project,
+  Auth, Storage or physical database backup. Restoration retains the additive
+  schema, audit and migration history, and refuses changed post-import data.
+
+Do not deploy these audit artifacts through `public/`, commit credentials, or
+copy generated rows into historical migration files. The original workbook was
+already placed in `public/` and has not been moved; review whether it should be
+publicly downloadable before any application deployment.
+
+## Implementation and data flow
+
+1. **Read and identify.** `prepare()` in
+   `ingestion/prepare_static_research.py` hashes the input, loads formulas and
+   cached values separately, and maps numbered tabs through
+   `ingestion/static_research_contract.json`. Unknown/repeated headers and sheets
+   fail preparation rather than silently dropping data.
+2. **Normalize without inventing.** `normalize()` converts Excel dates to ISO
+   dates, parses OSM tags, and canonicalizes KBLI section groups. All original
+   cells stay in `raw_data`. Missing place names and institution activity stay
+   `NULL`; 24 unusable/non-HTTPS website cells are omitted from the published
+   payload but retained in the audit. No HTTPS rewrite is guessed. `source_urls`
+   preserves every URL listed in citation cells; inline citations in narrative
+   notes also remain intact, but are not guessed into field-level provenance.
+   Before normalization, `apply_verified_repairs()` applies only curated source
+   corrections whose workbook hash, sheet/row identity, and expected cells match.
+   A mismatched correction stays in review instead of altering another release.
+3. **Validate and quarantine.** `validate_observation()`, `verify_scenarios()`,
+   and `validate_dependencies()` check types, periods, scopes, formulas, natural
+   keys, official codes, hierarchy, and referenced catalog rows. Review status
+    propagates to dependent rows. `include_static_baseline()` runs only with the
+    explicit opt-in, accepts a narrow issue allowlist and records warnings while
+    removing claims of a shared observation period. Dependency/formula/key
+    errors remain blockers even in baseline mode.
+4. **Prepare the schema.**
+   `supabase/migrations/20261001100106_prepare_static_research_import.sql` widens
+   KBLI groups, adds provenance, and allows the genuine unknown values. Program
+   identities prefer official codes and otherwise use the source program name;
+   no fake program codes are created. Non-OSM campuses use institution plus
+   source campus name as their fallback key. The migration restores the exact
+   existing static-fact view definition after widening its dependent column.
+5. **Keep scenarios separate.** `living_cost_rates` and `monthly_budgets` store
+   32 rows each with `evidence_type='estimated'`, assumptions/limitations,
+   person count, method version, and `as_of` from the workbook retrieval date.
+   `as_of` is not a shared observation period or a freshness guarantee. Database
+   constraints check totals and the linked living-cost scenario. These tables
+   have RLS and service-role-only access; they do not feed observed-cost RPCs.
+6. **Stage and promote atomically.** `compile_import()` generates a guarded
+    transaction: stage all 11,403 rows, reconcile the count, then upsert eligible
+   rows in foreign-key order. Regions are ordered by hierarchy depth; institutions
+   precede campuses/enrollment. Unique keys preserve repeat-import IDs. Region
+   IDs, stored geometry, existing geometry provenance, and sample flags are not
+   overwritten. Constraints and synchronization triggers stay enabled. Incoming
+   catalog provenance remains available in staging if stored geometry takes
+   precedence.
+7. **Preserve public read contracts.** `private.static_place_rows()` includes
+   neighborhood places under their actual parent district. `get_map_region()`
+   and `get_public_places()` share this logic and show an explicit Indonesian
+   unnamed-category label when necessary. Raw names stay unknown. City-only or
+   province-only places are not guessed into kecamatan. Inactive records remain
+   stored but excluded from public reads. No frontend contract changes are needed.
+8. **Verify before promotion.** `checkStaticImport()` in
+   `ingestion/check_static_import.mjs` tests the hash guard, service-role import,
+   reconciliation, repeated imports, ID/geometry/provenance preservation,
+   district child-place reads, browser access denial, and rollback of a new batch
+   after an injected late failure. No live source checks or hosted PostgREST/UI
+   integration are claimed by these local tests.
+
+## Remote promotion and verification — completed
+
+`ingestion/push_static_research.mjs` implements `backup`, `verify`, `promote` and
+read-only `reconcile` for this initial load. Each requires the explicit project
+ref and source hash. It checks the linked target, workbook/import/migration
+hashes, zero structural review rows, a tested backup and unchanged live data.
+The private deployment folder contains only archived applied migrations and
+the approved schema-plus-data artifact. It does not push unrelated working files,
+Vault settings, roles or seeds.
+
+The 24 MB import exceeded the Management API's request limit (HTTP 413; no SQL
+executed). CLI 2.119.0's direct push requires explicit transaction control for
+this envelope; an initial attempt without it stopped at `LOCK TABLE`, before
+schema/data changes. The successful direct artifact has one `BEGIN`/`COMMIT`,
+publishes with `service_role`, and retains constraints/triggers. The CLI records
+migration history after commit; that record was independently verified.
+
+Completed checks:
+
+- 16 preparation tests and all 29 schema tests pass; full isolated import,
+  repeat-import identities and late-failure rollback pass.
+- Live pre-import catalog was restored locally, imported, then fully rolled
+  back from the scoped backup, including IDs, timestamps and boundary provenance.
+  An injected late failure rolls back **both schema and data**.
+- All 11,403 rows reconcile by dataset identity, payload and count. Coordinate
+  floating-point representations are compared within `1e-10` degrees.
+- Destination totals include 689 regions, 534 population rows, 9,385 places,
+  77 housing aggregates, nine cost-of-living rows and 32 scenarios in each
+  separate scenario table. All 207 baseline caveats remain in private audit.
+- Hosted PostgREST lists all 105 supported kecamatan under eight city/regency
+  parents. Setiabudi and Coblong return imported facts, housing provenance and
+  places. Setiabudi reads descendant places without changing their region IDs.
+  Unclassified features are excluded; browser scenario/audit reads are denied.
+- New tables have RLS; audit reads and scenario browser writes are denied to
+  browser roles. Pre-existing advisor warnings remain. The four added
+  [RLS-without-policy notices](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+  reflect intentionally service-only tables, not missing browser access.
+  Existing [mutable search paths](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable),
+  [public read RPCs](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable),
+  [password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)
+  and [six unindexed foreign keys](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys)
+  are outside this import's scope.
+- Lint and TypeScript checks pass. The broader `bun run test` has 121 passes and
+  two failures in `tests/lf05.test.ts` (transport inference), outside these import
+  changes. No application UI or LF-01 run was triggered/tested by hosted checks.
+
+Read-only verification can be repeated:
+
+```powershell
+node ingestion/push_static_research.mjs reconcile zucvrejoloiuxpaotedt 4e65839f83cc2b979dcc54e49cb44583c88bcd300400572dc9b5f2e6b6afb2dc
+node --env-file=.env.local ingestion/check_remote_static_research.mjs
+```
+
+Before any **future** promotion:
+
+1. Obtain explicit approval for the target project, schema migration, and
+   import policy/subset; validate source accuracy/licensing and coverage. Baseline
+   acceptance does not independently certify the 207 flagged source observations.
+2. Take a restorable backup and record existing IDs, boundaries/provenance, row
+   counts, and any matching-key records that would be updated. Recheck live
+   security/performance advisories, available disk space, and migration history.
+3. Review all pending migrations and apply only the approved scope; the working
+   tree contains unrelated ongoing work. Test with a real local Supabase stack
+   or isolated development database before hosted promotion where available.
+4. Regenerate and verify the exact artifact. Review both the source SHA-256 and
+   `local-verification.json`'s SQL SHA-256; the source hash alone does not certify
+   an edited SQL artifact. Bump the contract's `method_version` if changing an
+   already-promoted transformation policy.
+5. Apply the approved additive migration, then execute `import.sql` using a
+   trusted PostgreSQL connection with privileges matching the tested service
+   role. The script refuses to stage anything unless the **same database session**
+   has `jejak.static_import_approved_sha256` set to its exact source hash. This
+   setting is an operator safety latch, not authentication or user approval.
+   Session state requires a direct/session connection, not a transaction pooler.
+6. Use a SQL client that stops on the first error. The import has its own
+   `BEGIN`/`COMMIT`; issue `ROLLBACK` after an error and never continue a partially
+   failed session. Imports do not delete old releases or unrelated records.
+7. Reconcile staged/prepared/baseline/review counts and matching dataset keys, verify
+   browser read/write boundaries and map RPC responses, then run hosted API/UI
+   smoke checks. A committed rollback needs the backup/pre-import records;
+   deleting only new rows cannot undo updates to existing catalogs.
+
+The offline preparation scripts/artifacts contain no database credentials.
+The separate operator runner uses the CLI's existing authenticated session;
+credentials are never printed or committed.

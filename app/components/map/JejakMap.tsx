@@ -23,7 +23,7 @@ import MapChatComposer from "./MapChatComposer";
 import MapLegend from "./MapLegend";
 import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
 import MapBottomSheet, { type MapBottomSheetHandle, type MapBottomSheetState } from "./MapBottomSheet";
-import RelocationOnboarding, { type MapPoint, type OfficeChoice } from "./RelocationOnboarding";
+import RelocationOnboarding, { type MapPoint, type OfficeChoice, type StoryStep } from "./RelocationOnboarding";
 import BrandLogo from "../BrandLogo";
 import RelocationFormOnboarding from "./onboarding/RelocationFormOnboarding";
 import OnboardingMapLayers, { ONBOARDING_FILL_ID } from "./onboarding/OnboardingMapLayers";
@@ -35,7 +35,9 @@ import { prefersReducedMotion } from "./viewport";
 import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
 import { evaluateLiveOnboarding, isLiveRecommendationSample, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { saveRelocationProfile } from "@/app/engine/lib/relocationProfileApi";
-import type { StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
+import { normalizeRelocationProfileInputs, type StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
+import type { LF05ProposedProfile } from "@/app/engine/lib/lf05Validation";
+import { getRelocationGoal } from "@/app/engine/lib/relocationGoal";
 import type { LivePreviewMapContext } from "@/app/engine/onboarding/types";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
@@ -93,26 +95,54 @@ export default function JejakMap({ userId }: { userId: string }) {
     const storyDataLoading = form.dataLoading;
     const storyDataError = form.dataError;
     const selectPreviewCity = form.selectPreviewCity;
-    const storyPreferences = useMemo(() => storyPreviewProfile
-        ? profilePreviewPreferences(storyPreviewProfile.profile, storyCityCatalog)
-        : null, [storyPreviewProfile, storyCityCatalog]);
+    const [storyStep, setStoryStep] = useState<StoryStep>(0);
+    const [storyProposal, setStoryProposal] = useState<LF05ProposedProfile | null>(null);
+    // Story step 2 previews LF-05's unsaved proposal; the form keeps priority while open.
+    const storyDraftActive = storyStep === 2 && !form.active;
+    const storyMapProfile = useMemo(() => {
+        if (storyDraftActive) {
+            if (!storyProposal || !getRelocationGoal(storyProposal)) return null;
+            try {
+                // Canonicalize the proposal's fields without saving or confirming it.
+                return normalizeRelocationProfileInputs(storyProposal.hard_constraints,
+                    storyProposal.soft_preferences, storyProposal.priority_weights);
+            } catch {
+                return null;
+            }
+        }
+        return storyPreviewVisible ? storyPreviewProfile?.profile ?? null : null;
+    }, [storyDraftActive, storyProposal, storyPreviewVisible, storyPreviewProfile]);
+    const storyPreferences = useMemo(() => {
+        const preferences = storyMapProfile ? profilePreviewPreferences(storyMapProfile, storyCityCatalog) : null;
+        if (!preferences) return null;
+        // A freshly picked point is not in the proposal until LF-05 reanalyzes it.
+        return storyDraftActive && onboardingMapPoint ? { ...preferences, destinationName: "Titik pilihanmu",
+            destinationPoint: [onboardingMapPoint.longitude, onboardingMapPoint.latitude] as [number, number] } : preferences;
+    }, [storyMapProfile, storyCityCatalog, storyDraftActive, onboardingMapPoint]);
+    // Step 2 shows budget fills only; ranking markers wait for the saved profile.
     const storyPreview = useMemo(() => storyPreferences
-        ? evaluateLiveOnboarding(storyPreferences, 4, form.data)
-        : null, [storyPreferences, form.data]);
-    const activePreview = storyPreviewVisible ? storyPreview : form.preview;
-    const mapContext: LivePreviewMapContext | null = storyPreviewVisible && storyPreferences
-        ? { step: 4, completed: true, goal: storyPreferences.goal, overBudget: storyPreferences.overBudget,
+        ? evaluateLiveOnboarding(storyPreferences, storyDraftActive ? 2 : 4, form.data)
+        : null, [storyPreferences, storyDraftActive, form.data]);
+    const storyMapVisible = storyDraftActive || storyPreviewVisible;
+    const activePreview = storyMapVisible ? storyPreview : form.preview;
+    const mapContext: LivePreviewMapContext | null = storyMapVisible && storyPreferences
+        ? { step: storyDraftActive ? 2 : 4, completed: !storyDraftActive, goal: storyPreferences.goal, overBudget: storyPreferences.overBudget,
             destinationId: storyPreferences.destinationId, destinationPoint: storyPreferences.destinationPoint }
         : form.session ? { step: form.session.status === "completed" ? 4 : form.session.step,
             completed: form.session.status === "completed", goal: form.session.answers.goal,
             overBudget: form.session.answers.overBudget, destinationId: form.session.answers.destinationId,
             destinationPoint: form.session.answers.destinationPoint }
             : null;
+    const storyCityId = storyPreferences?.cityId ?? null;
     useEffect(() => {
-        if (!storyPreviewProfile || storyDataLoading && !storyDataError) return;
-        const preferences = profilePreviewPreferences(storyPreviewProfile.profile, storyCityCatalog);
-        selectPreviewCity(preferences?.cityId ?? null);
-    }, [storyPreviewProfile, storyCityCatalog, storyDataLoading, storyDataError, selectPreviewCity]);
+        // Closing the story preview hands the data loader back to the form.
+        if (!storyMapVisible) {
+            selectPreviewCity(undefined);
+            return;
+        }
+        if (storyDataLoading && !storyDataError) return;
+        selectPreviewCity(storyCityId);
+    }, [storyMapVisible, storyCityId, storyDataLoading, storyDataError, selectPreviewCity]);
     const [savedProfileRevision, setSavedProfileRevision] = useState<number | null>(null);
     function confirmProfileSaved(saved: StoredRelocationProfile) {
         profile.setSavedProfile(saved);
@@ -125,7 +155,9 @@ export default function JejakMap({ userId }: { userId: string }) {
     }
     const [profileReminderDismissed, setProfileReminderDismissed] = useState(false);
     const onboardingActive = legacyOnboardingActive || form.active || !form.ready;
-    const prototypeActive = form.previewVisible || storyPreviewVisible;
+    const prototypeActive = form.previewVisible || storyMapVisible;
+    // A setup panel (form or story step 2) shares the screen with the map.
+    const setupPanelActive = form.active || storyDraftActive;
     // The live map (real regions, panel, legend) shows only outside onboarding and the demo preview.
     const exploring = !onboardingActive && !prototypeActive;
     const onboardingZoneIds = activePreview?.districts.map((item) => item.district.zone_id) ?? [];
@@ -456,9 +488,9 @@ export default function JejakMap({ userId }: { userId: string }) {
     }, [onboardingMapPicking, stopOrbit]);
 
     useEffect(() => {
-        const panel = mapContainerRef.current?.querySelector<HTMLElement>(".onboarding-form-panel");
+        const panel = mapContainerRef.current?.querySelector<HTMLElement>(".onboarding-form-panel, .onboarding-story-panel");
         const container = mapContainerRef.current;
-        if (!form.active || !panel || !container) {
+        if (!setupPanelActive || !panel || !container) {
             const timer = window.setTimeout(() => setOnboardingPanelSize({ width: 0, height: 0 }), 0);
             return () => window.clearTimeout(timer);
         }
@@ -471,13 +503,12 @@ export default function JejakMap({ userId }: { userId: string }) {
         observer.observe(panel);
         measure();
         return () => observer.disconnect();
-    }, [form.active]);
+    }, [setupPanelActive]);
 
     const previewCity = activePreview?.city;
-    const destinationPoint = form.active ? form.session?.answers.destinationPoint
-        : storyPreviewVisible ? storyPreferences?.destinationPoint ?? null : null;
+    const destinationPoint = setupPanelActive || storyPreviewVisible ? activePreview?.preferences.destinationPoint ?? null : null;
     const onboardingCameraKey = prototypeActive
-        ? JSON.stringify([previewCity?.city_id ?? null, destinationPoint ?? null, form.active]) : null;
+        ? JSON.stringify([previewCity?.city_id ?? null, destinationPoint ?? null, setupPanelActive]) : null;
     useEffect(() => {
         if (!prototypeActive) {
             onboardingCameraRef.current = null;
@@ -485,15 +516,15 @@ export default function JejakMap({ userId }: { userId: string }) {
         }
         if (!mapStyleReady || onboardingCameraRef.current === onboardingCameraKey) return;
         // Wait for the form's first measurement rather than flying twice on mount.
-        if (form.active && (!onboardingPanelSize.width || !onboardingPanelSize.height)) return;
+        if (setupPanelActive && (!onboardingPanelSize.width || !onboardingPanelSize.height)) return;
         stopOrbit();
         const desktop = window.matchMedia("(min-width: 768px)").matches;
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        const top = form.active ? desktop ? 80 : Math.min(64, window.innerHeight * 0.1) : 150;
+        const top = setupPanelActive ? desktop ? 80 : Math.min(64, window.innerHeight * 0.1) : 150;
         const padding = {
             top, left: 24,
-            right: desktop && form.active ? onboardingPanelSize.width + 40 : 24,
-            bottom: !desktop && form.active ? Math.min(onboardingPanelSize.height + 12, window.innerHeight - top - 64) : 70,
+            right: desktop && setupPanelActive ? onboardingPanelSize.width + 40 : 24,
+            bottom: !desktop && setupPanelActive ? Math.min(onboardingPanelSize.height + 12, window.innerHeight - top - 64) : 70,
         };
         const destinationCenter = destinationPoint;
         const bounds = onboardingGeometry.geometry && getGeometryBounds(onboardingGeometry.geometry);
@@ -507,19 +538,19 @@ export default function JejakMap({ userId }: { userId: string }) {
         // fitBounds bakes its padding into the camera. Clear an earlier easeTo's
         // global padding before switching camera strategies, avoiding double offsets.
         mapRef.current?.getMap().setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
-        if (bounds && !destinationCenter && (desktop || !form.active)) {
+        if (bounds && !destinationCenter && (desktop || !setupPanelActive)) {
             mapRef.current?.fitBounds(bounds, { padding, maxZoom: 12.5, pitch: 0, bearing: 0, animate: !reducedMotion, duration: reducedMotion ? 0 : 500 });
         } else {
             mapRef.current?.easeTo({ center: destinationCenter ?? fallbackCenter!, zoom: destinationCenter ? 13 : 11,
                 padding, pitch: 0, bearing: 0, animate: !reducedMotion, duration: reducedMotion ? 0 : 500 });
         }
-    }, [prototypeActive, mapStyleReady, previewCity, destinationPoint, onboardingGeometry.geometry, onboardingPanelSize, form.active, stopOrbit, onboardingCameraKey]);
+    }, [prototypeActive, mapStyleReady, previewCity, destinationPoint, onboardingGeometry.geometry, onboardingPanelSize, setupPanelActive, stopOrbit, onboardingCameraKey]);
 
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!mapStyleReady || !map?.getLayer(BUILDINGS_3D_LAYER)) return;
-        map.setLayoutProperty(BUILDINGS_3D_LAYER, "visibility", is3dEnabled && !form.active ? "visible" : "none");
-    }, [mapStyleReady, is3dEnabled, form.active]);
+        map.setLayoutProperty(BUILDINGS_3D_LAYER, "visibility", is3dEnabled && !setupPanelActive ? "visible" : "none");
+    }, [mapStyleReady, is3dEnabled, setupPanelActive]);
 
     function getEventZone(event: MapMouseEvent) {
         const feature = event.features?.[0] ?? mapRef.current?.queryRenderedFeatures([
@@ -537,11 +568,16 @@ export default function JejakMap({ userId }: { userId: string }) {
         <div ref={mapContainerRef} data-hci-region="map" className="relative h-full min-h-0 overflow-hidden">
             <MapView ref={mapRef} initialViewState={{ longitude: 106.8456, latitude: -6.2088, zoom: 11 }}
                 rotateSpeed={0.4} aroundCenter={false} style={{ width: "100%", height: "100%" }}
-                 mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={prototypeActive ? !form.active && activePreview?.available ? [ONBOARDING_FILL_ID] : [] : onboardingActive ? [] : [ZONE_FILL_LAYER.id]} cursor={form.pickingDestination || onboardingMapPicking ? "crosshair" : hoveredZone && !onboardingActive ? "pointer" : "grab"}
+                 mapStyle={mapStyle} attributionControl={false} interactiveLayerIds={prototypeActive ? !setupPanelActive && activePreview?.available ? [ONBOARDING_FILL_ID] : [] : onboardingActive ? [] : [ZONE_FILL_LAYER.id]} cursor={form.pickingDestination || onboardingMapPicking ? "crosshair" : hoveredZone && !onboardingActive ? "pointer" : "grab"}
                 onLoad={() => { setMapLoaded(true); syncSearchScope(); }}
                 onResize={syncSearchScope}
                 onStyleData={() => { if (mapRef.current?.getMap().getLayer(BUILDINGS_3D_LAYER)) setMapStyleReady(true); }}
                  onClick={(event) => {
+                     // The story draft preview is read-only; clicks only place a chosen destination.
+                     if (storyDraftActive) {
+                         if (onboardingMapPicking) handleOnboardingMapPick({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
+                         return;
+                     }
                      if (prototypeActive) {
                          if (form.active) {
                              if (form.pickingDestination) form.setDestinationPoint([event.lngLat.lng, event.lngLat.lat]);
@@ -603,14 +639,14 @@ export default function JejakMap({ userId }: { userId: string }) {
                 }}
                 onMouseLeave={clearHover}>
                 <AttributionControl position="bottom-left" compact customAttribution="Batas wilayah: BIG RBI / DKI Jakarta GIS" />
-                {onboardingMapPoint && <Marker longitude={onboardingMapPoint.longitude} latitude={onboardingMapPoint.latitude} anchor="center">
+                {onboardingMapPoint && !(storyDraftActive && storyPreferences) && <Marker longitude={onboardingMapPoint.longitude} latitude={onboardingMapPoint.latitude} anchor="center">
                     <span className="pointer-events-none flex size-6 items-center justify-center rounded-full border-2 border-base-100 bg-primary shadow-overlay"><span className="size-2 rounded-full bg-base-100" /></span>
                 </Marker>}
                 {prototypeActive && mapContext && activePreview && <OnboardingMapLayers context={mapContext} preview={activePreview}
                     geometry={onboardingGeometry.geometry} mapRef={mapRef} mapLoaded={mapStyleReady} category={category}
                     onDestination={(destination) => form.update({ destinationId: destination.id, destinationName: destination.name, destinationPoint: destination.center })}
                     selectedDistrictId={sampleSelectedId} onSelectDistrict={selectPreviewDistrict} />}
-                {prototypeActive && !form.active && sampleSelected && sampleSelectedCenter && <Popup longitude={sampleSelectedCenter[0]} latitude={sampleSelectedCenter[1]}
+                {prototypeActive && !setupPanelActive && sampleSelected && sampleSelectedCenter && <Popup longitude={sampleSelectedCenter[0]} latitude={sampleSelectedCenter[1]}
                     anchor="bottom" offset={28} closeOnClick={false} onClose={() => setSampleSelectedId(null)} className="onboarding-sample-popup">
                     <section aria-label={`Data ${sampleSelected.district.zone_name}`} className="max-w-64 font-body text-ink" data-hci-region="onboarding-result-detail">
                         {sampleSelected.district.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
@@ -758,6 +794,10 @@ export default function JejakMap({ userId }: { userId: string }) {
                 }}
             />
             <RelocationOnboarding
+                step={storyStep}
+                onStepChange={setStoryStep}
+                proposal={storyProposal}
+                onProposalChange={setStoryProposal}
                 savedProfile={profile.savedProfile}
                 savedProfileLoaded={profile.settled}
                 onSaveProfile={confirmStoryProfileSaved}
@@ -773,11 +813,12 @@ export default function JejakMap({ userId }: { userId: string }) {
                 onOpenForm={form.open}
             />
             {form.active && <div className="absolute left-4 top-4 z-100"><BrandLogo /></div>}
-            {prototypeActive && activePreview && <OnboardingPreview session={storyPreviewVisible ? null : form.session} preview={activePreview}
+            {prototypeActive && activePreview && <OnboardingPreview session={storyMapVisible ? null : form.session} preview={activePreview}
                 geometryLoading={onboardingGeometry.loading} geometryError={onboardingGeometry.error} onRetry={onboardingGeometry.retry} category={category}
                 dataLoading={form.dataLoading} dataError={form.dataError} onRetryData={form.retryData}
                 selectedDistrictId={sampleSelectedId} onSelectDistrict={selectPreviewDistrict}
-                stepOverride={storyPreviewVisible ? 4 : undefined} completedOverride={storyPreviewVisible ? true : undefined}
+                stepOverride={storyDraftActive ? 2 : storyPreviewVisible ? 4 : undefined}
+                completedOverride={storyDraftActive ? false : storyPreviewVisible ? true : undefined} proposal={storyDraftActive}
                 transportLabel={activePreview.preferences.transport ? transportLabels[activePreview.preferences.transport] : "belum dipilih"}
                 onEditPreferences={() => {
                     if (storyPreviewVisible) {

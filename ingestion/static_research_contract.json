@@ -1,0 +1,85 @@
+{
+  "method_version": "static-research-v1",
+  "tables": {
+    "regions": {
+      "columns": "region_code region_name region_type parent_region_code kemendagri_code bps_code source_name source_updated_at is_supported source_url code_source_name code_source_url",
+      "required": "region_code region_name region_type is_supported",
+      "key": "region_code"
+    },
+    "population": {
+      "columns": "region_code population male_population female_population working_age_population households population_density urban_population rural_population period_start period_end source_name source_url published_at retrieved_at evidence_type confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "labor_force": {
+      "columns": "region_code labor_force employed_people unemployed_people unemployment_rate labor_force_participation_rate working_age_population period_start period_end source_name source_url published_at retrieved_at evidence_type sample_size confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "sector_employment": {
+      "columns": "region_code kbli_2020_code kbli_2020_name employed_people employment_percentage period_start period_end source_name source_url published_at retrieved_at evidence_type sample_size confidence limitations is_sample source_sector_code",
+      "required": "region_code kbli_2020_code kbli_2020_name source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code kbli_2020_code period_start period_end source_name"
+    },
+    "wages_income": {
+      "columns": "region_code average_monthly_wage_idr median_monthly_wage_idr minimum_wage_idr median_household_income_idr average_household_expenditure_idr period_start period_end source_name source_url published_at retrieved_at evidence_type sample_size confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "institutions": {
+      "columns": "institution_code institution_name institution_type website source_name source_url is_active",
+      "required": "institution_code institution_name institution_type source_name source_url",
+      "key": "institution_code"
+    },
+    "campuses": {
+      "columns": "institution_code region_code campus_name osm_type osm_id osm_tags latitude longitude address website phone operator source_name source_url observed_at is_active",
+      "required": "institution_code campus_name latitude longitude source_name source_url observed_at is_active",
+      "key": "osm_type osm_id"
+    },
+    "student_enrollment": {
+      "columns": "institution_code campus_osm_type campus_osm_id metric student_count data_scope program_code program_name academic_year period_start period_end source_name source_url published_at retrieved_at evidence_type confidence limitations is_sample",
+      "required": "institution_code metric student_count data_scope source_name source_url retrieved_at evidence_type is_sample",
+      "key": "institution_code campus_osm_type campus_osm_id metric data_scope program_identity academic_year period_start period_end source_name"
+    },
+    "education_facilities": {
+      "columns": "region_code schools vocational_schools universities polytechnics training_centers public_schools private_schools period_start period_end source_name source_url retrieved_at evidence_type confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "healthcare_facilities": {
+      "columns": "region_code hospitals public_hospitals private_hospitals health_centers clinics pharmacies hospital_beds period_start period_end source_name source_url retrieved_at evidence_type confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "transport_infrastructure": {
+      "columns": "region_code public_transport_stops train_stations bus_stations transit_stations airport_count port_count road_length_km period_start period_end source_name source_url retrieved_at evidence_type confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "public_places": {
+      "columns": "region_code institution_code place_name category osm_type osm_id osm_tags latitude longitude address operator website phone source_name source_url observed_at is_active",
+      "required": "category osm_type osm_id latitude longitude source_name source_url observed_at is_active",
+      "key": "osm_type osm_id"
+    },
+    "housing_statistics": {
+      "columns": "region_code housing_type median_monthly_rent_idr average_monthly_rent_idr minimum_monthly_rent_idr maximum_monthly_rent_idr observation_count housing_price_index period_start period_end source_name source_url published_at retrieved_at evidence_type confidence limitations is_sample",
+      "required": "region_code housing_type observation_count source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code housing_type period_start period_end source_name"
+    },
+    "cost_of_living": {
+      "columns": "region_code food_monthly_idr utilities_monthly_idr transport_monthly_idr connectivity_monthly_idr household_expenditure_monthly_idr consumer_price_index inflation_rate period_start period_end source_name source_url published_at retrieved_at evidence_type sample_size confidence limitations is_sample",
+      "required": "region_code source_name source_url retrieved_at evidence_type is_sample",
+      "key": "region_code period_start period_end source_name"
+    },
+    "living_cost_rates": {
+      "columns": "region_code spending_tier food_monthly_idr utilities_monthly_idr transport_monthly_idr connectivity_monthly_idr laundry_monthly_idr living_cost_total_monthly_idr persons source_name source_url retrieved_at evidence_type assumptions limitations is_sample as_of method_version",
+      "required": "region_code spending_tier food_monthly_idr utilities_monthly_idr transport_monthly_idr connectivity_monthly_idr laundry_monthly_idr living_cost_total_monthly_idr persons source_name source_url retrieved_at evidence_type assumptions limitations is_sample as_of method_version",
+      "key": "region_code spending_tier as_of method_version"
+    },
+    "monthly_budgets": {
+      "columns": "region_code spending_tier housing_type rent_monthly_idr living_cost_monthly_idr total_monthly_idr rent_observation_count rent_percentile persons source_name source_url retrieved_at evidence_type limitations is_sample as_of method_version",
+      "required": "region_code spending_tier housing_type rent_monthly_idr living_cost_monthly_idr total_monthly_idr rent_observation_count rent_percentile persons source_name source_url retrieved_at evidence_type limitations is_sample as_of method_version",
+      "key": "region_code spending_tier housing_type as_of method_version"
+    }
+  }
+}

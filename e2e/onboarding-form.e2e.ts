@@ -162,7 +162,8 @@ test("costs stay outside the collapsed list and removed optional questions are a
     const district = costs.getByRole("combobox", { name: "Kecamatan untuk dibandingkan" });
     await district.selectOption("jakarta-selatan-a");
     await expect(costs).toContainText("sekitar Rp4.500.000");
-    await expect(costs).toContainText("Batas sewa dan biaya terpenuhi");
+    await expect(costs).not.toContainText("Batas belum terverifikasi");
+    await expect(costs).not.toContainText("Sewa di atas batasmu");
     await district.selectOption("jakarta-selatan-b");
     await expect(costs).toContainText("sekitar Rp6.000.000");
     await expect(costs).toContainText("Sewa di atas batasmu");

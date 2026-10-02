@@ -264,7 +264,7 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
                 <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{recommendation?.rank ? `${recommendation.rank}. ` : ""}{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
                 <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data kecamatan"}</span>
-                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(recommendation.rent)}`} · {recommendation.eligible === true ? "batas sewa dan biaya terpenuhi" : recommendation.eligible === false ? "di luar batas" : "belum terverifikasi"}</span>}
+                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(recommendation.rent)}`}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
                     <span className="hidden md:inline">Jelajahi area ini</span>

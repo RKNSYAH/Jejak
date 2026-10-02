@@ -13,11 +13,11 @@ const categoryHints: Record<MapCategory, string> = {
 };
 
 export default function OnboardingPreview({ session, preview, geometryLoading, geometryError, onRetry, category,
-    stepOverride, completedOverride, transportLabel, dataLoading, dataError, onRetryData, selectedDistrictId, onSelectDistrict, onEditPreferences, onExitPrototype }: {
+    stepOverride, completedOverride, proposal = false, transportLabel, dataLoading, dataError, onRetryData, selectedDistrictId, onSelectDistrict, onEditPreferences, onExitPrototype }: {
     session: FormSession | null; preview: Preview; geometryLoading: boolean; geometryError: string | null; onRetry: () => void;
     category: MapCategory | null; dataLoading: boolean; dataError: string | null; onRetryData: () => void;
     selectedDistrictId: string | null; onSelectDistrict: (id: string) => void;
-    stepOverride?: 1 | 2 | 3 | 4; completedOverride?: boolean; transportLabel?: string;
+    stepOverride?: 1 | 2 | 3 | 4; completedOverride?: boolean; proposal?: boolean; transportLabel?: string;
     onEditPreferences: () => void; onExitPrototype: () => void;
 }) {
     const [listOpen, setListOpen] = useState(false);
@@ -25,7 +25,11 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
     const step = session ? displayStep(session) : (stepOverride ?? 4);
     const unknownCount = preview.districts.filter((item) => item.eligible === null).length;
     const hasBudgetCriteria = preview.preferences.monthlyBudget !== null || preview.preferences.maximumRent !== null;
-    const badge = preview.is_sample ? <span className="badge badge-neutral badge-xs">Data contoh</span> : null;
+    // An unsaved LF-05 proposal and sample data are separate qualifiers.
+    const badge = <>
+        {proposal && <span className="badge badge-outline badge-xs border-ink-muted text-ink-muted">Usulan</span>}
+        {preview.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
+    </>;
 
     return <section data-hci-region="onboarding-preview" aria-label="Pratinjau data wilayah" className={`@container absolute left-3 z-100 w-[min(25rem,calc(100%-1.5rem))] rounded-xl border border-rule bg-panel-surface p-3 font-body text-ink shadow-overlay md:left-5 md:rounded-2xl ${completed ? "bottom-[calc(var(--map-sheet-height,44px)+1rem)]" : "bottom-[calc(var(--onboarding-sheet-height,74dvh)+0.75rem)] md:bottom-4"}`}>
         <div className="flex items-center justify-between gap-3">
@@ -39,7 +43,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
                     {badge}
                 </div>
             </div>
-            {preview.available && !completed && <button type="button" aria-expanded={listOpen} aria-controls="onboarding-area-list" onClick={() => setListOpen(!listOpen)} className="btn btn-ghost hidden h-11 min-h-11 shrink-0 px-0 text-xs text-primary underline md:inline-flex">{listOpen ? "Tutup daftar kecamatan" : "Lihat daftar kecamatan"}</button>}
+            {preview.available && !completed && <button type="button" aria-expanded={listOpen} aria-controls="onboarding-area-list" onClick={() => setListOpen(!listOpen)} className="btn btn-ghost h-11 min-h-11 shrink-0 px-0 text-xs text-primary underline">{listOpen ? "Tutup daftar kecamatan" : "Lihat daftar kecamatan"}</button>}
         </div>
         {dataLoading && <p role="status" className="mt-2 text-sm">Memuat data kecamatan…</p>}
         {dataError && <div role="alert" className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-error"><p className="min-w-0 flex-1">{dataError}</p><button type="button" onClick={onRetryData} className="btn btn-ghost h-11 min-h-11 shrink-0 px-1 text-xs text-primary underline">Coba lagi</button></div>}
@@ -67,7 +71,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
         </div>}
         {geometryLoading && <p role="status" className="mt-2 text-xs text-ink-muted">Memuat batas kecamatan…</p>}
         {geometryError && preview.available && <div role="status" className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-muted"><p className="min-w-0 flex-1">{geometryError} Daftar tetap tersedia.</p><button type="button" onClick={onRetry} className="btn btn-ghost h-11 min-h-11 shrink-0 px-1 text-xs text-primary underline">Coba lagi</button></div>}
-        {preview.available && !completed && listOpen && <ul id="onboarding-area-list" className="mt-2 hidden max-h-40 space-y-2 overflow-y-auto border-t border-rule pt-2 text-xs md:block" aria-label="Kecamatan dalam pratinjau">
+        {preview.available && !completed && listOpen && <ul id="onboarding-area-list" className="mt-2 max-h-40 space-y-2 overflow-y-auto border-t border-rule pt-2 text-xs" aria-label="Kecamatan dalam pratinjau">
             {preview.districts.map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={step}
                 selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
         </ul>}

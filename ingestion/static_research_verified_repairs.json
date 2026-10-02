@@ -1,0 +1,27 @@
+{
+  "4e65839f83cc2b979dcc54e49cb44583c88bcd300400572dc9b5f2e6b6afb2dc": [
+    {
+      "id": "its-april-2026-institution-total",
+      "sheet": "08_student_enrollment",
+      "row_number": 104,
+      "target_table": "student_enrollment",
+      "checked_at": "2026-10-01",
+      "source_url": "https://www.its.ac.id/pendidikan/data-mahasiswa-perapril/",
+      "source_snapshot": "source_checks/its_april_2026.html",
+      "source_snapshot_sha256": "9c0e2d2d9e02fcb435c7a8c5e73b734c505c208ff1eaee0315f1889006a52bc8",
+      "source_finding": "The April report's 2026 section states Jumlah Mahasiswa: 29.819. This is an institution-wide monthly snapshot, not a campus-local count or a sum of multiple years.",
+      "expected": {
+        "institution_code": "institut-teknologi-sepuluh-nopember",
+        "metric": "enrolled_students",
+        "student_count": 29819,
+        "data_scope": "institution",
+        "period_start": "2026-04-01T12:00:00",
+        "period_end": "2026-04-30T12:00:00"
+      },
+      "changes": {
+        "retrieved_at": "2026-10-01",
+        "limitations": "ITS Directorate of Undergraduate and Graduate Education, April report, 2026 section: 29,819 students. The source page was checked on 2026-10-01. Institution-wide April snapshot; the source does not state campus-local enrollment or an exact observation day. Do not assign this count to Sukolilo or sum different years. The original consolidated research note is retained in the import audit."
+      }
+    }
+  ]
+}

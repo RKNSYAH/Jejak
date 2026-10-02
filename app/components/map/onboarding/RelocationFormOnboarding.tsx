@@ -92,9 +92,6 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                 {session.step === 1 && <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Akun siap · isi formulir</p>}
                 <h1 id="form-onboarding-title" ref={titleRef} tabIndex={-1} className="font-sans text-2xl font-bold leading-[1.15] tracking-tight outline-none md:text-[1.75rem]">{titles[session.step - 1]}</h1>
                 {descriptions[session.step - 1] && <p className="mt-2 hidden text-sm leading-relaxed text-ink-muted md:block">{descriptions[session.step - 1]}</p>}
-                <p id="form-demo-note" className={`mt-2 text-xs text-ink-muted ${session.step === 1 ? "" : "hidden md:block"}`}>
-                    {preview.is_sample ? <span className="badge badge-neutral badge-xs">Data contoh</span> : "Data contoh ditandai terpisah dari temuan terverifikasi."}
-                </p>
                 {!storageAvailable && <p className="mt-2 text-xs text-ink-muted">Penyimpanan browser tidak tersedia. Isian berlaku selama halaman ini terbuka.</p>}
                 {Object.keys(errors).length > 0 && <p role="alert" className="mt-3 text-sm font-semibold text-error">Periksa isian yang ditandai sebelum melanjutkan.</p>}
                 <fieldset disabled={isSaving} className="mt-6">
