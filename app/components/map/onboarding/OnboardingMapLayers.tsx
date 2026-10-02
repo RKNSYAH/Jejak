@@ -8,6 +8,7 @@ import type { FilterSpecification } from "maplibre-gl";
 import { isLiveRecommendationSample, onboardingCategoryValue } from "@/app/engine/onboarding/livePreview";
 import type { LiveOnboardingPreview, LivePreviewMapContext, OnboardingCampus } from "@/app/engine/onboarding/types";
 import type { MapCategory, ZoneGeometry } from "@/app/engine/types";
+import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 
 export const ONBOARDING_FILL_ID = "onboarding-district-fill";
 const HATCH_IMAGE = "onboarding-over-limit-hatch";
@@ -79,7 +80,7 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
     const bands = useMemo(() => valueRange && valueRange[0] === valueRange[1] ? [valueRange[0], valueRange[0] + 1] as const : valueRange, [valueRange]);
     const showFilled = step === 2 || step === 4;
     const hideExcluded = showFilled && context.overBudget === "hide";
-    const eligibleFilter: FilterSpecification = hideExcluded ? ["==", ["get", "eligible"], true] : ["all"];
+    const eligibleFilter: FilterSpecification = hideExcluded ? ["!=", ["get", "eligible"], false] : ["all"];
     if (!preview.available) return null;
     return <>
         <Source id="onboarding-districts" type="geojson" data={districtData}>
@@ -95,10 +96,10 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
             <Layer id="onboarding-district-outlines" type="line" beforeId="building-3d" filter={eligibleFilter}
                 paint={{ "line-color": ["case", ["==", ["get", "eligible"], true], "#006AD8", ["==", ["get", "eligible"], false], "#5F84B1", "#8995A9"], "line-width": 1.3, "line-opacity": 0.9 }} />
             {selectedDistrictId && <Layer id="onboarding-selected-outline" type="line" beforeId="building-3d"
-                filter={hideExcluded ? ["all", ["==", ["get", "zone_id"], selectedDistrictId], ["==", ["get", "eligible"], true]] : ["==", ["get", "zone_id"], selectedDistrictId]}
+                filter={hideExcluded ? ["all", ["==", ["get", "zone_id"], selectedDistrictId], ["!=", ["get", "eligible"], false]] : ["==", ["get", "zone_id"], selectedDistrictId]}
                 paint={{ "line-color": "#21297C", "line-width": 3, "line-opacity": 1 }} />}
         </Source>
-        {preview.districts.flatMap((item) => item.district.center ? [<Marker key={item.district.zone_id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
+        {visiblePreviewDistricts(preview, showFilled).flatMap((item) => item.district.center ? [<Marker key={item.district.zone_id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
             {completed ? <button type="button" aria-label={`${item.district.zone_name}${item.rank ? `, peringkat ${item.rank}` : item.eligible === false ? ", di luar batas" : ", belum terverifikasi"}`} onClick={(event) => { event.stopPropagation(); onSelectDistrict(item.district.zone_id); }} className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} rank={item.rank} /></button>
                 : <DistrictLabel item={item} rank={null} />}
         </Marker>] : [])}

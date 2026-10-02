@@ -71,6 +71,32 @@ createServer(async (request, response) => {
         const body = await readBody(request);
         if (body.flow_id !== "8feff2fc-81df-438d-8dae-c10563f1ab67") return send(400, { message: "Only LF-05 is available" });
         const input = JSON.parse(body.input_value);
+        if (input.mode === "refinement") {
+            // Mirror deployed LF-05's native input boundary rather than accepting an oversized story wrapper.
+            const fields = new Set(["goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget", "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers", "transport_mode"]);
+            const weights = new Set(["career", "housing", "commute", "education", "cost_of_living"]);
+            const current = input.current_profile;
+            if (!current || !input.message.trim() || input.message.length > 4000 ||
+                [current.hard_constraints, current.soft_preferences, input.answers].some((group) => !group || Object.keys(group).some((key) => !fields.has(key))) ||
+                Object.entries(input.answers).some(([key, value]) => value !== null && typeof value === "object" && !Array.isArray(value) && !["monthly_budget", "housing_budget"].includes(key)) ||
+                Object.keys(current.priority_weights).some((key) => !weights.has(key))) {
+                return send(400, { message: "Invalid native refinement contract" });
+            }
+            // Model intentionally contradicts the explicit rent edit. The LF-05 server
+            // must reconcile this output against the submitted, user-edited draft.
+            const hard = {
+                ...current.hard_constraints,
+                housing_budget: { amount: 9_000_000, currency: "IDR", period: "month" },
+            };
+            const profile = {
+                hard_constraints: hard, soft_preferences: current.soft_preferences,
+                priority_weights: current.priority_weights, inferred_fields: [], clarification_questions: [],
+                requires_confirmation: true, confirmed: false, writes_performed: false,
+                taxonomy_version: "2026-09", contract_version: "lf05-v2",
+                decision_trace: { received_message: input.message }, runtime_usage: null,
+            };
+            return send(200, { object: "response", status: "completed", has_errors: false, output: { text: JSON.stringify(profile) } });
+        }
         const hasBudget = /Rp6 juta/.test(input.message);
         const reportedStory = /punya budget 5jt per bulan 2jt untuk kos/.test(input.message);
         const unknownBudgetStory = /software engineer budget belum tahu/.test(input.message);

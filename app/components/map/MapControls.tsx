@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import Link from "next/link";
-import { Bookmark, ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, X } from "lucide-react";
 import type { MapCategory, Zone } from "@/app/engine/types";
 import type { AccountSummary } from "@/app/engine/controller/userServerController";
 import { mapCategories } from "./mapMetrics";
@@ -10,6 +9,8 @@ import { prefersReducedMotion } from "./viewport";
 import { getZoneSearchMatches, type ZoneSearchScope } from "./zoneSearch";
 import { getMetroArea, metroAreas, type MetroArea } from "@/app/engine/lib/metroArea";
 import BrandLogo from "../BrandLogo";
+import AccountCluster, { ACCOUNT_CLUSTER_WIDTH } from "../AccountCluster";
+import HeaderCluster from "../HeaderCluster";
 
 const categories: MapCategory[] = ["summary", "employment", "education", "housing", "mobility"];
 
@@ -17,9 +18,6 @@ const scrollButtons = [
     { direction: -1, side: "left", position: "left-1", label: "Gulir kategori ke kiri", Icon: ChevronLeft },
     { direction: 1, side: "right", position: "right-1", label: "Gulir kategori ke kanan", Icon: ChevronRight },
 ] as const;
-
-// Desktop account cluster: fixed width so the controls row can reserve its space without measuring.
-const ACCOUNT_CLUSTER_WIDTH = 240;
 
 type MapControlsProps = {
     showProfileReminder: boolean;
@@ -54,7 +52,6 @@ export default function MapControls(props: MapControlsProps) {
     const categoriesRef = useRef<HTMLDivElement>(null);
     const categoryContentRef = useRef<HTMLDivElement>(null);
     const matches = getZoneSearchMatches(props.zones, query, props.searchScope);
-    const accountName = props.account?.name ?? "Akun";
     const area = getMetroArea(props.searchScope);
 
     useEffect(() => {
@@ -120,7 +117,7 @@ export default function MapControls(props: MapControlsProps) {
             style={{ "--controls-right": `${Math.max(props.sidebarWidth, ACCOUNT_CLUSTER_WIDTH + 16) + 12}px` } as CSSProperties}>
             {/* Header and lens row share one width on desktop; on mobile they are grid rows beside the account cluster. */}
             <div className="contents md:flex md:w-full md:max-w-128 md:flex-col md:gap-2">
-            <div data-hci-region="map-header" className="pointer-events-auto col-start-1 row-start-1 flex h-11 min-w-0 items-center gap-1 rounded-2xl border border-rule bg-base-100 px-1 shadow-overlay md:h-15 md:px-2">
+            <HeaderCluster region="map-header" className="pointer-events-auto col-start-1 row-start-1">
                 <div className="hidden shrink-0 md:flex"><BrandLogo border={false} /></div>
                 <span aria-hidden="true" className="hidden h-7 w-px shrink-0 bg-rule md:block" />
                 <div data-hci-region="area-picker" className={`dropdown shrink-0 ${areaOpen ? "dropdown-open" : "dropdown-close"}`}
@@ -168,7 +165,7 @@ export default function MapControls(props: MapControlsProps) {
                         </ul>
                     </div>
                 </search>
-            </div>
+            </HeaderCluster>
                 {/* Beside the search bar when the controls row has room (32rem header + gap + banner); otherwise centered below. */}
                 {props.showProfileReminder && <aside aria-label="Pengingat profil" data-hci-region="profile-completion-banner"
                     className="alert pointer-events-auto absolute left-1/2 top-full mt-2 grid w-[min(30rem,100%)] -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] gap-x-1 gap-y-0 rounded-xl border-neutral bg-neutral p-2 text-neutral-content shadow-overlay md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center @min-[52rem]:top-0 @min-[52rem]:left-[calc(32rem+0.75rem)] @min-[52rem]:mt-0 @min-[52rem]:min-h-15 @min-[52rem]:py-1.5 @min-[52rem]:w-[min(34rem,calc(100%-32.75rem))] @min-[52rem]:translate-x-0">
@@ -212,22 +209,8 @@ export default function MapControls(props: MapControlsProps) {
                 </div>}
             </div>
             {/* In the grid beside search on mobile; on desktop it sits 16px from the map's top-right corner, above the detail card. */}
-            <nav aria-label="Akun" data-hci-region="account-cluster"
-                className="pointer-events-auto col-start-2 row-start-1 flex h-11 items-center gap-0.5 rounded-2xl border border-rule bg-base-100 px-1 font-body text-ink shadow-overlay md:absolute md:top-0 md:right-[calc(1rem-var(--controls-right))] md:h-15 md:w-(--account-cluster-width) md:px-1.5"
-                style={{ "--account-cluster-width": `${ACCOUNT_CLUSTER_WIDTH}px` } as CSSProperties}>
-                <button type="button" title="Area tersimpan" aria-label="Area tersimpan" className="btn btn-square btn-ghost size-9 shrink-0 rounded-xl focus-visible:outline-primary md:size-11">
-                    <Bookmark aria-hidden="true" className="size-4 md:size-5" />
-                </button>
-                <span aria-hidden="true" className="mx-1 h-7 w-px shrink-0 bg-rule md:mx-1.5" />
-                <Link href="/user" title="Profil" aria-label={`Profil ${accountName}${props.account?.planName ? `, paket ${props.account.planName}` : ""}`}
-                    className="btn btn-ghost h-9 min-h-9 shrink-0 gap-2.5 rounded-xl px-0.5 font-normal focus-visible:outline-primary md:h-12 md:min-h-12 md:min-w-0 md:flex-1 md:justify-start md:px-1.5">
-                    <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-sans text-sm font-bold text-primary-content">{accountName.charAt(0).toUpperCase()}</span>
-                    <span className="hidden min-w-0 flex-col text-left leading-tight md:flex">
-                        <strong className="truncate text-sm font-semibold">{accountName}</strong>
-                        {props.account?.planName && <span className="truncate text-xs text-ink-muted">{props.account.planName}</span>}
-                    </span>
-                </Link>
-            </nav>
+            <AccountCluster account={props.account}
+                className="pointer-events-auto col-start-2 row-start-1 md:absolute md:top-0 md:right-[calc(1rem-var(--controls-right))]" />
             
         </div>
     );

@@ -138,6 +138,14 @@ export type LivePreviewPreferences = {
     commuteMinutes: number | null;
     overBudget: "mark" | "hide";
     weights: Weights;
+    priorityWeights?: {
+        career: number;
+        education: number;
+        housing: number;
+        cost_of_living: number;
+        commute: number;
+        environment?: number;
+    };
 };
 
 export type LivePreviewMapContext = {

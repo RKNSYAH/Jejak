@@ -7,7 +7,7 @@ import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import type { StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import { useUserProfileStore } from "@/app/stores/userStores";
 
-export function useSavedRelocationProfile(userId: string) {
+export function useSavedRelocationProfile(userId: string, initialProfile?: StoredRelocationProfile | null) {
     const savedProfile = useUserProfileStore((state) => state.relocationProfileUserId === userId ? state.relocationProfile : null);
     const loaded = useUserProfileStore((state) => state.relocationProfileUserId === userId);
     const storeProfile = useUserProfileStore((state) => state.setRelocationProfile);
@@ -15,6 +15,14 @@ export function useSavedRelocationProfile(userId: string) {
     const setSavedProfile = useCallback((profile: StoredRelocationProfile | null) => storeProfile(userId, profile), [storeProfile, userId]);
 
     useEffect(() => {
+        if (initialProfile !== undefined) {
+            const current = useUserProfileStore.getState();
+            if (initialProfile === null || current.relocationProfileUserId !== userId || !current.relocationProfile ||
+                (initialProfile !== null && current.relocationProfile.revision <= initialProfile.revision)) {
+                setSavedProfile(initialProfile);
+            }
+            return;
+        }
         if (useUserProfileStore.getState().relocationProfileUserId === userId) return;
         const controller = new AbortController();
         const { signal } = controller;
@@ -42,7 +50,7 @@ export function useSavedRelocationProfile(userId: string) {
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [setSavedProfile, userId]);
+    }, [initialProfile, setSavedProfile, userId]);
 
     return { savedProfile, loaded, settled: loaded || failedUserId === userId, setSavedProfile };
 }

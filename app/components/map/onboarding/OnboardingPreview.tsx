@@ -4,6 +4,7 @@ import type { FormSession, LiveOnboardingPreview as Preview } from "@/app/engine
 import type { MapCategory } from "@/app/engine/types";
 import DistrictListItem from "./DistrictListItem";
 import { getCityAreaName } from "@/app/engine/lib/metroArea";
+import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 
 const categoryHints: Record<MapCategory, string> = {
     summary: "Urutan memakai bukti yang tersedia",
@@ -74,7 +75,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
         {geometryLoading && <p role="status" className="mt-2 text-xs text-ink-muted">Memuat batas kecamatan…</p>}
         {geometryError && preview.available && <div role="status" className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-muted"><p className="min-w-0 flex-1">{geometryError} Daftar tetap tersedia.</p><button type="button" onClick={onRetry} className="btn btn-ghost h-11 min-h-11 shrink-0 px-1 text-xs text-primary underline">Coba lagi</button></div>}
         {preview.available && !completed && listOpen && <ul id="onboarding-area-list" className="mt-2 max-h-40 space-y-2 overflow-y-auto border-t border-rule pt-2 text-xs" aria-label="Kecamatan dalam pratinjau">
-            {preview.districts.map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={step}
+            {visiblePreviewDistricts(preview, step >= 2).map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={step}
                 selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
         </ul>}
     </section>;

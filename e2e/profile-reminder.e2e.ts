@@ -100,6 +100,7 @@ test("logout clears the cache even when entering the account page directly", asy
         if (location.pathname === "/user") localStorage.setItem(key, JSON.stringify({ version: 1, userId: id, profile }));
     }, { key: cacheKey, id: userId, profile: savedProfile });
     await page.goto("/user");
+    await page.getByRole("button", { name: "Akun", exact: true }).filter({ visible: true }).click();
     await page.getByRole("button", { name: "Keluar dari akun" }).click();
     await expect(page).toHaveURL(/\/login\?status=signed-out/);
     expect(await page.evaluate((key) => localStorage.getItem(key), cacheKey)).toBeNull();
