@@ -11,7 +11,7 @@ import {
     type Ref,
 } from "react";
 import type { ZoneSummary } from "@/app/engine/types";
-import type { DistrictRecommendation } from "@/app/engine/onboarding/types";
+import type { LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
 
 const MIN_HEIGHT = 30;
@@ -56,7 +56,7 @@ export default function MapBottomSheet({
     onStateChange: (state: MapBottomSheetState) => void;
     onHeightChange: (height: number) => void;
     ref: Ref<MapBottomSheetHandle>;
-    recommendations?: DistrictRecommendation[];
+    recommendations?: LiveDistrictRecommendation[];
     onEditPreferences?: () => void;
 }) {
     const [height, setHeight] = useState(DEFAULT_HEIGHT);
@@ -225,15 +225,14 @@ export default function MapBottomSheet({
                 <div className="h-1 w-10 rounded-full bg-ink/20" />
             </div>
             <div className="shrink-0 px-4 pb-3">
-                <p className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Area yang tersedia</p>
-                <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{recommendations ? "Rekomendasi contoh untukmu" : "Pilih area jejakmu selanjutnya"}</h2>
-                    <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} area tersedia</p>
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{recommendations ? "Kecamatan dalam pratinjau" : "Pilih kecamatan jejakmu selanjutnya"}</h2>
+                    <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} kecamatan tersedia</p>
                 </div>
-                {onEditPreferences && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Ubah preferensi contoh</button>}
+                {onEditPreferences && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Ubah preferensi</button>}
             </div>
             <div inert={height <= getMinHeight()} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
-                {recommendations && !zones.length && <p role="status" className="py-2 text-sm text-ink-muted">Belum ada kecamatan yang lolos dalam contoh ini. Ubah preferensi untuk mencoba batas lain.</p>}
+                {recommendations && !recommendations.length && <p role="status" className="py-2 text-sm text-ink-muted">Belum ada hasil yang dapat dirangking dari bukti tersedia. Waktu rute belum dinilai.</p>}
                 <div className={isExpanded
                     ? "grid grid-cols-2 gap-2 @min-[480px]:grid-cols-3 @min-[768px]:grid-cols-4 @min-[768px]:gap-4 @min-[1200px]:grid-cols-5"
                     : "flex gap-2 snap-x snap-mandatory md:gap-8"}>
@@ -244,10 +243,8 @@ export default function MapBottomSheet({
                             cityName={zone.city_name}
                             isSample={zone.is_sample}
                             compact={!isExpanded}
-                            recommendation={recommendations?.find((item) => item.district.id === zone.zone_id)}
-                            onClick={() => {
-                                onSelect(zone);
-                            }}
+                            recommendation={recommendations?.find((item) => item.district.zone_id === zone.zone_id)}
+                            onClick={() => onSelect(zone)}
                         />
                     ))}
                 </div>
@@ -256,7 +253,7 @@ export default function MapBottomSheet({
     )
 }
 
-function RegionCard({ name, cityName, isSample, compact, onClick, recommendation }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: DistrictRecommendation }) {
+function RegionCard({ name, cityName, isSample, compact, onClick, recommendation }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation }) {
     return (
         <button
             type="button"
@@ -266,8 +263,8 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
                 <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{recommendation?.rank ? `${recommendation.rank}. ` : ""}{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
-                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data area"}</span>
-                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">Sewa Rp{formatRupiah(recommendation.rent)}{recommendation.commuteMinutes !== null ? ` · ${recommendation.commuteMinutes} mnt simulasi` : ""}</span>}
+                <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data kecamatan"}</span>
+                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(recommendation.rent)}`} · {recommendation.eligible === true ? "batas sewa dan biaya terpenuhi" : recommendation.eligible === false ? "di luar batas" : "belum terverifikasi"}</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
                     <span className="hidden md:inline">Jelajahi area ini</span>

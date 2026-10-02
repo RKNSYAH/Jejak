@@ -6,7 +6,7 @@ const cacheKey = `jejak:relocation-profile:v1:${userId}`;
 const savedProfile = {
     id: "saved-profile", profile_name: "primary", revision: 1,
     confirmed_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z",
-    profile: { schema_version: "relocation-profile-v1", hard_constraints: {}, soft_preferences: {},
+    profile: { schema_version: "relocation-profile-v1", hard_constraints: { goal: "work" }, soft_preferences: {},
         priority_weights: { career: 1 }, taxonomy_version: "2026-09", contract_version: "lf05-v2" },
 };
 

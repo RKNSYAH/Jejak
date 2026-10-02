@@ -20,13 +20,14 @@ test("saving confirmed onboarding replaces the incomplete cache and hides the re
         hard_constraints: {}, soft_preferences: { goal: "work" }, priority_weights: { career: 1 },
         inferred_fields: [], clarification_questions: [], requires_confirmation: true, confirmed: false,
         taxonomy_version: "2026-09", contract_version: "lf05-v2", writes_performed: false,
+        decision_trace: {}, runtime_usage: null,
     } } }));
     await page.goto("/map");
     const banner = page.locator('[data-hci-region="profile-completion-banner"]');
     await banner.getByRole("button", { name: "Complete profile", exact: true }).click();
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah ke Jakarta untuk bekerja.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
-    await page.getByRole("button", { name: "Lanjut ke tinjau" }).click();
+    await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     await page.getByRole("button", { name: "Simpan dan selesaikan" }).click();
     await expect(page.getByRole("searchbox", { name: "Cari zona yang didukung" })).toBeVisible();
     await expect(banner).toHaveCount(0);

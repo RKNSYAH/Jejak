@@ -67,6 +67,15 @@
   --shadow-overlay: 0 2px 8px color-mix(in oklab, var(--color-base-content) 8%, transparent);
 }
 
+/* Runtime chart aliases reuse the five existing Jejak palette colors. */
+:root {
+  --color-priority-career: var(--color-primary);
+  --color-priority-housing: var(--color-secondary);
+  --color-priority-commute: var(--color-neutral);
+  --color-priority-education: var(--color-accent);
+  --color-priority-cost-of-living: var(--color-primary-tint);
+}
+
 /* Interface font and primary focus indicators for daisyUI controls (DESIGN.md) */
 @utility btn {
   @apply font-body;

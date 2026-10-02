@@ -1,6 +1,7 @@
 import { getSavedRelocationProfile, saveConfirmedRelocationProfile } from "@/app/engine/controller/relocationProfileController";
 import { getAuthenticatedUserId } from "@/app/engine/controller/userServerController";
-import { buildPersistedRelocationProfile } from "@/app/engine/lib/relocationProfile";
+import { readJsonBody } from "@/app/engine/lib/http";
+import { buildFormRelocationProfile, buildPersistedRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 
 export async function GET() {
@@ -16,34 +17,27 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-    return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+    const body = await readJsonBody(request);
+    if (body instanceof Response) return body;
+    const isForm = isRecord(body) && Object.hasOwn(body, "form_answers");
+    if (!isRecord(body) || (isForm
+        ? Object.keys(body).some((key) => key !== "form_answers")
+        : Object.keys(body).some((key) => !["proposal", "confirmed_fields"].includes(key)) ||
+            !isRecord(body.proposal) || !Array.isArray(body.confirmed_fields))) {
+        return Response.json({ error: "Profil tidak valid. Tinjau kembali jawabanmu." }, { status: 400 });
+    }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON request" }, { status: 400 });
-  }
-
-  if (
-    !isRecord(body) || Object.keys(body).some((key) => !["proposal", "confirmed_fields"].includes(key)) ||
-    !isRecord(body.proposal) || !Array.isArray(body.confirmed_fields)
-  ) {
-    return Response.json({ error: "Invalid relocation profile" }, { status: 400 });
-  }
-
-  let profile;
-  try {
-    profile = buildPersistedRelocationProfile(body.proposal, body.confirmed_fields);
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "INVALID_LF05_PROFILE";
-    const message = code === "PROFILE_CONFIRMATION_REQUIRED"
-      ? "Konfirmasi semua kesimpulan sebelum menyimpan profil."
-      : "Profil tidak valid. Tinjau kembali jawabanmu.";
-    return Response.json({ error: message }, { status: 400 });
-  }
+    let profile;
+    try {
+        profile = isForm ? buildFormRelocationProfile(body.form_answers) : buildPersistedRelocationProfile(body.proposal, body.confirmed_fields);
+    } catch (error) {
+        const message = error instanceof Error && error.message === "PROFILE_GOAL_REQUIRED"
+            ? "Tentukan tujuan pindahmu sebelum menyimpan profil."
+            : error instanceof Error && error.message === "PROFILE_CONFIRMATION_REQUIRED"
+            ? "Konfirmasi semua kesimpulan sebelum menyimpan profil."
+            : "Profil tidak valid. Tinjau kembali jawabanmu.";
+        return Response.json({ error: message }, { status: 400 });
+    }
 
   const userId = await getAuthenticatedUserId().catch(() => null);
   if (!userId) return Response.json({ error: "Masuk kembali untuk menyimpan profil." }, { status: 401 });

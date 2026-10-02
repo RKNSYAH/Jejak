@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { defaultAnswers, demoDistricts } from "../app/engine/onboarding/demoData";
+import { defaultAnswers, demoDistricts, initialFormAnswers } from "../app/engine/onboarding/demoData";
 import { availableDestinations, evaluateOnboarding, parseFormSession, priorityKeys, redistributeWeights, toggleHousing, validateFormStep } from "../app/engine/onboarding/preview";
 import { isBoundary } from "../app/engine/lib/zoneGeometry";
 
@@ -72,6 +72,21 @@ test("draft parsing rejects corrupt and invalid completed profiles", () => {
     assert.equal(parseFormSession({ ...session, answers: { ...session.answers, monthlyBudget: null } }), null);
     assert.ok(validateFormStep({ ...defaultAnswers, maximumRent: 7_000_000 }, 2).maximumRent);
     assert.equal(parseFormSession({ ...session, status: "completed", answers: { ...session.answers, monthlyBudget: 0 } }), null);
+});
+
+test("removed optional questions accept old and new drafts without inventing defaults", () => {
+    assert.equal(initialFormAnswers.experience, null);
+    assert.deepEqual(initialFormAnswers.extras, []);
+    const session = { version: 1, status: "active", step: 4, answers: structuredClone(defaultAnswers) };
+    assert.equal(parseFormSession(session)?.answers.experience, "early");
+    const answers: Partial<typeof session.answers> = structuredClone(session.answers);
+    delete answers.experience;
+    delete answers.extras;
+    const parsed = parseFormSession({ ...session, answers });
+    assert.equal(parsed?.answers.experience, null);
+    assert.deepEqual(parsed?.answers.extras, []);
+    assert.equal(parseFormSession({ ...session, answers: { ...answers, experience: "unknown" } }), null);
+    assert.equal(parseFormSession({ ...session, answers: { ...answers, extras: ["unknown"] } }), null);
 });
 
 test("bundled demo geometry has ten trusted, valid boundaries matching sample IDs", () => {

@@ -1,5 +1,6 @@
-import { demoDistricts, demoDestinations, defaultAnswers } from "./demoData";
+import { demoDistricts, demoDestinations, initialFormAnswers } from "./demoData";
 import type { DemoDistrict, FormAnswers, FormSession, FormStep, Housing, OnboardingPreview, Priority, Weights } from "./types";
+import { isCentroid, isRegionCode } from "../lib/zoneGeometry";
 
 export const priorityKeys: Priority[] = ["opportunity", "affordability", "mobility", "environment"];
 
@@ -27,6 +28,11 @@ export function toggleHousing(current: Housing[], choice: Housing): Housing[] {
 
 export function availableDestinations(goal: FormAnswers["goal"]) {
     return demoDestinations.filter((destination) => goal === "both" || destination.kind === (goal === "study" ? "campus" : "office"));
+}
+
+// A completed form keeps showing the final (priorities) step on the map.
+export function displayStep(session: FormSession): FormStep {
+    return session.status === "completed" ? 4 : session.step;
 }
 
 export function sampleCommute(district: DemoDistrict, answers: FormAnswers): number | null {
@@ -101,25 +107,31 @@ export function parseFormSession(value: unknown): FormSession | null {
     if (!value || typeof value !== "object") return null;
     const session = value as FormSession;
     const a = session.answers;
+    const extras = a?.extras === undefined ? [] : a.extras;
     if (session.version !== 1 || !["active", "paused", "skipped", "completed"].includes(session.status) ||
         ![1, 2, 3, 4].includes(session.step) || !a || typeof a !== "object") return null;
     const choices: Record<string, readonly unknown[]> = {
-        goal: ["work", "study", "both"], city: ["jakarta-selatan", "bandung", "yogyakarta", "unsure"],
-        experience: ["graduate", "early", "experienced"], overBudget: ["mark", "hide"],
+        goal: ["work", "study", "both"],
+        experience: [undefined, null, "graduate", "early", "experienced"], overBudget: ["mark", "hide"],
         transport: ["transit", "motorcycle", "car", "active"], commuteMinutes: [15, 30, 45, 60],
         departure: ["morning", "midday", "evening", "flexible"],
     };
     for (const [key, options] of Object.entries(choices)) if (!options.includes(a[key as keyof FormAnswers])) return null;
+    if (typeof a.city !== "string" || a.city !== "unsure" && !isRegionCode(a.city)) return null;
     if (![a.occupation, a.studyField, a.education].every((text) => typeof text === "string" && text.length <= 200) ||
         (a.sector !== null && (typeof a.sector !== "string" || a.sector.length > 200)) ||
+        (a.destinationId != null && (typeof a.destinationId !== "string" || a.destinationId.length > 200 ||
+            (!/^[a-z0-9]+(?:-[a-z0-9]+)*:\d+$/.test(a.destinationId) && !demoDestinations.some((item) => item.id === a.destinationId)))) ||
+        (a.destinationName != null && (typeof a.destinationName !== "string" || a.destinationName.length > 200)) ||
+        (a.destinationPoint != null && !isCentroid(a.destinationPoint)) ||
         ![a.monthlyBudget, a.maximumRent].every((amount) => Number.isSafeInteger(amount) && amount >= 0 && amount <= 1_000_000_000) ||
         !Array.isArray(a.housing) || a.housing.some((item) => !["kos", "apartment", "house", "unsure"].includes(item)) ||
         new Set(a.housing).size !== a.housing.length || (a.housing.includes("unsure") && a.housing.length !== 1) ||
-        !Array.isArray(a.extras) || a.extras.some((item) => !["internet", "healthcare", "quiet"].includes(item)) ||
-        new Set(a.extras).size !== a.extras.length ||
-        (a.destinationId !== null && !availableDestinations(a.goal).some((destination) => destination.id === a.destinationId)) ||
+        !Array.isArray(extras) || extras.some((item) => !["internet", "healthcare", "quiet"].includes(item)) ||
+        new Set(extras).size !== extras.length ||
         !a.weights || priorityKeys.some((key) => !Number.isInteger(a.weights[key]) || a.weights[key] < 0 || a.weights[key] > 100) ||
         priorityKeys.reduce((sum, key) => sum + a.weights[key], 0) !== 100) return null;
     if (session.status === "completed" && [1, 2, 3, 4].some((step) => Object.keys(validateFormStep(a, step as FormStep)).length)) return null;
-    return { version: 1, status: session.status, step: session.step, answers: { ...defaultAnswers, ...a, weights: { ...a.weights } } };
+    const answers = { ...initialFormAnswers, ...a, experience: a.experience ?? null, extras: [...extras], weights: { ...a.weights } };
+    return { version: 1, status: session.status, step: session.step, answers };
 }

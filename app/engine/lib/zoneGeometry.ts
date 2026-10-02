@@ -5,6 +5,16 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// Region codes are lowercase slugs such as "jakarta-selatan".
+export function isRegionCode(value: string): boolean {
+    return value.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+export function isCentroid(value: unknown): boolean {
+    return Array.isArray(value) && value.length === 2 && value.every((number) => typeof number === "number" && Number.isFinite(number)) &&
+        Math.abs(value[0]) <= 180 && Math.abs(value[1]) <= 90;
+}
+
 function isPosition(value: unknown): value is Position {
     return Array.isArray(value) && value.length >= 2 &&
         value.every((number) => typeof number === "number" && Number.isFinite(number)) &&
@@ -30,7 +40,7 @@ export function isBoundary(value: unknown): value is Polygon | MultiPolygon {
 }
 
 // "Kota Administrasi Jakarta Selatan", "Kota Adm. Jakarta Selatan" and "Jakarta Selatan" share a key.
-// "Kota " stays otherwise, so Kota Bekasi and Kabupaten Bekasi (BIG: "Bekasi") remain distinct.
+// The city-region catalog also includes exact "Kota Bandung" names; retain their type for BIG matching.
 export function cityKey(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, " ")
         .replace(/^((kota|kabupaten|kab\.)\s+)?(administrasi|adm\.)\s+/, "")

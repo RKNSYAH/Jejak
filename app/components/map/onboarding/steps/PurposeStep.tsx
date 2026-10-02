@@ -1,12 +1,18 @@
 import { BriefcaseBusiness, GraduationCap, Layers, MessageSquare, Search } from "lucide-react";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
-import { cityLabels } from "@/app/engine/onboarding/demoData";
 import type { FormAnswers } from "@/app/engine/onboarding/types";
+import type { OnboardingCity } from "@/app/engine/onboarding/types";
 import { RadioChoices } from "../FormControls";
 
-export type StepProps = { answers: FormAnswers; onChange: (patch: Partial<FormAnswers>) => void; errors: Record<string, string> };
+export type StepProps = {
+    answers: FormAnswers;
+    onChange: (patch: Partial<FormAnswers>) => void;
+    errors: Record<string, string>;
+    cities?: OnboardingCity[];
+    citiesLoading?: boolean;
+};
 
-export default function PurposeStep({ answers, onChange, errors, onStory }: StepProps & { onStory: () => void }) {
+export default function PurposeStep({ answers, onChange, errors, onStory, cities = [], citiesLoading = false }: StepProps & { onStory: () => void }) {
     const itOccupation = onboardingTaxonomy.occupations.some((item) => item.label.toLowerCase() === answers.occupation.toLowerCase());
     return <div className="space-y-6">
         <RadioChoices name="goal" label="Pindah untuk" value={answers.goal} onChange={(goal) => onChange({ goal })} cards stacked
@@ -47,10 +53,15 @@ export default function PurposeStep({ answers, onChange, errors, onStory }: Step
             <RadioChoices name="education" label="Jenjang pendidikan" value={answers.education} onChange={(education) => onChange({ education })}
                 choices={[{ value: "Diploma", label: "Diploma" }, { value: "S1", label: "S1" }, { value: "S2", label: "S2" }]} />
         </div>}
-        <RadioChoices name="city" label="Kota tujuan" value={answers.city} onChange={(city) => onChange({ city })}
-            choices={Object.entries(cityLabels).map(([value, label]) => ({ value: value as FormAnswers["city"], label }))} />
-        {answers.goal !== "study" && <RadioChoices name="experience" label="Pengalaman kerja" value={answers.experience} onChange={(experience) => onChange({ experience })}
-            choices={[{ value: "graduate", label: "Lulusan baru" }, { value: "early", label: "1–3 tahun" }, { value: "experienced", label: "Lebih dari 3 tahun" }]} />}
+        <div>
+            <label htmlFor="form-city" className="mb-2 block text-sm font-semibold">Kota tujuan</label>
+            <select id="form-city" name="city" value={answers.city} onChange={(event) => onChange({ city: event.target.value })}
+                aria-busy={citiesLoading} className="select w-full border-ink/25 bg-base-100 text-ink">
+                <option value="unsure">Belum yakin</option>
+                {cities.map((city) => <option key={city.city_id} value={city.city_id}>{city.city_name}</option>)}
+            </select>
+            <p role="status" className="mt-2 text-xs text-ink-muted">{citiesLoading ? "Memuat kota dengan data kecamatan…" : `${cities.length} kota didukung data kecamatan.`}</p>
+        </div>
         <button type="button" onClick={onStory} className="btn btn-ghost min-h-11 justify-start gap-2 px-0 text-sm text-primary">
             <MessageSquare aria-hidden="true" className="size-4" />Lebih mudah bercerita? Tulis dengan kata-katamu
         </button>

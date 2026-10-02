@@ -10,8 +10,12 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test ./tests",
-    "test:schema": "node --test supabase/tests/schema.test.mjs",
-    "test:e2e": "playwright test"
+    "test:schema": "node --test supabase/tests/schema.test.mjs supabase/tests/boundary.test.mjs supabase/tests/static-research.test.mjs",
+    "prepare:research": "python -B ingestion/prepare_static_research.py",
+    "test:research": "python -B -m unittest discover -s ingestion/tests -p test_static_research.py",
+    "check:research": "node ingestion/check_static_import.mjs",
+    "test:e2e": "playwright test",
+    "fetch:boundaries": "node scripts/fetch-onboarding-boundaries.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

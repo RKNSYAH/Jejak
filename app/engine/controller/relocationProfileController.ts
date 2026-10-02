@@ -6,6 +6,7 @@ import {
   type PersistedRelocationProfile,
   type StoredRelocationProfile,
 } from "../lib/relocationProfile";
+import { isStoredRelocationProfile } from "../lib/relocationProfileCache";
 
 export async function getSavedRelocationProfile(userId: string): Promise<StoredRelocationProfile | null> {
   const supabase = await createClient();
@@ -19,28 +20,23 @@ export async function getSavedRelocationProfile(userId: string): Promise<StoredR
     .limit(1)
     .maybeSingle();
 
-  if (error) throw error;
-  if (!data) return null;
-
-  return {
-    id: String(data.id),
-    profile_name: data.profile_name,
-    revision: data.revision,
-    profile: data.profile as PersistedRelocationProfile,
-    confirmed_at: data.confirmed_at,
-    updated_at: data.updated_at,
-  };
+    if (error) throw error;
+    if (!data) return null;
+    const stored = { ...data, id: String(data.id), revision: Number(data.revision) };
+    // Legacy profiles with a valid goal remain readable; incomplete ones need setup.
+    return isStoredRelocationProfile(stored) ? stored : null;
 }
 
 export async function saveConfirmedRelocationProfile(
   userId: string,
   profile: PersistedRelocationProfile,
 ): Promise<StoredRelocationProfile> {
-  const { data, error } = await createAdminClient().rpc("save_confirmed_relocation_profile", {
-    p_user_id: userId,
-    p_profile_name: RELOCATION_PROFILE_NAME,
-    p_profile: profile,
-  });
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.rpc("save_confirmed_relocation_profile", {
+        p_user_id: userId,
+        p_profile_name: RELOCATION_PROFILE_NAME,
+        p_profile: profile,
+    });
 
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : null;
@@ -48,12 +44,12 @@ export async function saveConfirmedRelocationProfile(
     throw new Error("Profile save returned no revision");
   }
 
-  return {
-    id: String(row.id),
-    profile_name: RELOCATION_PROFILE_NAME,
-    revision: Number(row.revision),
-    profile,
-    confirmed_at: row.confirmed_at,
-    updated_at: row.updated_at,
-  };
+    // Read the actual inserted row, not an echo of the submitted profile.
+    const { data: saved, error: readError } = await supabase.from("relocation_profiles")
+        .select("id, profile_name, revision, profile, confirmed_at, updated_at")
+        .eq("id", row.id).eq("user_id", userId).eq("confirmed", true).single();
+    if (readError) throw readError;
+    const stored = saved ? { ...saved, id: String(saved.id), revision: Number(saved.revision) } : null;
+    if (!isStoredRelocationProfile(stored)) throw new Error("Saved profile could not be verified");
+    return stored;
 }

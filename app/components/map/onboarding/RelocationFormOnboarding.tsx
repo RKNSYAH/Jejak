@@ -3,27 +3,36 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { validateFormStep } from "@/app/engine/onboarding/preview";
-import type { FormAnswers, FormSession, FormStep } from "@/app/engine/onboarding/types";
-import type { OnboardingPreview } from "@/app/engine/onboarding/types";
-import { formatRupiah } from "@/app/engine/onboarding/demoData";
+import type { FormAnswers, FormSession, FormStep, LiveOnboardingPreview } from "@/app/engine/onboarding/types";
+import DistrictListItem from "./DistrictListItem";
+import CostEstimate from "./CostEstimate";
 import PurposeStep from "./steps/PurposeStep";
 import BudgetStep from "./steps/BudgetStep";
 import JourneyStep from "./steps/JourneyStep";
 import PrioritiesStep from "./steps/PrioritiesStep";
+import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
+import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
 
 const steps = ["Tujuan", "Batas", "Perjalanan", "Prioritas"];
+const stepNumbers: FormStep[] = [1, 2, 3, 4];
 const titles = ["Apa yang membawamu pindah?", "Berapa batas yang realistis?", "Seberapa jauh perjalanan yang nyaman?", "Apa yang paling penting untukmu?"];
-const descriptions = ["", "Kecamatan di peta berubah warna saat kamu mengubah angka.", "Pilih kawasan di peta atau cari dari daftar untuk melihat simulasi.", "Bobot mengurutkan kecamatan yang lolos batasmu. Nomor di peta ikut bergeser."];
+const descriptions = ["", "Peta memakai data sewa dan biaya yang tersedia.", "Pilih tujuan; perjalanan baru dinilai jika data rute tersedia.", "Bobot merangkum dimensi yang memiliki bukti. Data kosong tidak dianggap nol."];
 
-export default function RelocationFormOnboarding({ session, onChange, onStepChange, onDismiss, onStory, onFinish, storageAvailable, preview }: {
+export default function RelocationFormOnboarding({ session, onChange, onStepChange, onDismiss, onStory, onFinish, storageAvailable, preview,
+    previewLoading, previewError, onRetryPreview, onMapPick, pickingDestination, selectedDistrictId, onSelectDistrict }: {
     session: FormSession; onChange: (patch: Partial<FormAnswers>) => void; onStepChange: (step: FormStep) => void;
-    onDismiss: () => void; onStory: () => void; onFinish: () => void; storageAvailable: boolean;
-    preview: OnboardingPreview;
+    onDismiss: () => void; onStory: () => void; onFinish: () => Promise<void>; storageAvailable: boolean;
+    preview: LiveOnboardingPreview; previewLoading: boolean; previewError: string | null; onRetryPreview: () => void;
+    onMapPick: () => void; pickingDestination: boolean;
+    selectedDistrictId: string | null; onSelectDistrict: (id: string) => void;
 }) {
     const dialogRef = useRef<HTMLDialogElement>(null);
     const titleRef = useRef<HTMLHeadingElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const savingRef = useRef(false);
 
     useEffect(() => {
         // Non-modal: map destinations remain clickable and keyboard-accessible.
@@ -37,13 +46,16 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     }, [session.step]);
 
     function change(patch: Partial<FormAnswers>) {
+        if (savingRef.current) return;
         onChange(patch);
+        setSaveError(null);
         setErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !(key in patch))));
     }
-    function next() {
-        const nextErrors = session.step === 4
-            ? Object.assign({}, ...([1, 2, 3, 4] as FormStep[]).map((step) => validateFormStep(session.answers, step)))
-            : validateFormStep(session.answers, session.step);
+    async function next() {
+        if (savingRef.current) return;
+        // The last step re-checks every step, then jumps back to the first invalid one.
+        const stepErrors = stepNumbers.map((step) => validateFormStep(session.answers, step));
+        const nextErrors = session.step === 4 ? Object.assign({}, ...stepErrors) : stepErrors[session.step - 1];
         setErrors(nextErrors);
         if (Object.keys(nextErrors).length) {
             const invalidStep = ([1, 2, 3, 4] as FormStep[]).find((step) => Object.keys(validateFormStep(session.answers, step)).length);
@@ -52,12 +64,19 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
             return;
         }
         if (session.step < 4) onStepChange((session.step + 1) as FormStep);
-        else onFinish();
+        else {
+            savingRef.current = true;
+            setIsSaving(true);
+            setSaveError(null);
+            try { await onFinish(); }
+            catch (error) { setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Isianmu tetap ada. Coba lagi."); }
+            finally { savingRef.current = false; setIsSaving(false); }
+        }
     }
 
     return <dialog ref={dialogRef} aria-labelledby="form-onboarding-title" aria-describedby="form-demo-note" lang="id"
         data-hci-region={`onboarding-form-step-${session.step}`} className="onboarding-form-panel absolute inset-x-0 bottom-0 z-200 m-0 flex h-[74dvh] max-h-[74dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-rule bg-base-100 p-0 font-body text-ink shadow-overlay md:inset-y-4 md:left-auto md:right-4 md:h-auto md:max-h-none md:w-[min(35rem,43vw)] md:rounded-2xl"
-        onKeyDown={(event) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement && event.target.type === "search")) { event.preventDefault(); onDismiss(); } }}>
+        onKeyDown={(event) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement && event.target.type === "search")) { event.preventDefault(); if (!isSaving) onDismiss(); } }}>
         <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-ink/20 md:hidden" />
         <header className="flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-4 md:px-6 md:pt-5">
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs font-semibold">
@@ -66,38 +85,52 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                     {steps.map((step, index) => <li key={step} aria-current={index + 1 === session.step ? "step" : undefined} className={`h-1 flex-1 rounded-full ${index < session.step ? "bg-primary" : "bg-ink/15"}`}><span className="sr-only">{step}</span></li>)}
                 </ol>
             </div>
-            <button type="button" onClick={onDismiss} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-ink">Lewati <X aria-hidden="true" className="hidden size-3.5 md:block" /></button>
+            <button type="button" disabled={isSaving} onClick={onDismiss} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-ink">Lewati <X aria-hidden="true" className="hidden size-3.5 md:block" /></button>
         </header>
-        <form noValidate className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); next(); }}>
+        <form noValidate aria-busy={isSaving} className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); void next(); }}>
             <div ref={contentRef} className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-7 pt-3 md:px-6 md:pt-4">
                 {session.step === 1 && <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Akun siap · isi formulir</p>}
                 <h1 id="form-onboarding-title" ref={titleRef} tabIndex={-1} className="font-sans text-2xl font-bold leading-[1.15] tracking-tight outline-none md:text-[1.75rem]">{titles[session.step - 1]}</h1>
                 {descriptions[session.step - 1] && <p className="mt-2 hidden text-sm leading-relaxed text-ink-muted md:block">{descriptions[session.step - 1]}</p>}
-                <p id="form-demo-note" className={`mt-2 text-xs text-ink-muted ${session.step === 1 ? "" : "hidden md:block"}`}><span className="badge badge-neutral badge-xs mr-1.5">Contoh data</span>Pratinjau interaktif; nilai awal bisa kamu ubah.</p>
+                <p id="form-demo-note" className={`mt-2 text-xs text-ink-muted ${session.step === 1 ? "" : "hidden md:block"}`}>
+                    {preview.is_sample ? <span className="badge badge-neutral badge-xs">Data contoh</span> : "Data contoh ditandai terpisah dari temuan terverifikasi."}
+                </p>
                 {!storageAvailable && <p className="mt-2 text-xs text-ink-muted">Penyimpanan browser tidak tersedia. Isian berlaku selama halaman ini terbuka.</p>}
                 {Object.keys(errors).length > 0 && <p role="alert" className="mt-3 text-sm font-semibold text-error">Periksa isian yang ditandai sebelum melanjutkan.</p>}
-                <div className="mt-6">
-                    {session.step === 1 && <PurposeStep answers={session.answers} onChange={change} errors={errors} onStory={onStory} />}
+                <fieldset disabled={isSaving} className="mt-6">
+                    {session.step === 1 && <PurposeStep answers={session.answers} onChange={change} errors={errors} onStory={onStory} cities={preview.cities} citiesLoading={previewLoading} />}
                     {session.step === 2 && <BudgetStep answers={session.answers} onChange={change} errors={errors} />}
-                    {session.step === 3 && <JourneyStep answers={session.answers} onChange={change} errors={errors} />}
+                    {session.step === 3 && <JourneyStep answers={session.answers} onChange={change} errors={errors} destinations={preview.destinations} onMapPick={onMapPick} pickingDestination={pickingDestination} />}
                     {session.step === 4 && <PrioritiesStep answers={session.answers} onChange={change} errors={errors} />}
-                </div>
-                {preview.available && session.step >= 2 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan contoh yang lolos. Ubah anggaran, hunian, atau batas perjalanan untuk mencoba lagi.</p>}
+                </fieldset>
+                {session.step >= 2 && preview.available && <CostEstimate preview={preview} selectedDistrictId={selectedDistrictId}
+                    onSelectDistrict={onSelectDistrict} disabled={isSaving} />}
+                {session.step === 4 && <section aria-label="Ringkasan profil" className="mt-5 border-t border-rule pt-4 text-sm">
+                    <h2 className="font-semibold">Profil yang akan disimpan</h2>
+                    <dl className="mt-2 space-y-2">
+                        <div><dt className="text-xs text-ink-muted">Tujuan</dt><dd>{relocationGoalLabels[session.answers.goal]}</dd></div>
+                        <div><dt className="text-xs text-ink-muted">Anggaran / batas sewa</dt><dd>Rp{formatRupiah(session.answers.monthlyBudget)} / Rp{formatRupiah(session.answers.maximumRent)}</dd></div>
+                        <div><dt className="text-xs text-ink-muted">Perjalanan</dt><dd>{transportLabels[session.answers.transport]} · batas {session.answers.commuteMinutes} menit · {session.answers.destinationName ?? "Tujuan belum ditentukan"}</dd></div>
+                    </dl>
+                </section>}
+                {saveError && <p role="alert" className="alert alert-error mt-4 text-sm">{saveError}</p>}
+                {previewLoading && <p role="status" className="mt-4 text-sm text-ink-muted">Memuat data kecamatan…</p>}
+                {previewError && <p role="alert" className="mt-4 text-sm text-error">{previewError}<button type="button" onClick={onRetryPreview} className="btn btn-ghost min-h-11 px-2 text-xs text-primary underline">Coba lagi</button></p>}
+                {preview.available && session.step >= 2 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan yang memenuhi batas sewa dan biaya dari data tersedia. Perjalanan belum dinilai.</p>}
                 {preview.available && <details className="mt-5 border-t border-rule pt-1 text-xs" data-hci-region="onboarding-accessible-results">
                     <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
-                    <p className="mb-2 text-ink-muted">Contoh data sintetis. Batas kecamatan: BIG RBI. Nilai bukan pengamatan pasar.</p>
+                    <p className="mb-2 text-ink-muted">Sumber dan status data dicantumkan per kecamatan. Batas kecamatan memakai geometri tersimpan atau BIG RBI.</p>
                     <ul className="space-y-2" aria-label="Kecamatan dalam pratinjau">
-                        {preview.districts.map((item) => <li key={item.district.id}><strong>{session.step === 4 && item.rank ? `${item.rank}. ` : ""}{item.district.name}</strong>
-                            {session.step >= 2 && <span className="block leading-relaxed text-ink-muted">Sewa contoh Rp{formatRupiah(item.rent)} / bulan · {item.eligible ? "Lolos batas contoh" : item.exclusions.join("; ")}{session.step >= 3 && item.commuteMinutes !== null ? ` · ${item.commuteMinutes} mnt simulasi` : ""}</span>}
-                        </li>)}
+                        {preview.districts.map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={session.step}
+                            selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
                     </ul>
                 </details>}
             </div>
             <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-rule px-5 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-3 md:px-6 md:py-3.5">
-                <button type="button" aria-label="Kembali" onClick={() => { setErrors({}); if (session.step === 1) onStory(); else onStepChange((session.step - 1) as FormStep); }} className="btn btn-outline btn-neutral min-h-12 rounded-xl px-3 md:px-4">
+                <button type="button" disabled={isSaving} aria-label="Kembali" onClick={() => { setErrors({}); setSaveError(null); if (session.step === 1) onStory(); else onStepChange((session.step - 1) as FormStep); }} className="btn btn-outline btn-neutral min-h-12 rounded-xl px-3 md:px-4">
                     <ArrowLeft aria-hidden="true" className="size-4" /><span className="hidden md:inline">Kembali</span>
                 </button>
-                <button type="submit" className="btn btn-primary min-h-12 min-w-0 flex-1 rounded-xl px-4 md:flex-none md:px-5">{session.step === 4 ? "Selesai, buka peta" : "Lanjut"}<ArrowRight aria-hidden="true" className="size-4" /></button>
+                <button type="submit" disabled={isSaving} className="btn btn-primary min-h-12 min-w-0 flex-1 rounded-xl px-4 md:flex-none md:px-5">{isSaving ? "Menyimpan profil…" : session.step === 4 ? "Konfirmasi dan simpan" : "Lanjut"}<ArrowRight aria-hidden="true" className="size-4" /></button>
             </footer>
         </form>
     </dialog>;

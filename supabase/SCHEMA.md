@@ -1,6 +1,6 @@
 # Jejak database schema
 
-The schema has **31 active tables**. Prepared facts, private enrichment evidence,
+Prepared facts, private enrichment evidence,
 public aggregates, user decisions, subscriptions, and anonymous interaction
 telemetry have separate responsibilities.
 
@@ -62,6 +62,7 @@ Canonical geographic hierarchy and trusted boundaries.
 | `parent_region_code`, `kemendagri_code`, `bps_code` | Workbook parent and official administrative codes |
 | `geometry` | Nullable `MultiPolygon` in WGS84 / SRID 4326 |
 | `source_name`, `source_updated_at` | Boundary provenance |
+| `source_url`, `source_urls`, `code_source_name`, `code_source_url` | Research citations and separate official-code provenance |
 | `is_supported`, `created_at`, `updated_at` | Product coverage and audit fields |
 
 Types: country, province, regency, city, district, neighborhood, grid, metro.
@@ -84,6 +85,9 @@ Fields include the sheet columns `institution_code`, `institution_name`,
 `institution_type`, `website`, `source_name`, `source_url`, and `is_active`, plus
 internal identity/timestamp fields. The legacy `code`, `name`, and `source`
 columns stay synchronized for existing functions.
+
+The research import allows `is_active = NULL` for unknown activity rather
+than asserting that an unverified institution is active.
 
 ### 3. `places`
 
@@ -125,6 +129,12 @@ limitations, and sample fields where specified. Internal `id` columns and indexe
 support safe relationships and idempotent imports; they are not workbook fields.
 Repeat-import indexes include the region/institution, period, source, and relevant
 row dimension such as housing type or KBLI code.
+The research import extends program identity to the source program name
+when no official program code exists, supports broad KBLI groups up to 64
+characters, and uses institution plus campus name for non-OSM campus imports.
+It preserves unknown public-place names as `NULL`; public RPCs return an explicit
+unnamed-category label and include neighborhood points under their parent district
+without assigning city-only points to a kecamatan.
 Every varchar `source`/`source_name` label supports 255 characters, and reviewed
 read RPCs return full labels without truncating them.
 
@@ -132,6 +142,29 @@ read RPCs return full labels without truncating them.
 existing map RPCs. Housing metrics preserve housing type (the `kos` metric keeps
 the current base metric name); sector facts include their KBLI section. New
 campus/public-place rows are also included in the reviewed public-place/map reads.
+
+### Static research import (applied 2026-10-01)
+
+`living_cost_rates` and `monthly_budgets` are separate estimated-scenario tables,
+not observed cost distributions. They preserve tier, person count, assumptions
+and limitations, retrieval/as-of date, method version, and structured citations.
+Totals are constrained, and monthly budgets reference their living-cost scenario.
+They have RLS and service-role-only access and are not added to the observed-fact
+view or public cost RPCs.
+
+`private.static_import_batches` and `private.static_import_rows` retain workbook
+hash/version, original sheet/row identities, raw cells, transformed payloads,
+formula strings, issues, and prepared/review/baseline status. Both are private,
+RLS-enabled and service-role-only. The authorized `static-research-v1-baseline`
+import promoted all 11,403 data rows: 11,196 prepared plus 207 flagged baselines.
+Mixed-source shared periods remain unknown; housing aggregates remain derived.
+Structural/key/formula errors still block promotion. `unclassified_area` is
+allowed only when unsupported, without geometry or official codes.
+Existing region IDs, boundaries, and boundary
+provenance survive the generated upserts.
+
+See [Static data import preparation](../docs/Static_Data_Import_Preparation.md)
+for the local workflow, source-quality caveats, backup and hosted verification.
 
 ### 5. `region_data`
 
@@ -521,6 +554,7 @@ they are not the new write/read path.
 | `20260928161436` | Preserve/restore `get_map_cells()` after remote cleanup |
 | `20260930120000` | Sheet-shaped static data tables, catalog sheet columns, and static-data API reads |
 | `20260930130000` | Widen source labels to `varchar(255)` and retain full names through read RPCs |
+| `20261001100106` | Research identities/unknowns, structured citations, private audit, estimated scenarios, safe unclassified features and district child-place reads; authorized all-row baseline imported separately from the schema-only file |
 
 The three `202609260...` files were renamed from `20260926_*`, which sorted after
 every later `20260926hhmmss_*` file and shared one version. If the hosted project

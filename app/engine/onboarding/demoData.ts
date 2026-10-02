@@ -4,8 +4,16 @@ export const defaultWeights: Weights = { opportunity: 40, affordability: 30, mob
 export const defaultAnswers: FormAnswers = {
     goal: "work", occupation: "Software engineer", sector: null, studyField: "Teknologi informasi", education: "S1",
     city: "jakarta-selatan", experience: "early", monthlyBudget: 6_000_000, maximumRent: 2_500_000,
-    overBudget: "mark", housing: ["kos"], destinationId: "kuningan", transport: "transit",
+    overBudget: "mark", housing: ["kos"], destinationId: "kuningan", destinationName: null, destinationPoint: null, transport: "transit",
     commuteMinutes: 45, departure: "morning", weights: defaultWeights, extras: ["internet"],
+};
+
+// Interactive onboarding does not infer a destination or removed optional preferences.
+export const initialFormAnswers: FormAnswers = {
+    ...defaultAnswers,
+    destinationId: null,
+    experience: null,
+    extras: [],
 };
 
 // Office points represent areas, not exact buildings. Campus points are illustrative area anchors.
@@ -22,6 +30,7 @@ export const cityCenters = {
 } satisfies Record<string, [number, number]>;
 export const cityLabels = { "jakarta-selatan": "Jakarta Selatan", bandung: "Bandung", yogyakarta: "Yogyakarta", unsure: "Belum yakin" };
 export const transportLabels = { transit: "transport umum", motorcycle: "motor", car: "mobil", active: "jalan atau sepeda" };
+export const getDestination = (id: string | null) => demoDestinations.find((item) => item.id === id);
 export const formatRupiah = (value: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value);
 
 function district(id: string, name: string, center: [number, number], rent: number, career: number,

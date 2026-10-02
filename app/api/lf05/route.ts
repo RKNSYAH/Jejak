@@ -1,37 +1,40 @@
 import { interpretOnboardingStory } from "@/app/engine/controller/preferenceController";
 import { getAuthenticatedClaims } from "@/app/engine/controller/userServerController";
-import { isLangflowConfigured, LangflowError, type LangflowErrorCode } from "@/app/engine/lib/langflow";
+import { readJsonBody } from "@/app/engine/lib/http";
+import { flowErrorResponse, isLangflowConfigured, type FlowErrorMessages } from "@/app/engine/lib/langflow";
+import { SENSITIVE_TEXT } from "@/app/engine/lib/lf05Validation";
+import { isRecord } from "@/app/engine/lib/zoneGeometry";
+import { buildLF05FollowUpMessage, resolveLF05FollowUpDetails, validateClarificationAnswers, validateFollowUpDetails } from "@/app/engine/lib/lf05FollowUp";
+import { isRelocationGoal } from "@/app/engine/lib/relocationGoal";
 
 const MAX_MESSAGE_LENGTH = 4000;
-const SENSITIVE_INPUT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<!\d)(?:\d[ -]?){16}(?!\d)/iu;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export async function POST(request: Request) {
-  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-    return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+    const body = await readJsonBody(request);
+    if (body instanceof Response) return body;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON request" }, { status: 400 });
-  }
+    if (
+        !isRecord(body) || Object.keys(body).some((key) => !["message", "language", "clarification_answers", "goal", "details"].includes(key)) ||
+        typeof body.message !== "string" || body.message.trim().length === 0 || body.message.length > MAX_MESSAGE_LENGTH ||
+        (body.language !== "id" && body.language !== "en") || (body.goal !== undefined && !isRelocationGoal(body.goal))
+    ) {
+        return Response.json({ error: "Cerita tidak valid." }, { status: 400 });
+    }
 
-  if (
-    !isRecord(body) || Object.keys(body).some((key) => !["message", "language"].includes(key)) ||
-    typeof body.message !== "string" || body.message.trim().length === 0 || body.message.length > MAX_MESSAGE_LENGTH ||
-    (body.language !== "id" && body.language !== "en")
-  ) {
-    return Response.json({ error: "Invalid onboarding input" }, { status: 400 });
-  }
+    if (SENSITIVE_TEXT.test(body.message)) {
+        return Response.json({ error: "Hapus data pribadi sensitif sebelum melanjutkan." }, { status: 400 });
+    }
 
-  if (SENSITIVE_INPUT.test(body.message)) {
-    return Response.json({ error: "Remove sensitive personal information before continuing" }, { status: 400 });
-  }
+    let answers;
+    let details;
+    try {
+        answers = validateClarificationAnswers(body.clarification_answers);
+        details = resolveLF05FollowUpDetails(answers, validateFollowUpDetails(body.details));
+        buildLF05FollowUpMessage(body.message, answers, isRelocationGoal(body.goal) ? body.goal : undefined, details);
+    } catch (error) {
+        return Response.json({ error: error instanceof Error && error.message === "SENSITIVE_ONBOARDING_INPUT"
+            ? "Hapus data pribadi sensitif sebelum melanjutkan." : "Jawaban pertanyaan lanjutan tidak valid." }, { status: 400 });
+    }
 
   // LF-05 spends model credits, so only signed-in users can run it.
   const claims = await getAuthenticatedClaims().catch(() => null);
@@ -43,18 +46,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "Fitur analisis cerita belum siap. Coba lagi nanti." }, { status: 503 });
   }
 
-  try {
-    return Response.json({ profile: await interpretOnboardingStory(body.message, body.language) });
-  } catch (error) {
-    if (!(error instanceof LangflowError)) {
-      return Response.json({ error: "Ringkasan rencana tidak dapat digunakan. Coba lagi." }, { status: 502 });
+    try {
+        return Response.json({ profile: await interpretOnboardingStory(body.message, body.language, answers, isRelocationGoal(body.goal) ? body.goal : undefined, details) });
+    } catch (error) {
+        return flowErrorResponse(flowErrors, error);
     }
-    const [message, status] = flowErrors[error.code];
-    return Response.json({ error: message }, { status });
-  }
 }
 
-const flowErrors: Record<LangflowErrorCode, [string, number]> = {
+const flowErrors: FlowErrorMessages = {
   config: ["Fitur analisis cerita belum siap. Coba lagi nanti.", 503],
   timeout: ["Analisis rencana memerlukan waktu terlalu lama. Coba lagi.", 504],
   unreachable: ["Rencana belum bisa dianalisis. Coba lagi.", 502],

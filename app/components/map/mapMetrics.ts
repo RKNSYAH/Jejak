@@ -4,6 +4,11 @@ import { approxCount } from "@/app/engine/enrichment/labels";
 const number = (value: number) => value.toLocaleString("id-ID");
 const rupiah = (value: number) => `Rp${number(value)}`;
 
+export function rentSharePercent(wageToRentRatio: number | null): number | null {
+    if (wageToRentRatio === null || !Number.isFinite(wageToRentRatio) || wageToRentRatio <= 0) return null;
+    return Math.round(100 / wageToRentRatio);
+}
+
 export const mapCategories: Record<MapCategory, {
     label: string;
     panelLabel: string;
@@ -11,11 +16,11 @@ export const mapCategories: Record<MapCategory, {
     metric: string | null;
     format: (value: number) => string;
 }> = {
-    summary: { label: "Displayed regions", panelLabel: "Ringkasan", popupLabel: "Wage-to-rent ratio", metric: null, format: (value) => `${number(value)}×` },
-    employment: { label: "Company count (companies)", panelLabel: "Pekerjaan", popupLabel: "Companies", metric: "company_count", format: number },
-    education: { label: "Universities (count)", panelLabel: "Pendidikan", popupLabel: "Universities", metric: "universities", format: number },
-    housing: { label: "Median monthly rent (IDR)", panelLabel: "Hunian", popupLabel: "Median monthly rent", metric: "median_monthly_rent_idr", format: rupiah },
-    mobility: { label: "Public transport stops (count)", panelLabel: "Mobilitas", popupLabel: "Public transport stops", metric: "public_transport_stops", format: number },
+    summary: { label: "Kecamatan yang ditampilkan", panelLabel: "Ringkasan", popupLabel: "Sewa", metric: null, format: (value) => `${number(value)}%` },
+    employment: { label: "Jumlah perusahaan", panelLabel: "Pekerjaan", popupLabel: "Perusahaan", metric: "company_count", format: number },
+    education: { label: "Jumlah universitas", panelLabel: "Pendidikan", popupLabel: "Universitas", metric: "universities", format: number },
+    housing: { label: "Median sewa bulanan", panelLabel: "Hunian", popupLabel: "Median sewa bulanan", metric: "median_monthly_rent_idr", format: rupiah },
+    mobility: { label: "Jumlah halte transportasi umum", panelLabel: "Mobilitas", popupLabel: "Halte transportasi umum", metric: "public_transport_stops", format: number },
 };
 
 // Per-cell layers shown inside the selected district. A glow suits counts that

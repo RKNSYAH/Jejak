@@ -1,4 +1,6 @@
-import type { StoredRelocationProfile } from "./relocationProfile";
+import { RELOCATION_PROFILE_NAME, RELOCATION_PROFILE_SCHEMA_VERSION, type StoredRelocationProfile } from "./relocationProfile";
+import { isRecord } from "./zoneGeometry";
+import { getRelocationGoal } from "./relocationGoal";
 
 const CACHE_PREFIX = "jejak:relocation-profile:v1:";
 type CacheStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -8,18 +10,15 @@ function browserStorage(): CacheStorage | undefined {
     catch { return undefined; }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function isStoredRelocationProfile(value: unknown): value is StoredRelocationProfile {
     if (!isRecord(value) || !isRecord(value.profile)) return false;
     const profile = value.profile;
-    return typeof value.id === "string" && value.profile_name === "primary" &&
+    return typeof value.id === "string" && value.profile_name === RELOCATION_PROFILE_NAME &&
         Number.isInteger(value.revision) && Number(value.revision) > 0 &&
         typeof value.confirmed_at === "string" && typeof value.updated_at === "string" &&
-        profile.schema_version === "relocation-profile-v1" &&
+        profile.schema_version === RELOCATION_PROFILE_SCHEMA_VERSION &&
         isRecord(profile.hard_constraints) && isRecord(profile.soft_preferences) &&
+        getRelocationGoal({ hard_constraints: profile.hard_constraints, soft_preferences: profile.soft_preferences }) !== null &&
         isRecord(profile.priority_weights) && Object.values(profile.priority_weights).every((weight) => typeof weight === "number" && Number.isFinite(weight)) &&
         typeof profile.taxonomy_version === "string" && profile.contract_version === "lf05-v2";
 }

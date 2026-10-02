@@ -87,6 +87,8 @@ Use Snow (`#FFF9F9`) text on Sapphire (`#006AD8`) buttons, which gives about 5:1
 
 The brand palette and data-visualization palette have different roles. For quantitative map layers, use a sequential scale from Frosted Blue (`#9ED9EB`) to Sapphire (`#006AD8`), with clear lightness steps and a visible legend. If several categories must appear together, define a separate accessible data palette rather than inventing colors inside components.
 
+Priority charts reuse the five existing Jejak palette colors: career uses Sapphire (`primary`), housing Glaucous (`secondary`), commute Cobalt (`neutral`), education Frosted Blue (`accent`), and living costs Snow (`base-100`). Runtime aliases (`--color-priority-*`) keep each category's color fixed regardless of weight. Outline Snow segments and legend swatches so light fills remain visible. Each category retains a labeled legend swatch, including at 0%; bar widths represent the actual weights without minimum widths.
+
 ## Typography
 
 - **Display / Brand:** [Urbanist](https://fonts.google.com/specimen/Urbanist) - Weights 600 and 700. Used for the wordmark, page titles, city and zone names, section headings, and large metrics.

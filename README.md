@@ -222,4 +222,5 @@ GET /api/evidence/clusters?city_id=&scope=                approximate evidence c
 - [Database schema](supabase/SCHEMA.md): tables, evidence storage, and access contracts.
 - [Langflow AI specification](docs/Jejak_Langflow_AI_Specification.md): planned AI workflows and enrichment contracts.
 - [Static-data research handoff](docs/Static_Data_Research_Handoff.md): data sourcing and preparation.
+- [Static data import preparation](docs/Static_Data_Import_Preparation.md): offline workbook validation, local import verification, review queue, and separate database-promotion approval gate.
 - [Contributor instructions](AGENTS.md): repository conventions and implementation guidance.

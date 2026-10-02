@@ -1,4 +1,7 @@
 import type { LF05Taxonomy } from "../extractUserProfile";
+import { isStringList } from "./lf04Validation";
+import { isRecord } from "./zoneGeometry";
+import { isRelocationGoal } from "./relocationGoal";
 
 export type LF05ProposedProfile = {
   hard_constraints: Record<string, unknown>;
@@ -16,19 +19,13 @@ export type LF05ProposedProfile = {
 };
 
 const PROFILE_FIELDS = new Set([
-  "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
-  "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
+    "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
+    "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
+    "transport_mode", "destination",
 ]);
 const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living"]);
-const SENSITIVE_TEXT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<!\d)(?:\d[ -]?){16}(?!\d)/iu;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.length <= 100 && value.every((item) => typeof item === "string" && item.length <= 4000);
-}
+// Decimal coordinates are not identity-number strings.
+export const SENSITIVE_TEXT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<![\d.])(?:\d[ -]?){16}(?![\d.])/iu;
 
 function validateBudget(value: unknown) {
   if (!isRecord(value) || Object.keys(value).length !== 3) return false;
@@ -38,29 +35,50 @@ function validateBudget(value: unknown) {
   );
 }
 
+export function isLF05Destination(value: unknown): boolean {
+    return isRecord(value) && !Object.keys(value).some((key) => !["name", "precision", "latitude", "longitude"].includes(key)) &&
+        typeof value.name === "string" && !!value.name.trim() && value.name.length <= 200 &&
+        ["city", "area", "point"].includes(String(value.precision)) &&
+        (value.precision === "point" ? typeof value.latitude === "number" && Number.isFinite(value.latitude) && Math.abs(value.latitude) <= 90 &&
+            typeof value.longitude === "number" && Number.isFinite(value.longitude) && Math.abs(value.longitude) <= 180
+            : value.latitude === undefined && value.longitude === undefined);
+}
+
 function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Taxonomy) {
   const sectorIds = new Set(taxonomy.sectors.map(({ id }) => id));
   const occupationIds = new Set(taxonomy.occupations.map(({ id }) => id));
 
-  for (const [field, value] of Object.entries(values)) {
-    if (!PROFILE_FIELDS.has(field)) return false;
-    if (value === null) continue;
-    if (field === "monthly_budget" || field === "housing_budget") {
-      if (!validateBudget(value)) return false;
-      continue;
-    }
-    if (field === "commute_minutes") {
-      if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 240) return false;
-      continue;
-    }
-    if (Array.isArray(value)) {
-      if (!isStringArray(value)) return false;
-      if (field === "target_fields" && value.some((id) => !sectorIds.has(id))) return false;
-      if (field === "target_occupations" && value.some((id) => !occupationIds.has(id))) return false;
-      continue;
-    }
-    if (typeof value === "object" || (typeof value !== "string" && typeof value !== "number")) return false;
-    if (typeof value === "number" && !Number.isFinite(value)) return false;
+    for (const [field, value] of Object.entries(values)) {
+        if (!PROFILE_FIELDS.has(field)) return false;
+        if (value === null) continue;
+        if (field === "goal") {
+            if (!isRelocationGoal(value)) return false;
+            continue;
+        }
+        if (field === "transport_mode") {
+            if (typeof value !== "string" || !["transit", "motorcycle", "car", "active"].includes(value)) return false;
+            continue;
+        }
+        if (field === "destination") {
+            if (!isLF05Destination(value)) return false;
+            continue;
+        }
+        if (field === "monthly_budget" || field === "housing_budget") {
+            if (!validateBudget(value)) return false;
+            continue;
+        }
+        if (field === "commute_minutes") {
+            if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 240) return false;
+            continue;
+        }
+        if (Array.isArray(value)) {
+            if (!isStringList(value)) return false;
+            if (field === "target_fields" && value.some((id) => !sectorIds.has(id))) return false;
+            if (field === "target_occupations" && value.some((id) => !occupationIds.has(id))) return false;
+            continue;
+        }
+        if (typeof value === "string") continue;
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
   }
 
   return true;
@@ -72,8 +90,8 @@ export function validateLF05Proposal(value: unknown, taxonomy: LF05Taxonomy): LF
   if (
     !isRecord(value.hard_constraints) || !validateProfileValues(value.hard_constraints, taxonomy) ||
     !isRecord(value.soft_preferences) || !validateProfileValues(value.soft_preferences, taxonomy) ||
-    !isRecord(value.priority_weights) || !isStringArray(value.inferred_fields) ||
-    !isStringArray(value.clarification_questions) || value.requires_confirmation !== true || value.confirmed !== false ||
+    !isRecord(value.priority_weights) || !isStringList(value.inferred_fields) ||
+    !isStringList(value.clarification_questions) || value.requires_confirmation !== true || value.confirmed !== false ||
     value.taxonomy_version !== taxonomy.version || value.contract_version !== "lf05-v2" || value.writes_performed !== false ||
     !isRecord(value.decision_trace) || !("runtime_usage" in value)
   ) {

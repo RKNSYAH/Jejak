@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { applyMigrations, createDatabase } from "../../supabase/tests/bootstrap.mjs";
 
 // Local-only Auth/Data API fixture. Production code still verifies every session.
 const secret = randomBytes(32);
@@ -10,6 +11,18 @@ const user = {
     created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
     app_metadata: { provider: "email", providers: ["email"] }, user_metadata: { name: "Map test user" },
 };
+
+// Profile tests use the real migration/RPC and RLS, not a response echo.
+const database = await createDatabase();
+await applyMigrations(database);
+await database.query("insert into auth.users (id) values ($1)", [user.id]);
+const serviceKey = "e2e-local-service-role";
+
+async function readBody(request) {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    return JSON.parse(raw);
+}
 
 function session(expired = false) {
     const now = Math.floor(Date.now() / 1000);
@@ -52,12 +65,42 @@ createServer(async (request, response) => {
     if (request.method === "OPTIONS") return send(204);
     const url = new URL(request.url, "http://127.0.0.1:3101");
     if (url.pathname === "/health") return send(200, { status: "ok" });
+    // Deterministic model boundary. Next's LF-05 route/controller still run in full.
+    if (url.pathname === "/api/v2/workflows" && request.method === "POST") {
+        if (request.headers["x-api-key"] !== "e2e-langflow-key") return send(401, { message: "Invalid workflow key" });
+        const body = await readBody(request);
+        if (body.flow_id !== "8feff2fc-81df-438d-8dae-c10563f1ab67") return send(400, { message: "Only LF-05 is available" });
+        const input = JSON.parse(body.input_value);
+        const hasBudget = /Rp6 juta/.test(input.message);
+        const reportedStory = /punya budget 5jt per bulan 2jt untuk kos/.test(input.message);
+        const unknownBudgetStory = /software engineer budget belum tahu/.test(input.message);
+        const goal = /\b(?:bekerja|kerja)\b|Jawaban: Kerja/.test(input.message) ? "work" : null;
+        const hasDestination = /kantor di Kuningan/.test(input.message);
+        const hasTransport = /transportasi umum/.test(input.message);
+        const profile = {
+            hard_constraints: reportedStory ? {
+                monthly_budget: { amount: 5000000, currency: "IDR", period: "month" },
+                housing_budget: { amount: 2000000, currency: "IDR", period: "month" }, destination_cities: ["Jakarta Selatan"],
+            } : hasBudget ? { monthly_budget: { amount: 6000000, currency: "IDR", period: "month" } } : {},
+            soft_preferences: { goal, ...(reportedStory ? { target_occupations: ["software_engineer"], target_fields: ["software_and_it_services"] } : {}),
+                ...(hasDestination ? { destination: { name: "Kuningan", precision: "area" } } : {}),
+                // Unsupported model guess must never become a user's transport choice.
+                ...(hasTransport ? { transport_mode: "transit" } : unknownBudgetStory ? { transport_mode: "car" } : {}) },
+            priority_weights: reportedStory ? { career: 0.31, housing: 0.30, commute: 0.24, education: 0, cost_of_living: 0.15 } : {},
+            inferred_fields: reportedStory ? ["goal", "priorities"] : goal ? ["goal"] : [],
+            // Deliberately omit commute even after receiving 45. The application must preserve explicit answers.
+            clarification_questions: reportedStory ? ["Berapa lama waktu perjalanan sekali jalan yang masih bisa Anda terima (dalam menit)?"]
+                : hasBudget ? [] : ["Berapa anggaran bulananmu?", "Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"],
+            requires_confirmation: true, confirmed: false, writes_performed: false,
+            taxonomy_version: "2026-09", contract_version: "lf05-v2",
+            decision_trace: { received_message: input.message }, runtime_usage: null,
+        };
+        return send(200, { object: "response", status: "completed", has_errors: false, output: { text: JSON.stringify(profile) } });
+    }
     if (url.pathname === "/auth/v1/token" && request.method === "POST") {
         let body;
         try {
-            let raw = "";
-            for await (const chunk of request) raw += chunk;
-            body = JSON.parse(raw);
+            body = await readBody(request);
         } catch {
             return send(400, { code: "bad_json", message: "Invalid JSON" });
         }
@@ -72,9 +115,40 @@ createServer(async (request, response) => {
         }
         return send(400, { code: "invalid_credentials", message: "Invalid login credentials" });
     }
-    if (!authenticated(request)) return send(401, { code: "bad_jwt", message: "Invalid JWT" });
+    const isService = request.headers.authorization === `Bearer ${serviceKey}`;
+    if (!isService && !authenticated(request)) return send(401, { code: "bad_jwt", message: "Invalid JWT" });
     if (url.pathname === "/auth/v1/user") return send(200, user);
     if (url.pathname === "/auth/v1/logout") return send(204);
+    if (url.pathname === "/rest/v1/rpc/save_confirmed_relocation_profile" && request.method === "POST") {
+        if (!isService) return send(403, { message: "Service role required" });
+        try {
+            const body = await readBody(request);
+            const rows = await database.transaction(async (tx) => {
+                await tx.exec("set local role service_role");
+                return (await tx.query("select * from public.save_confirmed_relocation_profile($1, $2, $3::jsonb)",
+                    [body.p_user_id, body.p_profile_name, JSON.stringify(body.p_profile)])).rows;
+            });
+            return send(200, rows);
+        } catch (error) { return send(400, { message: error.message }); }
+    }
+    if (url.pathname === "/rest/v1/relocation_profiles" && request.method === "GET") {
+        try {
+            const filter = (key) => url.searchParams.get(key)?.replace(/^eq\./, "") ?? null;
+            const rows = await database.transaction(async (tx) => {
+                await tx.exec(isService ? "set local role service_role" : "set local role authenticated");
+                await tx.query("select set_config('request.jwt.claim.sub', $1, true)", [user.id]);
+                return (await tx.query(`select id, profile_name, revision, profile, confirmed_at, updated_at
+                    from public.relocation_profiles where confirmed
+                    and ($1::uuid is null or user_id = $1::uuid)
+                    and ($2::bigint is null or id = $2::bigint)
+                    and ($3::text is null or profile_name = $3::text)
+                    order by revision desc limit 1`, [filter("user_id"), filter("id"), filter("profile_name")])).rows;
+            });
+            const single = request.headers.accept?.includes("application/vnd.pgrst.object+json");
+            if (single && rows.length !== 1) return send(406, { code: "PGRST116", message: "Expected one row" });
+            return send(200, single ? rows[0] : rows);
+        } catch (error) { return send(400, { message: error.message }); }
+    }
     if (url.pathname.startsWith("/rest/v1/")) return send(200, []);
     return send(404, { message: "Unknown fixture endpoint" });
 }).listen(3101, "127.0.0.1");

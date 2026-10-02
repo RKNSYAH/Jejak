@@ -24,7 +24,9 @@ export default defineConfig({
         env: {
             NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3101",
             NEXT_PUBLIC_SUPABASE_ANON_KEY: "e2e-publishable-key",
-            SUPABASE_SERVICE_ROLE_KEY: "",
+            SUPABASE_SERVICE_ROLE_KEY: "e2e-local-service-role",
+            NEXT_LANGFLOW_URL: "http://127.0.0.1:3101/api/v2/workflows",
+            NEXT_LANGFLOW_API_KEY: "e2e-langflow-key",
         },
         reuseExistingServer: false,
         timeout: 300_000,

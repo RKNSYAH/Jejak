@@ -37,7 +37,7 @@ const REQUEST_FIELDS = new Set(["fit_components", "accepted_snapshot", "source_c
 const COVERAGES = new Set(["complete", "partial", "insufficient", "unavailable"]);
 const PROSE_LISTS = ["strengths", "trade_offs", "evidence_gaps", "suggested_next_actions"] as const;
 
-function isStringList(value: unknown, maxItems = 100): value is string[] {
+export function isStringList(value: unknown, maxItems = 100): value is string[] {
     return Array.isArray(value) && value.length <= maxItems && value.every((item) => typeof item === "string" && item.length <= 4000);
 }
 

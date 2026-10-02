@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { X } from "lucide-react";
 
-import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
+import type { MapCategory, RegionFact, ZoneDetailResult } from "@/app/engine/types";
 import { formatFactValue, mapCategories, metricLabels } from "./mapMetrics";
 
 type ZoneIntelligencePanelProps = {
@@ -30,6 +30,13 @@ function getMaxPanelWidth() {
   );
 }
 
+const evidenceLabels: Record<RegionFact["evidence_type"], string> = {
+  observed: "Data tercatat",
+  estimated: "Estimasi dari data tersedia",
+  derived: "Dihitung dari data",
+  unavailable: "Belum ada data",
+};
+
 const categoryMetrics: Record<MapCategory, string[]> = {
   summary: ["population", "employment_rate", "average_monthly_wage_idr", "company_count", "universities", "median_monthly_rent_idr", "public_transport_stops"],
   employment: ["employment_rate", "average_monthly_wage_idr", "company_count"],
@@ -50,19 +57,19 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{mapCategories[category].panelLabel}</p>
         <h2 id={`${idPrefix}-title`} className="mt-1 font-sans text-2xl font-bold text-ink">{zoneName}</h2>
       </div>
-      <button type="button" className="btn btn-ghost btn-square size-11" onClick={onClose} aria-label={`Close ${zoneName} details`}>
+      <button type="button" className="btn btn-ghost btn-square size-11" onClick={onClose} aria-label={`Tutup detail ${zoneName}`}>
         <X aria-hidden="true" className="size-5" />
       </button>
     </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 pb-[max(1rem,env(safe-area-inset-bottom))] wrap-break-word md:px-5 md:pb-15">
-      {isSample && <p className="mb-4 text-sm text-ink"><span className="badge badge-neutral badge-sm font-semibold">Sample data</span> Illustrative values, not verified observations.</p>}
+      {isSample && <p className="mb-4 text-sm text-ink"><span className="badge badge-neutral badge-sm font-semibold">Data contoh</span> Nilai ilustratif, bukan pengamatan terverifikasi.</p>}
       <div role="status" aria-live="polite" className="text-sm">
-        {loading && <p className="mb-3">Loading regional data…</p>}
-        {error && <p className="mb-3">{error} Previously loaded data may still be shown.</p>}
-        {geometryMissing && <p className="mb-3">A boundary is not available for this region.</p>}
+        {loading && <p className="mb-3">Memuat data kecamatan…</p>}
+        {error && <p className="mb-3">{error} Data sebelumnya mungkin masih ditampilkan.</p>}
+        {geometryMissing && <p className="mb-3">Batas kecamatan tidak tersedia.</p>}
       </div>
-      {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Retry</button>}
-      {!loading && !available && <p className="text-sm text-ink-muted">No {mapCategories[category].panelLabel.toLowerCase()} data is available for this region yet.</p>}
+      {!loading && (error || geometryMissing) && <button type="button" className="btn btn-sm btn-outline btn-neutral mb-4 min-h-11" onClick={onRetry}>Coba lagi</button>}
+      {!loading && !available && <p className="text-sm text-ink-muted">Belum ada data {mapCategories[category].panelLabel.toLowerCase()} untuk kecamatan ini.</p>}
       {available && <dl className="grid gap-3">
         {categoryMetrics[category].map((metric, index) => {
           const fact = facts[index];
@@ -72,21 +79,21 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
             <div key={metric} className="card border border-rule shadow-sm p-4">
               <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
               <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{value}</dd>
-              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Sample · " : ""}{fact.evidence_type} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · period unavailable"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% confidence` : ""}</dd>
-              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">View source</a></dd>}
+              <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Contoh · " : ""}{evidenceLabels[fact.evidence_type]} · {fact.source}{fact.period_end ? ` · ${fact.period_end}` : " · periode belum tersedia"}{fact.confidence != null ? ` · ${Math.round(fact.confidence * 100)}% keyakinan` : ""}</dd>
+              {fact.source_url && <dd className="mt-1 text-xs"><a className="link link-primary" href={fact.source_url} target="_blank" rel="noopener noreferrer">Lihat sumber</a></dd>}
               {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
             </div>
           );
         })}
       </dl>}
-      {campuses.length > 0 && <section className="mt-6" aria-label="Campuses">
-        <h3 className="font-sans text-lg font-bold">Campuses</h3>
+      {campuses.length > 0 && <section className="mt-6" aria-label="Kampus">
+        <h3 className="font-sans text-lg font-bold">Kampus</h3>
         <ul className="mt-2 space-y-3 text-sm">{campuses.map((place) => <li key={place.id}>
           <p className="font-semibold">{place.name}</p>
-          <p className="text-xs text-ink-muted">{place.is_sample ? "Sample · " : ""}{place.source}{place.observed_at ? ` · ${place.observed_at.slice(0, 10)}` : ""}</p>
+          <p className="text-xs text-ink-muted">{place.is_sample ? "Contoh · " : ""}{place.source}{place.observed_at ? ` · ${place.observed_at.slice(0, 10)}` : ""}</p>
         </li>)}</ul>
       </section>}
-      <p className="mt-6 text-xs text-ink-muted">Missing figures are unavailable, not zero. Regional totals do not imply a precise location or a personal fit score.</p>
+      <p className="mt-6 text-xs text-ink-muted">Data yang belum tersedia bukan berarti nol. Total wilayah tidak menunjukkan lokasi persis atau skor kecocokan pribadi.</p>
     </div>
   </div>
   );

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { postgis } from '@electric-sql/pglite-postgis';
+import { asRole } from './bootstrap.mjs';
 
 // Real PostgreSQL + PostGIS in memory; no remote database or credentials.
 // Bootstrap only the Supabase roles and auth objects used by the migrations.
@@ -196,6 +197,36 @@ test('migration chain and database contracts', async (t) => {
     } finally {
       await db.exec('reset role');
     }
+  });
+
+  await t.test('map wage-to-rent ratio uses parent-region wage and local rent', async () => {
+    await asRole(db, 'service_role', async () => {
+      await db.exec(`insert into public.regions
+        (region_code, region_name, region_type, source_name, is_supported)
+        values ('ratio-dki', 'DKI Jakarta', 'province', 'BPS', true)`);
+      await db.exec(`insert into public.regions
+        (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('ratio-jakarta-selatan', 'Jakarta Selatan', 'ratio-dki', 'city', 'BPS', true)`);
+      await db.exec(`insert into public.regions
+        (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('ratio-tebet', 'Tebet', 'ratio-jakarta-selatan', 'district', 'BPS', true)`);
+      await db.exec(`insert into public.wages_income
+        (region_code, average_monthly_wage_idr, period_end, source_name, evidence_type)
+        values ('ratio-jakarta-selatan', 8000000, '2025-12-31', 'BPS', 'observed'),
+          ('ratio-tebet', 4000000, '2025-12-31', 'Local sample', 'observed')`);
+      await db.exec(`insert into public.housing_statistics
+        (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+        values ('ratio-jakarta-selatan', 'kos', 8000000, '2025-12-31', 'BPS', 'observed'),
+          ('ratio-tebet', 'kos', 2000000, '2025-12-31', 'Local sample', 'observed')`);
+    });
+
+    await asRole(db, 'anon', async () => {
+      const tebet = await one(`select * from public.get_map_regions('ratio-jakarta-selatan', false)`);
+      assert.equal(tebet.region_code, 'ratio-tebet');
+      assert.equal(Number(tebet.average_monthly_wage_idr), 4000000, 'returned wage field remains district-local');
+      assert.equal(Number(tebet.median_monthly_rent_idr), 2000000, 'rent remains district-local');
+      assert.equal(Number(tebet.wage_to_rent_ratio), 4, 'ratio uses parent city wage / district rent');
+    });
   });
 
   await t.test('backend RPCs deny browser execution even with legacy default grants', async () => {

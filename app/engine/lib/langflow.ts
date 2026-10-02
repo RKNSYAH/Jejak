@@ -25,6 +25,14 @@ export class LangflowError extends Error {
     }
 }
 
+export type FlowErrorMessages = Record<LangflowErrorCode, [message: string, status: number]>;
+
+// Any non-Langflow failure means the flow's output did not pass validation.
+export function flowErrorResponse(messages: FlowErrorMessages, error: unknown): Response {
+    const [message, status] = messages[error instanceof LangflowError ? error.code : "invalid_output"];
+    return Response.json({ error: message }, { status });
+}
+
 type Environment = Record<string, string | undefined>;
 
 export function getLangflowConfig(env: Environment = process.env): { endpoint: URL; apiKey: string } {

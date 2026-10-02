@@ -4,7 +4,7 @@ import { normalizeGeometry, getGeometryBounds } from "../app/engine/lib/zoneGeom
 import { toZone, toZoneDetails, validateCellQuery, validateZoneQuery } from "../app/engine/controller/zoneController";
 import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
 import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
-import { cellLayers, cellMetrics, formatFactValue, mapCategories } from "../app/components/map/mapMetrics";
+import { cellLayers, cellMetrics, formatFactValue, mapCategories, rentSharePercent } from "../app/components/map/mapMetrics";
 import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
 import { getMapCells, getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
 import { BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "../app/engine/lib/zoneRequestTimeouts";
@@ -103,6 +103,11 @@ test("category joins distinguish zero, missing values, and summary", () => {
     assert.deepEqual(createZoneLayerData(geometry, details, "summary").features.map((feature) => feature.properties.value), [null, null]);
     assert.deepEqual(createZoneLayerData(geometry, details, "housing").features.map((feature) => feature.properties.zone_id), ["pancoran", "setiabudi"]);
     assert.equal(createZoneLayerData({ type: "FeatureCollection", features: [] }, details, "summary").features.length, 0);
+    assert.equal(rentSharePercent(3.65), 27);
+    assert.equal(rentSharePercent(null), null);
+    assert.equal(rentSharePercent(0), null);
+    assert.equal(mapCategories.summary.popupLabel, "Sewa");
+    assert.equal(mapCategories.summary.format(27), "27%");
     assert.equal(mapCategories.housing.format(1900000), "Rp1.900.000");
     assert.equal(formatFactValue({ metric: "median_monthly_rent_idr", value: 1900000, unit: "IDR", source: "SAMPLE", period_end: null, evidence_type: "estimated", limitations: null, is_sample: true }), "Rp1.900.000/month");
 });
@@ -191,9 +196,9 @@ test("validated boundary cache expires and stays bounded", async (context) => {
     now += 31 * 24 * 60 * 60 * 1000;
     await getZoneBoundary(row);
     assert.equal(calls, 2);
-    for (let index = 0; index < 128; index++) await getZoneBoundary(providerRow(`provider-eviction-${index}`));
+    for (let index = 0; index < 256; index++) await getZoneBoundary(providerRow(`provider-eviction-${index}`));
     await getZoneBoundary(row);
-    assert.equal(calls, 131);
+    assert.equal(calls, 259);
 });
 
 test("district colors remain data driven", () => {

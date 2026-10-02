@@ -7,6 +7,10 @@ function isNullableNumber(value: unknown): value is number | null {
     return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
+export function isNullableString(value: unknown): value is string | null {
+    return value === null || typeof value === "string";
+}
+
 export async function getJson(url: string, signal: AbortSignal, timeoutMs = ZONE_REQUEST_TIMEOUT_MS): Promise<unknown> {
     const timeout = AbortSignal.timeout(timeoutMs);
     let res: Response;

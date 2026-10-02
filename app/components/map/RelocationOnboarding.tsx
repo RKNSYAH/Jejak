@@ -1,35 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  CheckSquare,
-  Mic,
-  Search,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckSquare, Mic, X } from "lucide-react";
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
-import type { LF05ProposedProfile } from "../../engine/lib/lf05Validation";
+import { validateLF05Proposal, type LF05ProposedProfile } from "../../engine/lib/lf05Validation";
 import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
-import { isStoredRelocationProfile } from "../../engine/lib/relocationProfileCache";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
-import type { FormSession } from "../../engine/onboarding/types";
+import { isRecord } from "../../engine/lib/zoneGeometry";
+import { formatRupiah } from "../../engine/onboarding/demoData";
+import { STORY_DRAFT_KEY, type FormSession } from "../../engine/onboarding/types";
+import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
+import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
+import { applyLF05ExplicitDetails, getLF05ClarificationField, getLF05TargetCity, groundLF05Transport, parseLF05CommuteAnswer, type LF05ClarificationAnswer, type LF05FollowUpDetails } from "../../engine/lib/lf05FollowUp";
+import { getLF05TransportQuestion, parseLF05TransportAnswer } from "../../engine/lib/lf05Transport";
+import { RadioChoices } from "./onboarding/FormControls";
 
-const DRAFT_KEY = "jejak:relocation-onboarding";
 const MAX_STORY_LENGTH = 1000;
 
-const placeholderStory = `Saya berencana pindah ke Jakarta Selatan untuk bekerja sebagai software engineer di sektor teknologi. Saya ingin mencari kos dengan biaya sewa sekitar Rp4 juta per bulan. Prioritas utama saya adalah karier, jadi saya ingin memastikan waktu tempuh ke kantor tidak lebih dari 45 menit. Saya juga mempertimbangkan transportasi umum sebagai pilihan utama untuk perjalanan ke kantor. Terima kasih!`;
+const placeholderStory = "Saya berencana pindah untuk bekerja di bidang teknologi. Saya mencari kos dengan batas sewa dan anggaran bulanan tertentu. Saya lebih nyaman naik transportasi umum dan ingin memahami pilihan kecamatan yang sesuai.";
 
-export const officeLocations = [
-  { name: "Kuningan", longitude: 106.8304, latitude: -6.2297 },
-  { name: "SCBD", longitude: 106.8098, latitude: -6.2253 },
-  { name: "TB Simatupang", longitude: 106.8008, latitude: -6.2912 },
-] as const;
-
-export type OfficeChoice = (typeof officeLocations)[number]["name"] | "Belum tahu" | "Dipilih di peta";
+export type OfficeChoice = "Belum tahu" | "Dipilih di peta";
 type TransportChoice = "Transport umum" | "Motor" | "Mobil";
 type Step = 0 | 1 | 2 | 3;
 
@@ -40,6 +31,11 @@ type Draft = {
   transport: TransportChoice | null;
   confirmedFields?: Record<string, boolean>;
   proposal?: LF05ProposedProfile | null;
+  clarificationAnswers?: Record<string, string>;
+  explicitGoal?: RelocationGoal | null;
+  analyzedInput?: string | null;
+  mapPoint?: MapPoint | null;
+  language?: string;
 };
 
 export type MapPoint = { longitude: number; latitude: number };
@@ -49,6 +45,7 @@ type RelocationOnboardingProps = {
   savedProfileLoaded: boolean;
   onSaveProfile: (profile: StoredRelocationProfile) => void;
   mapPoint: MapPoint | null;
+  onMapPointChange: (point: MapPoint | null) => void;
   selectedOffice: OfficeChoice;
   onOfficeChange: (office: OfficeChoice) => void;
   onMapPickingChange: (picking: boolean) => void;
@@ -59,20 +56,19 @@ type RelocationOnboardingProps = {
   onOpenForm: () => void;
 };
 
-const profileFieldLabels: Record<string, string> = {
-  goal: "Tujuan",
-  target_fields: "Bidang",
-  target_occupations: "Pekerjaan",
-  destination_cities: "Kota tujuan",
-  monthly_budget: "Anggaran bulanan",
-  housing_budget: "Batas biaya hunian",
-  commute_minutes: "Waktu tempuh maksimal",
-  work_arrangement: "Pola kerja",
-  education_level: "Jenjang pendidikan",
-  language_preferences: "Bahasa",
-  priorities: "Prioritas",
-  deal_breakers: "Syarat wajib",
-};
+// Profile fields in display order, with their labels.
+const profileFields: [field: string, label: string][] = [
+  ["goal", "Tujuan"],
+  ["target_occupations", "Pekerjaan"],
+  ["target_fields", "Sektor"],
+  ["destination_cities", "Kota tujuan"],
+  ["housing_budget", "Batas sewa"],
+  ["monthly_budget", "Anggaran bulanan"],
+  ["commute_minutes", "Waktu tempuh"],
+  ["transport_mode", "Moda transportasi"],
+  ["destination", "Lokasi tujuan"],
+];
+const profileFieldLabels: Record<string, string> = { ...Object.fromEntries(profileFields), priorities: "Prioritas" };
 
 const priorityLabels: Record<string, string> = {
   career: "Karier",
@@ -80,29 +76,25 @@ const priorityLabels: Record<string, string> = {
   commute: "Waktu tempuh",
   education: "Pendidikan",
   cost_of_living: "Biaya hidup",
+  environment: "Lingkungan",
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isOfficeClarification(question: string) {
-  return /\b(kantor|office|workplace|work location|lokasi kerja|tempat kerja)\b|where.{0,24}work/iu.test(question);
-}
-
-function isTransportClarification(question: string) {
-  return /\b(transport(?:asi|ation)?|angkutan|moda|naik apa|kendaraan|commute mode|travel mode)\b|how.{0,24}(travel|commute|get to work)/iu.test(question);
+function formatWeight(key: string, weight: number) {
+  return `${priorityLabels[key] ?? key} ${Math.round(weight * 100)}%`;
 }
 
 function formatProfileValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return "Belum disebut";
+  if (Array.isArray(value) && value.length === 0) return "Belum disebut";
   if ((field === "monthly_budget" || field === "housing_budget") && isRecord(value) && typeof value.amount === "number") {
-    return `${new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value.amount)} / bulan`;
+    return `Rp${formatRupiah(value.amount)} / bulan`;
   }
   if (field === "commute_minutes" && typeof value === "number") return `${value} menit`;
   if (field === "goal" && typeof value === "string") {
-    return ({ work: "Kerja", study: "Studi", both: "Kerja dan studi" } as Record<string, string>)[value] ?? value;
+    return relocationGoalLabels[value as RelocationGoal] ?? value;
   }
+  if (field === "transport_mode" && typeof value === "string") return ({ transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Jalan atau sepeda" } as Record<string, string>)[value] ?? value;
+  if (field === "destination" && isRecord(value) && typeof value.name === "string") return value.name;
   if (field === "target_fields" && Array.isArray(value)) {
     return value.map((id) => onboardingTaxonomy.sectors.find((item) => item.id === id)?.label ?? String(id)).join(", ");
   }
@@ -120,49 +112,34 @@ type ProfileDisplayRow = {
   label: string;
   value: string;
   inferred: boolean;
+  missing: boolean;
   priorityWeights?: Record<string, number>;
 };
 
 function getProfileRows(profile: LF05ProposedProfile): ProfileDisplayRow[] {
-  const definitions = [
-    { field: "goal", label: "Tujuan" },
-    { field: "target_occupations", label: "Pekerjaan" },
-    { field: "target_fields", label: "Sektor" },
-    { field: "destination_cities", label: "Kota tujuan" },
-    { field: "housing_budget", label: "Batas sewa" },
-    { field: "monthly_budget", label: "Anggaran bulanan" },
-    { field: "commute_minutes", label: "Waktu tempuh" },
-    { field: "work_arrangement", label: "Pola kerja" },
-    { field: "education_level", label: "Jenjang pendidikan" },
-    { field: "language_preferences", label: "Bahasa" },
-    { field: "deal_breakers", label: "Syarat wajib" },
-  ];
   const rows: ProfileDisplayRow[] = [];
 
-  for (const { field, label } of definitions) {
+  for (const [field, label] of profileFields) {
     const value = profile.hard_constraints[field] ?? profile.soft_preferences[field];
-    if (value === undefined || value === null) continue;
     rows.push({
       key: field,
       field,
       label,
       value: formatProfileValue(field, value),
       inferred: profile.inferred_fields.includes(field),
+      missing: value === undefined || value === null || (Array.isArray(value) && value.length === 0),
     });
   }
 
-  if (Object.keys(profile.priority_weights).length > 0 || profile.inferred_fields.includes("priorities")) {
-    rows.push({
-      key: "priorities",
-      field: "priorities",
-      label: "Prioritas",
-      value: Object.entries(profile.priority_weights)
-        .map(([field, weight]) => `${priorityLabels[field] ?? field} ${Math.round(weight * 100)}%`)
-        .join(" · ") || "Belum ditentukan",
-      inferred: profile.inferred_fields.includes("priorities"),
-      priorityWeights: profile.priority_weights,
-    });
-  }
+  rows.push({
+    key: "priorities",
+    field: "priorities",
+    label: "Prioritas",
+    value: Object.entries(profile.priority_weights).map(([key, weight]) => formatWeight(key, weight)).join(" · ") || "Belum ditentukan",
+    inferred: profile.inferred_fields.includes("priorities"),
+    missing: Object.keys(profile.priority_weights).length === 0,
+    priorityWeights: profile.priority_weights,
+  });
 
   return rows;
 }
@@ -174,20 +151,14 @@ function getInferredValue(field: string, rows: ProfileDisplayRow[]) {
   return rows.find((row) => row.field === field)?.value ?? "Periksa kembali cerita Anda";
 }
 
-function priorityShade(weight: number) {
-  if (weight >= 0.4) return "bg-primary";
-  if (weight >= 0.25) return "bg-primary/80";
-  if (weight >= 0.15) return "bg-primary/60";
-  return "bg-primary/40";
+function priorityColor(key: string) {
+  return `var(--color-priority-${key.replaceAll("_", "-")}, var(--color-ink))`;
 }
 
 function PriorityWeights({ weights }: { weights: Record<string, number> }) {
-  const entries = Object.entries(weights);
-  const accessibleSummary = entries
-    .map(([key, weight]) => `${priorityLabels[key] ?? key} ${Math.round(weight * 100)}%`)
-    .join(", ");
-
-  if (!entries.length) return <span>Belum ditentukan</span>;
+  if (!Object.keys(weights).length) return <span>Belum ditentukan</span>;
+  const entries = ["career", "housing", "commute", "education", "cost_of_living"].map((key) => [key, weights[key] ?? 0] as const);
+  const accessibleSummary = entries.map(([key, weight]) => formatWeight(key, weight)).join(", ");
 
   return (
     <div className="min-w-0">
@@ -199,15 +170,20 @@ function PriorityWeights({ weights }: { weights: Record<string, number> }) {
         {entries.map(([key, weight]) => (
           <span
             key={key}
-            title={`${priorityLabels[key] ?? key}: ${Math.round(weight * 100)}%`}
-            className={`h-full ${priorityShade(weight)}`}
-            style={{ width: `${weight * 100}%` }}
+            title={formatWeight(key, weight)}
+            data-priority-segment={key}
+            className="h-full shrink-0"
+            style={{ width: `${weight * 100}%`, backgroundColor: priorityColor(key),
+              ...(key === "cost_of_living" ? { boxShadow: "inset 0 0 0 1px var(--color-ink-muted)" } : {}) }}
           />
         ))}
       </div>
       <div className="mt-1 flex flex-wrap justify-end gap-x-2 gap-y-0.5 text-[10px] font-normal leading-snug text-ink-muted">
         {entries.map(([key, weight]) => (
-          <span key={key}>{priorityLabels[key] ?? key} {Math.round(weight * 100)}%</span>
+          <span key={key} className="inline-flex items-center gap-1">
+            <span aria-hidden="true" data-priority-swatch={key} className="size-2 shrink-0 rounded-sm ring-1 ring-inset ring-ink-muted" style={{ backgroundColor: priorityColor(key) }} />
+            {formatWeight(key, weight)}
+          </span>
         ))}
       </div>
     </div>
@@ -216,7 +192,7 @@ function PriorityWeights({ weights }: { weights: Record<string, number> }) {
 
 function readDraft(): Draft | null {
   try {
-    const saved = sessionStorage.getItem(DRAFT_KEY);
+    const saved = sessionStorage.getItem(STORY_DRAFT_KEY);
     return saved ? (JSON.parse(saved) as Draft) : null;
   } catch {
     return null;
@@ -228,6 +204,7 @@ export default function RelocationOnboarding({
   savedProfileLoaded,
   onSaveProfile,
   mapPoint,
+  onMapPointChange,
   selectedOffice,
   onOfficeChange,
   onMapPickingChange,
@@ -243,10 +220,11 @@ export default function RelocationOnboarding({
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
   const [language, setLanguage] = useState("Bahasa Indonesia");
-  const [officeSearchOpen, setOfficeSearchOpen] = useState(false);
-  const [officeQuery, setOfficeQuery] = useState("");
   const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
   const [proposal, setProposal] = useState<LF05ProposedProfile | null>(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const [explicitGoal, setExplicitGoal] = useState<RelocationGoal | null>(null);
+  const [analyzedInput, setAnalyzedInput] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -255,9 +233,21 @@ export default function RelocationOnboarding({
   const extractedProfile = extractUserProfile(story);
   const profileRows = proposal ? getProfileRows(proposal) : [];
   const clarificationQuestions = proposal?.clarification_questions ?? [];
-  const officeQuestionIndex = clarificationQuestions.findIndex(isOfficeClarification);
-  const transportQuestionIndex = clarificationQuestions.findIndex(isTransportClarification);
-  const canConfirmProfile = !!proposal && proposal.inferred_fields.every((field) => confirmedFields[field]);
+  const officeQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "destination");
+  const officeQuestion = clarificationQuestions[officeQuestionIndex];
+  const transportQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "transport_mode");
+  const targetCity = getLF05TargetCity(proposal, story);
+  const profileGoal = proposal ? getRelocationGoal(proposal) : null;
+  const currentInput = JSON.stringify({ clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint });
+  const followUpDirty = proposal !== null && analyzedInput !== currentInput;
+  const canConfirmProfile = !!proposal && profileGoal !== null && !followUpDirty && proposal.inferred_fields.every((field) => confirmedFields[field]);
+
+  function answerClarification(question: string, answer: string) {
+    setClarificationAnswers((current) => ({ ...current, [question]: answer }));
+    setConfirmedFields({});
+    setRequestError(null);
+    setSaveError(null);
+  }
 
   useEffect(() => {
     if (hydrated || !formReady) return;
@@ -273,12 +263,31 @@ export default function RelocationOnboarding({
 
       if (draft) {
         const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
-        setStep(keepMap ? 0 : draft.step);
+        // Restored map selections may need reanalysis before another confirmation.
+        setStep(keepMap ? 0 : draft.step === 3 ? 2 : draft.step);
         setStory(draft.story);
         onOfficeChange(draft.office);
+        if (draft.mapPoint && Number.isFinite(draft.mapPoint.latitude) && Math.abs(draft.mapPoint.latitude) <= 90 &&
+            Number.isFinite(draft.mapPoint.longitude) && Math.abs(draft.mapPoint.longitude) <= 180) onMapPointChange(draft.mapPoint);
+        setLanguage(draft.language === "English" ? "English" : "Bahasa Indonesia");
         setTransport(draft.transport);
         setConfirmedFields(draft.confirmedFields ?? {});
-        setProposal(draft.proposal ?? null);
+        // Old drafts may contain a model-picked mode. Only restore user-supplied transport.
+        let restoredProposal = draft.proposal ?? null;
+        if (restoredProposal) {
+          const hadTransportQuestion = restoredProposal.clarification_questions.some((question) => getLF05ClarificationField(question) === "transport_mode");
+          const answer = Object.entries(draft.clarificationAnswers ?? {}).find(([question]) => getLF05ClarificationField(question) === "transport_mode")?.[1];
+          const mode = parseLF05TransportAnswer(draft.transport ?? "") ?? parseLF05TransportAnswer(answer ?? "");
+          restoredProposal = groundLF05Transport(restoredProposal, draft.story, mode ? { transport_mode: mode } : {});
+          const questions = restoredProposal.clarification_questions.filter((question) => getLF05ClarificationField(question) !== "transport_mode");
+          // Keep an answered radio visible until LF-05 processes this draft's follow-ups.
+          if (!restoredProposal.soft_preferences.transport_mode || (mode && hadTransportQuestion)) questions.push(getLF05TransportQuestion(draft.language === "English" ? "en" : "id"));
+          restoredProposal = { ...restoredProposal, clarification_questions: questions };
+        }
+        setProposal(restoredProposal);
+        setClarificationAnswers(draft.clarificationAnswers ?? {});
+        setExplicitGoal(draft.explicitGoal ?? null);
+        setAnalyzedInput(draft.analyzedInput ?? null);
       } else if (requested && !alreadyOnboarded && formSession?.status !== "active" && formSession?.status !== "completed") {
         setStep(1);
       }
@@ -298,7 +307,7 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [formReady, formSession, hydrated, onOfficeChange, savedProfile, savedProfileLoaded]);
+  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded]);
 
   useEffect(() => {
     if (!storyOpenRequest) return;
@@ -309,19 +318,19 @@ export default function RelocationOnboarding({
   useEffect(() => {
     if (!hydrated) return;
     if (step === 0) {
-      if (!formSession) sessionStorage.removeItem(DRAFT_KEY);
+      try { if (!formSession) sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Browser storage is optional. */ }
       return;
     }
 
-    const draft: Draft = { step, story, office: selectedOffice, transport, confirmedFields, proposal };
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }, [confirmedFields, formSession, hydrated, proposal, selectedOffice, step, story, transport]);
+    const draft: Draft = { step, story, office: selectedOffice, transport, confirmedFields, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, language };
+    try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
+  }, [analyzedInput, clarificationAnswers, confirmedFields, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, step, story, transport]);
 
   useEffect(() => {
     const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
     const dialog = dialogRef.current;
 
-    onMapPickingChange(step === 2 && officeQuestionIndex >= 0);
+    onMapPickingChange(step === 2 && officeQuestionIndex >= 0 && !isSubmitting);
     if (!dialog) return;
 
     if (shouldShowDialog && !dialog.open) {
@@ -330,7 +339,7 @@ export default function RelocationOnboarding({
       ignoreCloseRef.current = true;
       dialog.close();
     }
-  }, [formSession, officeQuestionIndex, onMapPickingChange, step]);
+  }, [formSession, isSubmitting, officeQuestionIndex, onMapPickingChange, step]);
 
   useEffect(() => {
     onOnboardingActiveChange(!hydrated || step > 0 || formSession?.status === "active");
@@ -343,9 +352,8 @@ export default function RelocationOnboarding({
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
   function dismiss() {
-    try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* Closing works without browser storage. */ }
+    try { sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Closing works without browser storage. */ }
     setStep(0);
-    setOfficeSearchOpen(false);
     onMapPickingChange(false);
     const dialog = dialogRef.current;
     if (dialog?.open) {
@@ -364,10 +372,36 @@ export default function RelocationOnboarding({
 
   function goToStep(nextStep: Exclude<Step, 0>) {
     setStep(nextStep);
-    setOfficeSearchOpen(false);
   }
 
-  async function requestProfile() {
+  function getFollowUpRequest(): { answers: LF05ClarificationAnswer[]; details: LF05FollowUpDetails } {
+    const details: LF05FollowUpDetails = {};
+    if (transport) details.transport_mode = ({ "Transport umum": "transit", Motor: "motorcycle", Mobil: "car" } as const)[transport];
+    const answers = { ...clarificationAnswers };
+    const destinationAnswer = officeQuestion ? answers[officeQuestion] : Object.entries(answers).reverse().find(([question]) => getLF05ClarificationField(question) === "destination")?.[1];
+    if (selectedOffice === "Dipilih di peta" && mapPoint) {
+      details.destination = { name: "Dipilih di peta", precision: "point", latitude: mapPoint.latitude, longitude: mapPoint.longitude };
+    } else if (selectedOffice !== "Belum tahu" && selectedOffice !== "Dipilih di peta") {
+      details.destination = { name: selectedOffice, precision: "area" };
+    } else if (destinationAnswer?.trim()) {
+      if (destinationAnswer === "Belum tahu") {
+        if (targetCity) details.destination = { name: targetCity, precision: "city" };
+      } else details.destination = { name: destinationAnswer.trim(), precision: "area" };
+    }
+    if (officeQuestion && details.destination?.precision === "point") answers[officeQuestion] =
+      `Lokasi kantor dipilih di peta: ${mapPoint!.latitude.toFixed(5)}, ${mapPoint!.longitude.toFixed(5)}`;
+    const boundAnswers: LF05ClarificationAnswer[] = Object.entries(answers).filter(([, answer]) => answer.trim()).map(([question, answer]) => {
+      if (getLF05ClarificationField(question) !== "commute_minutes") return { question, answer };
+      const minutes = parseLF05CommuteAnswer(answer);
+      if (minutes === null) throw new Error("Isi waktu tempuh dengan 0–240 menit, misalnya 45.");
+      details.commute_minutes = minutes;
+      return { question, answer: `${minutes} menit`, field: "commute_minutes" };
+    });
+    return { answers: boundAnswers, details };
+  }
+
+  async function requestProfile(followUp?: ReturnType<typeof getFollowUpRequest>) {
+    if (isSubmitting) return null;
     if (!story.trim()) {
       setRequestError("Ceritakan rencana pindahmu terlebih dahulu.");
       return null;
@@ -376,27 +410,32 @@ export default function RelocationOnboarding({
     setIsSubmitting(true);
     setRequestError(null);
     try {
+      const submitted = followUp ?? getFollowUpRequest();
       const response = await fetch("/api/lf05", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(125_000),
         body: JSON.stringify({
           message: story,
           language: language === "English" ? "en" : "id",
+          clarification_answers: submitted.answers,
+          ...(explicitGoal ? { goal: explicitGoal } : {}),
+          details: submitted.details,
         }),
       });
-      const result: unknown = await response.json();
       if (handleAuthFailure(response)) {
         setRequestError("Masuk untuk menganalisis rencanamu. Draf tetap tersimpan di perangkat ini.");
         return null;
       }
+      const result: unknown = await response.json();
       if (!response.ok || !isRecord(result) || !isRecord(result.profile)) {
         throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Gagal membaca rencana. Coba lagi.");
       }
 
-      const nextProposal = result.profile as unknown as LF05ProposedProfile;
+      const nextProposal = validateLF05Proposal(result.profile, onboardingTaxonomy);
       setProposal(nextProposal);
       setConfirmedFields({});
-      setOfficeSearchOpen(false);
+      setAnalyzedInput(currentInput);
       return nextProposal;
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Gagal membaca rencana. Coba lagi.");
@@ -412,8 +451,42 @@ export default function RelocationOnboarding({
   }
 
   async function continueToReview() {
-    const result = proposal ?? await requestProfile();
-    if (result) setStep(3);
+    if (isSubmitting) return;
+    if (!explicitGoal && !profileGoal) {
+      setRequestError("Kamu pindah untuk kerja, kuliah, atau keduanya? Pilih tujuan lalu lanjutkan.");
+      return;
+    }
+    try {
+      const followUp = getFollowUpRequest();
+      const unanswered = clarificationQuestions.find((question) => {
+        const field = getLF05ClarificationField(question);
+        if (field === "goal") return !(explicitGoal ?? profileGoal);
+        if (field === "destination" && followUp.details.destination) return false;
+        if (field === "transport_mode") return !followUp.details.transport_mode;
+        return !clarificationAnswers[question]?.trim();
+      });
+      if (unanswered) {
+        setRequestError(`Jawab dulu: ${unanswered}`);
+        return;
+      }
+      // Question presence, not a dirty flag, determines whether Next calls LF-05.
+      const result = !proposal || clarificationQuestions.length ? await requestProfile(followUp)
+        : validateLF05Proposal(applyLF05ExplicitDetails(proposal, explicitGoal ?? undefined, followUp.details), onboardingTaxonomy);
+      if (!result) return;
+      if (result.clarification_questions.length) {
+        setRequestError("Ada pertanyaan baru. Lengkapi dulu sebelum meninjau.");
+        return;
+      }
+      if (!getRelocationGoal(result)) {
+        setRequestError("Pilih tujuan pindahmu sebelum meninjau.");
+        return;
+      }
+      setProposal(result);
+      setAnalyzedInput(currentInput);
+      setStep(3);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Jawaban belum bisa diproses. Coba lagi.");
+    }
   }
 
   async function saveProfile() {
@@ -422,26 +495,13 @@ export default function RelocationOnboarding({
     setIsSaving(true);
     setSaveError(null);
     try {
-      const response = await fetch("/api/user/relocation-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          proposal,
-          confirmed_fields: Object.entries(confirmedFields)
-            .filter(([, confirmed]) => confirmed)
-            .map(([field]) => field),
-        }),
+      const saved = await saveRelocationProfile({
+        proposal,
+        confirmed_fields: Object.entries(confirmedFields)
+          .filter(([, confirmed]) => confirmed)
+          .map(([field]) => field),
       });
-      const result: unknown = await response.json();
-      if (handleAuthFailure(response)) {
-        setSaveError("Masuk untuk menyimpan profil. Draf tetap tersimpan di perangkat ini.");
-        return;
-      }
-      if (!response.ok || !isRecord(result) || !isStoredRelocationProfile(result.profile)) {
-        throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Profil belum tersimpan. Coba lagi.");
-      }
-
-      onSaveProfile(result.profile);
+      onSaveProfile(saved);
       dismiss();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Coba lagi.");
@@ -455,7 +515,6 @@ export default function RelocationOnboarding({
     setProposal(null);
     setConfirmedFields({});
     setSaveError(null);
-    setOfficeSearchOpen(false);
     setRequestError(null);
   }
 
@@ -464,8 +523,13 @@ export default function RelocationOnboarding({
     setProposal(null);
     setConfirmedFields({});
     setSaveError(null);
-    setOfficeSearchOpen(false);
     setRequestError(null);
+    setClarificationAnswers({});
+    setExplicitGoal(null);
+    setAnalyzedInput(null);
+    setTransport(null);
+    onOfficeChange("Belum tahu");
+    onMapPointChange(null);
   }
 
   function toggleFieldConfirmation(field: string) {
@@ -475,13 +539,9 @@ export default function RelocationOnboarding({
 
   function chooseOffice(office: OfficeChoice) {
     onOfficeChange(office);
-    setOfficeSearchOpen(false);
-    setOfficeQuery("");
+    if (office !== "Dipilih di peta") onMapPointChange(null);
+    if (officeQuestionIndex >= 0) answerClarification(clarificationQuestions[officeQuestionIndex], office);
   }
-
-  const matchingOffices = officeLocations.filter((office) =>
-    office.name.toLowerCase().includes(officeQuery.trim().toLowerCase()),
-  );
 
   return (
     <>
@@ -491,26 +551,14 @@ export default function RelocationOnboarding({
           data-hci-region="relocation-onboarding-step-2"
           className="absolute inset-x-2 bottom-2 z-400 flex max-h-[min(56dvh,42rem)] flex-col overflow-hidden rounded-2xl border border-rule bg-base-100 shadow-overlay md:inset-y-2 md:left-auto md:right-2 md:max-h-none md:w-[min(26.5rem,45vw)]"
         >
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-rule px-4 py-3 md:px-5">
-            <div className="flex min-w-0 items-center gap-3 text-xs font-semibold text-ink">
-              <span className="shrink-0">Langkah 2 dari 3</span>
-              <span className="flex w-20 gap-1" aria-hidden="true">
-                <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                <span className="h-0.75 flex-1 rounded-full bg-base-300" />
-              </span>
-            </div>
-            <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 shrink-0 gap-1 px-1 text-ink">
-              Lewati untuk sekarang <X aria-hidden="true" className="size-3.5" />
-            </button>
-          </div>
+          <StepHeader step={2} onSkip={dismiss} disabled={isSubmitting} className="border-b border-rule px-4 py-3 md:px-5" />
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 md:px-5 md:py-4">
+          <form id="story-follow-up-form" aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); void continueToReview(); }} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 md:px-5 md:py-4">
             <div className="flex items-start justify-between gap-3">
               <h1 id="onboarding-step-two-title" className="font-sans text-2xl font-bold leading-tight text-ink md:text-[1.75rem]">
                 Ini yang kami tangkap
               </h1>
-              <button type="button" onClick={() => goToStep(1)} className="btn btn-ghost btn-xs min-h-9 shrink-0 px-1 text-primary underline">
+              <button type="button" disabled={isSubmitting} onClick={() => goToStep(1)} className="btn btn-ghost btn-xs min-h-9 shrink-0 px-1 text-primary underline">
                 Ubah cerita
               </button>
             </div>
@@ -524,7 +572,7 @@ export default function RelocationOnboarding({
               ) : <span>Ringkasan ceritamu belum tersedia.</span>}
             </div>
 
-            <dl className="mt-3 divide-y divide-rule border-y border-rule">
+            <dl data-hci-region="onboarding-profile-preview" className="mt-3 divide-y divide-rule border-y border-rule">
               {profileRows.map((row) => (
                 <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
                   <dt className="text-ink-muted">{row.label}</dt>
@@ -532,8 +580,8 @@ export default function RelocationOnboarding({
                     {row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
                   </dd>
                   <dd>
-                    <span className={`badge badge-sm col-start-2 max-w-full text-center whitespace-normal sm:col-start-auto ${row.inferred ? "badge-outline border-ink-muted text-ink" : "badge-neutral"}`}>
-                      {row.inferred ? "Disimpulkan" : "Terbaca"}
+                    <span className={`badge badge-sm col-start-2 max-w-full text-center whitespace-normal sm:col-start-auto ${row.missing ? "badge-outline border-ink-muted text-ink" : "badge-neutral"}`}>
+                      {row.missing ? "Belum diisi" : row.inferred ? "Disimpulkan" : "Terbaca"}
                     </span>
                   </dd>
                 </div>
@@ -541,15 +589,37 @@ export default function RelocationOnboarding({
               {!proposal && <div className="py-3 text-xs text-ink-muted">Cerita belum dianalisis. Kirim cerita untuk melihat ringkasannya.</div>}
               {proposal && !profileRows.length && <div className="py-3 text-xs text-ink-muted">Belum ada batasan atau preferensi yang bisa ditampilkan.</div>}
             </dl>
-            {requestError && <p role="alert" className="mt-3 text-sm font-semibold text-error">{requestError}</p>}
-            {requestError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
+            {profileRows
+              .filter((row) => row.field === "goal" && !(explicitGoal ?? profileGoal))
+              .map((row) => {
+                return (
+                  <div key={row.key}>
+                    <fieldset disabled={isSubmitting} className="mt-3">
+                      <RadioChoices
+                        name="story-goal"
+                        label="Tujuan pindah"
+                        value={""}
+                        choices={Object.entries(relocationGoalLabels).map(([value, label]) => ({
+                          value: value as RelocationGoal,
+                          label
+                        }))}
+                        onChange={(goal) => {
+                          setExplicitGoal(goal as RelocationGoal);
+                          answerClarification("Tujuan pindah", relocationGoalLabels[goal as RelocationGoal]);
+                        }}
+                      />
+                    </fieldset>
+                  </div>
+                );
+              })}
+            <RequestError error={requestError} />
 
             <section className="mt-3 border-t-2 border-ink pt-3" aria-label="Pertanyaan lanjutan">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-muted">
                   {proposal
-                    ? proposal.clarification_questions.length
-                      ? `Tinggal ${proposal.clarification_questions.length} pertanyaan`
+                    ? clarificationQuestions.length
+                      ? `Tinggal ${clarificationQuestions.length} pertanyaan`
                       : "Tidak ada pertanyaan lanjutan"
                     : "Pertanyaan lanjutan"}
                 </p>
@@ -558,115 +628,69 @@ export default function RelocationOnboarding({
                 </span>
               </div>
               {clarificationQuestions.length ? (
-                <div className="mt-2 space-y-3">
+                <fieldset disabled={isSubmitting} className="mt-2 space-y-3">
                   {clarificationQuestions.map((question, index) => {
                     const isOfficeQuestion = index === officeQuestionIndex;
                     const isTransportQuestion = index === transportQuestionIndex;
 
                     return (
                       <section key={`${index}:${question}`} className="rounded-lg bg-base-200/50 px-2.5 py-2">
-                        <h2 className="text-sm font-semibold leading-relaxed text-ink">{question}</h2>
+                        {!isTransportQuestion && <h2 className="text-sm font-semibold leading-relaxed text-ink">{question}</h2>}
                         {isOfficeQuestion && (
                           <>
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {officeLocations.map((office) => (
-                                <button
-                                  key={office.name}
-                                  type="button"
-                                  aria-pressed={selectedOffice === office.name}
-                                  onClick={() => chooseOffice(office.name)}
-                                  className={`btn btn-sm min-h-10 rounded-xl px-2.5 text-xs ${selectedOffice === office.name ? "btn-primary" : "btn-outline border-ink-muted bg-base-100 text-ink"}`}
-                                >
-                                  {office.name}
-                                </button>
-                              ))}
-                              <button
-                                type="button"
-                                aria-pressed={selectedOffice === "Belum tahu"}
-                                onClick={() => chooseOffice("Belum tahu")}
-                                className={`btn btn-sm min-h-10 rounded-xl px-2.5 text-xs ${selectedOffice === "Belum tahu" ? "btn-primary" : "btn-outline border-ink-muted bg-base-100 text-ink"}`}
-                              >
-                                {selectedOffice === "Belum tahu" && <Check aria-hidden="true" className="size-3.5" />}
+                              <ChoiceButton pressed={selectedOffice === "Belum tahu" && clarificationAnswers[question] === "Belum tahu"} onClick={() => chooseOffice("Belum tahu")}>
+                                {clarificationAnswers[question] === "Belum tahu" && <Check aria-hidden="true" className="size-3.5" />}
                                 Belum tahu
-                              </button>
-                              <button
-                                type="button"
-                                aria-pressed={selectedOffice === "Dipilih di peta"}
-                                onClick={() => {
-                                  setOfficeSearchOpen(true);
-                                  onMapPickingChange(true);
-                                }}
-                                className={`btn btn-sm min-h-10 rounded-xl px-2.5 text-xs ${selectedOffice === "Dipilih di peta" ? "btn-primary" : "btn-outline border-ink-muted bg-base-100 text-ink"}`}
-                              >
-                                <Search aria-hidden="true" className="size-3.5" /> Cari di peta
-                              </button>
+                              </ChoiceButton>
+                              <ChoiceButton pressed={selectedOffice === "Dipilih di peta"} onClick={() => { chooseOffice("Dipilih di peta"); onMapPickingChange(true); }}>
+                                {selectedOffice === "Dipilih di peta" && <Check aria-hidden="true" className="size-3.5" />} Pilih titik di peta
+                              </ChoiceButton>
                             </div>
-                            {officeSearchOpen ? (
-                              <div className="mt-2">
-                                <label htmlFor="onboarding-office-search" className="sr-only">Cari kawasan kantor</label>
-                                <input
-                                  id="onboarding-office-search"
-                                  type="search"
-                                  value={officeQuery}
-                                  onChange={(event) => setOfficeQuery(event.target.value)}
-                                  placeholder="Cari Kuningan, SCBD, atau TB Simatupang"
-                                  className="input input-bordered min-h-11 w-full text-sm"
-                                />
-                                {officeQuery && (
-                                  matchingOffices.length ? (
-                                    <ul className="menu mt-1 w-full rounded-lg border border-rule bg-base-100 p-1 text-sm shadow-overlay">
-                                      {matchingOffices.map((office) => (
-                                        <li key={office.name}>
-                                          <button type="button" onClick={() => chooseOffice(office.name)} className="min-h-10">
-                                            {office.name}
-                                          </button>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : <p className="mt-1 text-xs text-ink-muted">Belum ada kawasan yang cocok. Pilih titik langsung di peta.</p>
-                                )}
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
-                                Klik kawasan kantor di peta untuk menjawab. Titik menunjukkan konsentrasi kantor teknologi, bukan alamat persis.
-                                {mapPoint && <span className="block font-semibold text-ink">Titik dipilih: {mapPoint.latitude.toFixed(3)}, {mapPoint.longitude.toFixed(3)}</span>}
-                              </p>
-                            )}
+                            <label htmlFor={`destination-${index}`} className="mt-2 block text-xs font-semibold">Atau tulis lokasi tujuanmu</label>
+                            <input id={`destination-${index}`} name="destination" type="text" maxLength={200}
+                              value={selectedOffice === "Belum tahu" && clarificationAnswers[question] !== "Belum tahu" ? clarificationAnswers[question] ?? "" : ""}
+                              onChange={(event) => { onOfficeChange("Belum tahu"); onMapPointChange(null); answerClarification(question, event.target.value); }}
+                              className="input mt-1 min-h-11 w-full border-ink/25 bg-base-100 text-base md:text-sm" />
+                            {targetCity && <p className="mt-1 text-xs text-ink-muted">Belum tahu? Lokasi tujuanmu tetap {targetCity}.</p>}
+                            <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+                              Pilih titik langsung pada peta; lokasi tujuan tidak ditebak dari nama kawasan.
+                              {mapPoint && <span className="block font-semibold text-ink">Titik dipilih: {mapPoint.latitude.toFixed(5)}, {mapPoint.longitude.toFixed(5)}</span>}
+                            </p>
                           </>
                         )}
                         {isTransportQuestion && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {(["Transport umum", "Motor", "Mobil"] as const).map((option) => (
-                              <button
-                                key={option}
-                                type="button"
-                                aria-pressed={transport === option}
-                                onClick={() => setTransport(transport === option ? null : option)}
-                                className={`btn btn-sm min-h-10 rounded-xl px-2.5 text-xs ${transport === option ? "btn-primary" : "btn-outline border-ink-muted bg-base-100 text-ink"}`}
-                              >
-                                {option}
-                              </button>
-                            ))}
+                            <RadioChoices<TransportChoice | ""> name="story-transport" label={question} value={transport ?? ""}
+                              choices={(["Transport umum", "Motor", "Mobil"] as const).map((value) => ({ value, label: value }))}
+                              onChange={(option) => { if (option) { setTransport(option); answerClarification(question, option); } }} />
                           </div>
                         )}
+                        {!isOfficeQuestion && !isTransportQuestion && <div className="mt-2">
+                          <label htmlFor={`clarification-${index}`} className="mb-1 block text-xs font-semibold">Jawabanmu</label>
+                          <input id={`clarification-${index}`} name={`clarification-${index}`} aria-label={question} type="text" maxLength={1000}
+                            inputMode={getLF05ClarificationField(question) === "commute_minutes" ? "numeric" : "text"}
+                            value={clarificationAnswers[question] ?? ""} onChange={(event) => answerClarification(question, event.target.value)}
+                            className="input min-h-11 w-full border-ink/25 bg-base-100 text-base md:text-sm" />
+                        </div>}
                       </section>
                     );
                   })}
-                </div>
+                </fieldset>
               ) : proposal ? (
                 <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">Tidak ada pertanyaan lanjutan untuk ceritamu.</p>
               ) : (
                 <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">Kirim ceritamu untuk melihat pertanyaan lanjutan.</p>
               )}
             </section>
-          </div>
+          </form>
 
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-rule bg-base-100 px-4 py-3 md:px-5">
-            <button type="button" onClick={() => goToStep(1)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
+            <button type="button" disabled={isSubmitting} onClick={() => goToStep(1)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
               <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
             </button>
-            <button type="button" disabled={isSubmitting} onClick={() => void continueToReview()} className="btn btn-primary min-h-11 rounded-xl px-4">
-              {isSubmitting ? "Menganalisis rencana…" : "Lanjut ke tinjau"} {!isSubmitting && <ArrowRight aria-hidden="true" className="size-4" />}
+            <button type="submit" form="story-follow-up-form" disabled={isSubmitting} className="btn btn-primary min-h-11 rounded-xl px-4">
+              {isSubmitting ? "Menganalisis rencana…" : "Tinjau rencanamu"} {!isSubmitting && <ArrowRight aria-hidden="true" className="size-4" />}
             </button>
           </footer>
         </aside>
@@ -678,6 +702,7 @@ export default function RelocationOnboarding({
         data-hci-region={step === 3 ? "relocation-onboarding-step-3" : "relocation-onboarding-step-1"}
         className="modal modal-middle onboarding-dialog"
         onClose={handleDialogClose}
+        onCancel={(event) => { if (isSubmitting || isSaving) event.preventDefault(); }}
       >
         {step === 1 && (
           <form
@@ -688,21 +713,9 @@ export default function RelocationOnboarding({
             }}
             aria-busy={isSubmitting}
           >
-            <header className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
-              <div className="flex items-center gap-3">
-                <span>Langkah 1 dari 3</span>
-                <span className="flex w-20 gap-1" aria-hidden="true">
-                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                  <span className="h-0.75 flex-1 rounded-full bg-base-300" />
-                  <span className="h-0.75 flex-1 rounded-full bg-base-300" />
-                </span>
-              </div>
-              <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 gap-1 px-1 text-ink">
-                Lewati untuk sekarang <X aria-hidden="true" className="size-3.5" />
-              </button>
-            </header>
+            <StepHeader step={1} onSkip={dismiss} disabled={isSubmitting} />
 
-            <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Akun siap · satu langkah lagi</p>
+            <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Akun siap · beberapa langkah lagi</p>
             <h1 id="onboarding-step-one-title" className="mt-1 font-sans text-2xl font-bold leading-tight tracking-tight text-ink md:text-[1.75rem]">
               Ceritakan rencana pindahmu
             </h1>
@@ -775,32 +788,20 @@ export default function RelocationOnboarding({
         )}
 
         {step === 3 && (
-          <section className="modal-box max-h-[calc(100dvh-1.5rem)] w-[min(45rem,calc(100vw-1.5rem))] max-w-none overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-4 text-ink shadow-overlay md:p-6">
-            <header className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
-              <div className="flex items-center gap-3">
-                <span>Langkah 3 dari 3</span>
-                <span className="flex w-24 gap-1" aria-hidden="true">
-                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                  <span className="h-0.75 flex-1 rounded-full bg-primary" />
-                </span>
-              </div>
-              <button type="button" onClick={dismiss} className="btn btn-ghost btn-xs min-h-10 gap-1 px-1 text-ink">
-                Lewati untuk sekarang <X aria-hidden="true" className="size-3.5" />
-              </button>
-            </header>
+          <fieldset disabled={isSaving} aria-busy={isSaving} className="modal-box min-w-0 max-h-[calc(100dvh-1.5rem)] w-[min(45rem,calc(100vw-1.5rem))] max-w-none overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-4 text-ink shadow-overlay md:p-6">
+            <StepHeader step={3} onSkip={dismiss} disabled={isSaving} />
 
             <h1 id="onboarding-step-three-title" className="mt-4 font-sans text-2xl font-bold leading-tight text-ink md:text-[1.75rem]">
-              Apakah usulan ini sesuai?
+              Apakah sudah sesuai?
             </h1>
             <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Usulan belum dikonfirmasi atau diterapkan.</p>
 
-            <section className="mt-3 rounded-xl border border-ink px-3 py-2" aria-label="Kesimpulan yang perlu dikonfirmasi">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2 text-xs">
-                <p className="font-semibold">{proposal?.inferred_fields.length ?? 0} kesimpulan dari ceritamu</p>
-                <span className="badge badge-outline badge-sm border-ink-muted text-ink-muted">Perlu konfirmasi</span>
-              </div>
-              {proposal?.inferred_fields.length ? (
+            {proposal?.inferred_fields.length ? (
+              <section className="mt-3 rounded-xl border border-ink px-3 py-2" aria-label="Kesimpulan yang perlu dikonfirmasi">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-2 text-xs">
+                  <p className="font-semibold">{proposal?.inferred_fields.length ?? 0} kesimpulan dari ceritamu</p>
+                  <span className="badge badge-outline badge-sm border-ink-muted text-ink-muted">Perlu konfirmasi</span>
+                </div>
                 <div className="grid gap-2 pt-2 text-xs md:grid-cols-2">
                   {proposal.inferred_fields.map((field) => (
                     <ConfirmationRow
@@ -813,10 +814,10 @@ export default function RelocationOnboarding({
                     />
                   ))}
                 </div>
-              ) : (
-                <p className="pt-2 text-xs text-ink-muted">Tidak ada nilai inferensi yang menunggu konfirmasi.</p>
-              )}
-            </section>
+              </section>
+            ) : (
+              <></>
+            )}
 
             <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-muted">
               <span className="badge badge-outline badge-sm border-rule text-ink-muted">Usulan profilmu</span>
@@ -831,15 +832,6 @@ export default function RelocationOnboarding({
               ))}
             </div>
 
-            {proposal?.clarification_questions.length ? (
-              <div className="mt-3 rounded-xl border border-rule px-3 py-2 text-xs text-ink" aria-label="Pertanyaan klarifikasi">
-                <p className="font-semibold">Pertanyaan lanjutan</p>
-                <ul className="mt-1 list-inside list-disc">
-                  {proposal.clarification_questions.map((question) => <li key={question}>{question}</li>)}
-                </ul>
-              </div>
-            ) : null}
-
             <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-3">
               <button type="button" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
                 <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
@@ -850,7 +842,7 @@ export default function RelocationOnboarding({
             </footer>
             {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}{!saveError.startsWith("Masuk") && " Draf tetap tersimpan di sesi ini."}</div>}
             {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
-          </section>
+          </fieldset>
         )}
         {step !== 1 && step !== 3 && <span className="sr-only">Dialog ditutup</span>}
       </dialog>
@@ -858,18 +850,42 @@ export default function RelocationOnboarding({
   );
 }
 
-function ConfirmationRow({
-  label,
-  value,
-  confirmed,
-  onConfirm,
-  onEdit,
-}: {
-  label: string;
-  value: string;
-  confirmed: boolean;
-  onConfirm: () => void;
-  onEdit: () => void;
+function StepHeader({ step, onSkip, className = "", disabled = false }: { step: 1 | 2 | 3; onSkip: () => void; className?: string; disabled?: boolean }) {
+  return (
+    <header className={`flex shrink-0 flex-wrap items-center justify-between gap-3 text-xs font-semibold text-ink ${className}`}>
+      <div className="flex items-center gap-3">
+        <span>Langkah {step} dari 3</span>
+        <span className="flex w-20 gap-1" aria-hidden="true">
+          {[1, 2, 3].map((bar) => <span key={bar} className={`h-0.75 flex-1 rounded-full ${bar <= step ? "bg-primary" : "bg-base-300"}`} />)}
+        </span>
+      </div>
+      <button type="button" disabled={disabled} onClick={onSkip} className="btn btn-ghost btn-xs min-h-10 shrink-0 gap-1 px-1 text-ink">
+        Lewati untuk sekarang <X aria-hidden="true" className="size-3.5" />
+      </button>
+    </header>
+  );
+}
+
+function ChoiceButton({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-pressed={pressed} onClick={onClick}
+      className={`btn btn-sm min-h-10 rounded-xl px-2.5 text-xs ${pressed ? "btn-primary" : "btn-outline border-ink-muted bg-base-100 text-ink"}`}>
+      {children}
+    </button>
+  );
+}
+
+// Errors that ask the user to sign in also offer the sign-in link.
+function RequestError({ error }: { error: string | null }) {
+  if (!error) return null;
+  return <>
+    <p role="alert" className="mt-3 text-sm font-semibold text-error">{error}</p>
+    {error.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
+  </>;
+}
+
+function ConfirmationRow({ label, value, confirmed, onConfirm, onEdit }: {
+  label: string; value: string; confirmed: boolean; onConfirm: () => void; onEdit: () => void;
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">

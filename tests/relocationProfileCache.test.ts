@@ -16,7 +16,7 @@ const profile: StoredRelocationProfile = {
     id: "saved-profile", profile_name: "primary", revision: 1,
     confirmed_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z",
     profile: {
-        schema_version: "relocation-profile-v1", hard_constraints: {}, soft_preferences: {},
+        schema_version: "relocation-profile-v1", hard_constraints: { goal: "work" }, soft_preferences: {},
         priority_weights: { career: 1 }, taxonomy_version: "2026-09", contract_version: "lf05-v2",
     },
 };
@@ -56,6 +56,9 @@ test("corrupt, obsolete, and invalid cached profiles are treated as cache misses
         assert.equal(readRelocationProfileCache("user-a", storage), undefined);
     }
     assert.equal(isStoredRelocationProfile({ ...profile, revision: 0 }), false);
+    assert.equal(isStoredRelocationProfile({ ...profile, profile: { ...profile.profile, hard_constraints: {} } }), false);
+    assert.equal(isStoredRelocationProfile({ ...profile, profile: { ...profile.profile, soft_preferences: { goal: "work" }, hard_constraints: {} } }), true);
+    assert.equal(isStoredRelocationProfile({ ...profile, profile: { ...profile.profile, soft_preferences: { goal: "study" } } }), false);
     assert.equal(isStoredRelocationProfile({ ...profile, profile: { ...profile.profile, priority_weights: { career: "1" } } }), false);
 });
 
