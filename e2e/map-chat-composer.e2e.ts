@@ -92,7 +92,7 @@ test("dragging the sheet moves the composer before the snap", async ({ page }, t
         .toBeGreaterThan(initialBottom + 200);
 });
 
-test("composer centers in remaining desktop map area when sidebar resizes", async ({ page }, testInfo) => {
+test("composer centers in map area left of the floating detail card", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "mobile", "Mobile zone details use a modal sheet, not a desktop sidebar");
     await openMap(page);
 
@@ -103,8 +103,6 @@ test("composer centers in remaining desktop map area when sidebar resizes", asyn
     const composer = page.locator('[data-hci-region="map-chat"]');
     await expect(panel).toBeVisible();
     await expect(composer).toBeVisible();
-    await expect.poll(() => composer.evaluate((element) => getComputedStyle(element).right)).toBe("420px");
-
-    await page.getByRole("separator", { name: "Ubah lebar panel" }).press("ArrowLeft");
-    await expect.poll(() => composer.evaluate((element) => getComputedStyle(element).right)).toBe("440px");
+    // 400px card plus its 16px gap from the map edge.
+    await expect.poll(() => composer.evaluate((element) => getComputedStyle(element).right)).toBe("416px");
 });

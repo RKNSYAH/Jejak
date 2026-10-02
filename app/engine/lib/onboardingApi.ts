@@ -1,5 +1,6 @@
 import { getJson, isNullableString } from "./zoneApi";
 import { isCentroid, isRecord } from "./zoneGeometry";
+import { getMetroCityIds } from "./metroArea";
 import type { RegionFact } from "../types";
 import type { OnboardingArea, OnboardingCampus, OnboardingCity } from "../onboarding/types";
 
@@ -50,6 +51,7 @@ export async function getOnboardingData(cityId: string | null, signal: AbortSign
     const cities = data.cities as OnboardingCity[];
     const areas = data.areas as OnboardingArea[];
     const destinations = data.destinations as OnboardingCampus[];
-    if (cityId && areas.some((area) => area.city_id !== cityId)) throw new Error("Kota data onboarding tidak sesuai.");
+    const cityIds = cityId ? new Set(getMetroCityIds(cityId, cities)) : null;
+    if (cityIds && areas.some((area) => !cityIds.has(area.city_id))) throw new Error("Kota data onboarding tidak sesuai.");
     return { cities, areas, destinations };
 }

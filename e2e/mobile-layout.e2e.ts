@@ -47,18 +47,21 @@ test("short mobile map clears controls when discovery opens", async ({ page }) =
     await expect(page.getByRole("button", { name: /Bangunan 3D/ })).toBeVisible();
 });
 
-test("desktop keeps search and lenses on one line, tools at bottom left", async ({ page }, testInfo) => {
+test("desktop stacks lenses under the header at the same width, tools at bottom left", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop");
     await stubZones(page);
     await page.setViewportSize({ width: 1440, height: 800 });
     await openDemoMap(page);
 
+    const header = (await page.locator('[data-hci-region="map-header"]').boundingBox())!;
     const search = (await page.locator('[data-hci-region="search"]').boundingBox())!;
     const categories = (await page.locator('[data-hci-region="categories"]').boundingBox())!;
     const tools = (await page.getByRole("button", { name: /Bangunan 3D/ }).boundingBox())!;
-    expect(search.width).toBeGreaterThanOrEqual(300);
-    expect(categories.x).toBeGreaterThan(search.x + search.width);
-    expect(Math.abs(categories.y - search.y)).toBeLessThan(10);
+    await expect(page.getByRole("button", { name: "Wilayah: Jabodetabek" })).toBeVisible();
+    expect(search.width).toBeGreaterThanOrEqual(200);
+    expect(Math.abs(categories.x - header.x)).toBeLessThan(1);
+    expect(Math.abs(categories.width - header.width)).toBeLessThan(1);
+    expect(categories.y).toBeGreaterThan(header.y + header.height - 1);
     expect(tools.x).toBeLessThan(64);
     expect(tools.y + tools.height).toBeGreaterThan(720);
 });

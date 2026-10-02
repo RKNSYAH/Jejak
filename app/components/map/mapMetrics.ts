@@ -9,19 +9,33 @@ export function rentSharePercent(wageToRentRatio: number | null): number | null 
     return Math.round(100 / wageToRentRatio);
 }
 
-export const mapCategories: Record<MapCategory, {
+export type MapMetricConfig = {
     label: string;
     panelLabel: string;
     popupLabel: string;
     metric: string | null;
     format: (value: number) => string;
-}> = {
+};
+
+export type EducationMetric = "schools" | "universities";
+export const educationMetrics: Record<EducationMetric, { label: string; popupLabel: string }> = {
+    schools: { label: "Jumlah sekolah", popupLabel: "Sekolah" },
+    universities: { label: "Jumlah universitas", popupLabel: "Universitas" },
+};
+
+export const mapCategories: Record<MapCategory, MapMetricConfig> = {
     summary: { label: "Kecamatan yang ditampilkan", panelLabel: "Ringkasan", popupLabel: "Sewa", metric: null, format: (value) => `${number(value)}%` },
     employment: { label: "Jumlah perusahaan", panelLabel: "Pekerjaan", popupLabel: "Perusahaan", metric: "company_count", format: number },
-    education: { label: "Jumlah universitas", panelLabel: "Pendidikan", popupLabel: "Universitas", metric: "universities", format: number },
+    education: { label: "Jumlah sekolah", panelLabel: "Pendidikan", popupLabel: "Sekolah", metric: "schools", format: number },
     housing: { label: "Median sewa bulanan", panelLabel: "Hunian", popupLabel: "Median sewa bulanan", metric: "median_monthly_rent_idr", format: rupiah },
     mobility: { label: "Jumlah halte transportasi umum", panelLabel: "Mobilitas", popupLabel: "Halte transportasi umum", metric: "public_transport_stops", format: number },
 };
+
+export function getMapMetricConfig(category: MapCategory, educationMetric: EducationMetric = "schools"): MapMetricConfig {
+    return category === "education"
+        ? { ...mapCategories.education, ...educationMetrics[educationMetric], metric: educationMetric }
+        : mapCategories[category];
+}
 
 // Per-cell layers shown inside the selected district. A glow suits counts that
 // add up across nearby cells; a median (rent) is a value per cell and is filled.

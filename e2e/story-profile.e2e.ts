@@ -226,14 +226,40 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
         await expect(review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) })).toContainText(value);
     }
     expect(await review.locator("[data-priority-swatch]").evaluateAll((swatches) => swatches.map((swatch) => getComputedStyle(swatch).backgroundColor))).toEqual(colors);
+    // Only Kecamatan A (Rp4,5 jt) fits Rp5 jt / Rp2 jt; Kecamatan B's Rp3 jt rent must not stretch the range.
+    const cost = review.locator('[data-hci-region="story-cost-estimate"]');
+    await expect(cost).toContainText("Perkiraan biaya bulanan · Jabodetabek");
+    await expect(cost).toContainText("sekitar Rp4.500.000 / bulan");
+    await expect(cost).not.toContainText("Data contoh");
+    // "Ubah" edits in place instead of sending the user back to an earlier step.
+    const card = (label: string) => review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) });
+    const save = page.getByRole("button", { name: "Simpan dan selesaikan" });
+    await card("Batas sewa").getByRole("button", { name: "Ubah Batas sewa" }).click();
+    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(save).toBeDisabled();
+    await card("Batas sewa").getByRole("textbox", { name: "Batas sewa" }).fill("3.000.000");
+    await card("Batas sewa").getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card("Batas sewa")).toContainText("Rp3.000.000 / bulan");
+    await expect(card("Batas sewa")).not.toContainText("disimpulkan");
+    await card("Anggaran bulanan").getByRole("button", { name: "Ubah Anggaran bulanan" }).click();
+    await card("Anggaran bulanan").getByRole("textbox", { name: "Anggaran bulanan" }).fill("6.000.000");
+    await card("Anggaran bulanan").getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 / bulan");
+    await expect(cost).toContainText("Rp4.500.000 – Rp6.000.000 / bulan");
+    await card("Waktu tempuh").getByRole("button", { name: "Ubah Waktu tempuh" }).click();
+    await card("Waktu tempuh").getByRole("spinbutton", { name: "Waktu tempuh" }).fill("300");
+    await card("Waktu tempuh").getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card("Waktu tempuh")).toContainText("Isi waktu tempuh 0–240 menit.");
+    await card("Waktu tempuh").getByRole("button", { name: "Batal", exact: true }).click();
+    await expect(card("Waktu tempuh")).toContainText("45 menit");
+    await expect(save).toBeEnabled();
     await review.locator("section").filter({ has: page.getByRole("heading", { name: "Prioritas", exact: true }) })
         .screenshot({ path: test.info().outputPath("priority-palette.png") });
-    const save = page.getByRole("button", { name: "Simpan dan selesaikan" });
     await expect(review.getByRole("button", { name: "Benar", exact: true })).toHaveCount(0);
     await save.click();
     await expect(review).toBeHidden();
     const saved = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
-    expect(saved.profile.hard_constraints).toMatchObject({ goal: "work", monthly_budget: { amount: 5000000 }, housing_budget: { amount: 2000000 }, commute_minutes: 45 });
+    expect(saved.profile.hard_constraints).toMatchObject({ goal: "work", monthly_budget: { amount: 6000000 }, housing_budget: { amount: 3000000 }, commute_minutes: 45 });
     expect(saved.profile.soft_preferences.destination).toEqual({ name: "Jakarta Selatan", precision: "city" });
     expect(saved.profile.soft_preferences.transport_mode).toBe("transit");
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });

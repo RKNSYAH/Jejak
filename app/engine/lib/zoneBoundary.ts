@@ -75,30 +75,34 @@ export async function getCityZoneBoundaries(rows: RegionDetailRow[]): Promise<{ 
         catch { unresolved.push(row.region_code); }
     }
 
-    if (!missing.length) return { geometry: { type: "FeatureCollection", features }, missingZones: unresolved };
-    try {
-        const response = await fetchProviderCityBoundary(toZone(missing[0]));
-        for (const row of missing) {
-            try {
-                const geometry = normalizeGeometry(response, toZone(row));
-                features.push(...geometry.features);
-                let persisted = false;
-                if (isAdminConfigured()) {
-                    try {
-                        await insertZoneBoundary(row, geometry);
-                        persisted = true;
-                    } catch (error) {
-                        console.error("Failed to store zone boundary:", error);
+    // Metro previews span several cities; BIG returns one city's kecamatan per request.
+    const missingByCity = new Map<string, RegionDetailRow[]>();
+    for (const row of missing) missingByCity.set(row.parent_code, [...missingByCity.get(row.parent_code) ?? [], row]);
+    for (const cityRows of missingByCity.values()) {
+        try {
+            const response = await fetchProviderCityBoundary(toZone(cityRows[0]));
+            for (const row of cityRows) {
+                try {
+                    const geometry = normalizeGeometry(response, toZone(row));
+                    features.push(...geometry.features);
+                    let persisted = false;
+                    if (isAdminConfigured()) {
+                        try {
+                            await insertZoneBoundary(row, geometry);
+                            persisted = true;
+                        } catch (error) {
+                            console.error("Failed to store zone boundary:", error);
+                        }
                     }
+                    const key = JSON.stringify([row.region_code, row.region_name, row.parent_code, row.parent_name]);
+                    boundaries.set(key, { geometry, expiresAt: Date.now() + cacheLifetimeMs, persisted });
+                } catch {
+                    unresolved.push(row.region_code);
                 }
-                const key = JSON.stringify([row.region_code, row.region_name, row.parent_code, row.parent_name]);
-                boundaries.set(key, { geometry, expiresAt: Date.now() + cacheLifetimeMs, persisted });
-            } catch {
-                unresolved.push(row.region_code);
             }
+        } catch {
+            unresolved.push(...cityRows.map((row) => row.region_code));
         }
-    } catch {
-        unresolved.push(...missing.map((row) => row.region_code));
     }
 
     return { geometry: { type: "FeatureCollection", features }, missingZones: unresolved };

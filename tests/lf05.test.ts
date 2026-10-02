@@ -5,7 +5,7 @@ import { interpretOnboardingStory } from "../app/engine/controller/preferenceCon
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 import { validateLF05Proposal } from "../app/engine/lib/lf05Validation";
-import { buildLF05Message, getLF05ClarificationField, getLF05ClarificationQuestions, parseLF05CommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/lf05FollowUp";
+import { applyLF05FieldEdit, buildLF05Message, getLF05ClarificationField, getLF05ClarificationQuestions, parseLF05CommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/lf05FollowUp";
 import { extractLF05TransportMode, parseLF05TransportAnswer } from "../app/engine/lib/lf05Transport";
 
 const validProfile = {
@@ -321,4 +321,20 @@ test("LF-05 route rejects sensitive text and user-injected trusted fields", asyn
   } finally {
     restoreEnvironment();
   }
+});
+
+test("a review-step edit replaces the value, keeps its section, and stops counting it as inferred", () => {
+    const proposal = validateLF05Proposal(validProfile, onboardingTaxonomy);
+    const edited = applyLF05FieldEdit(proposal, "housing_budget", { amount: 1500000, currency: "IDR", period: "month" });
+    // LF-05 put this budget in soft preferences; the edit keeps it there.
+    assert.deepEqual(edited.soft_preferences.housing_budget, { amount: 1500000, currency: "IDR", period: "month" });
+    assert.equal(Object.hasOwn(edited.hard_constraints, "housing_budget"), false);
+    assert.equal(applyLF05FieldEdit(proposal, "commute_minutes", 30).hard_constraints.commute_minutes, 30);
+    assert.equal(edited.inferred_fields.includes("housing_budget"), false);
+    assert.ok(edited.inferred_fields.includes("goal"));
+    // A field LF-05 left empty lands where explicit follow-up details go.
+    const moved = applyLF05FieldEdit(proposal, "transport_mode", "car");
+    assert.equal(moved.soft_preferences.transport_mode, "car");
+    assert.equal(Object.hasOwn(moved.hard_constraints, "transport_mode"), false);
+    assert.doesNotThrow(() => validateLF05Proposal(edited, onboardingTaxonomy));
 });

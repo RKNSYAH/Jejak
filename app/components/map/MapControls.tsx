@@ -1,25 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { Bookmark, BriefcaseBusiness, ChevronLeft, ChevronRight, ClipboardList, GraduationCap, House, RotateCcw, Search, TrainFront, User, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, X } from "lucide-react";
 import type { MapCategory, Zone } from "@/app/engine/types";
+import type { AccountSummary } from "@/app/engine/controller/userServerController";
 import { mapCategories } from "./mapMetrics";
 import { prefersReducedMotion } from "./viewport";
 import { getZoneSearchMatches, type ZoneSearchScope } from "./zoneSearch";
+import { getMetroArea, metroAreas, type MetroArea } from "@/app/engine/lib/metroArea";
+import BrandLogo from "../BrandLogo";
 
-const categories: { id: MapCategory; Icon: typeof ClipboardList }[] = [
-    { id: "summary", Icon: ClipboardList },
-    { id: "employment", Icon: BriefcaseBusiness },
-    { id: "education", Icon: GraduationCap },
-    { id: "housing", Icon: House },
-    { id: "mobility", Icon: TrainFront },
-];
+const categories: MapCategory[] = ["summary", "employment", "education", "housing", "mobility"];
 
 const scrollButtons = [
     { direction: -1, side: "left", position: "left-1", label: "Gulir kategori ke kiri", Icon: ChevronLeft },
     { direction: 1, side: "right", position: "right-1", label: "Gulir kategori ke kanan", Icon: ChevronRight },
 ] as const;
+
+// Desktop account cluster: fixed width so the controls row can reserve its space without measuring.
+const ACCOUNT_CLUSTER_WIDTH = 240;
 
 type MapControlsProps = {
     showProfileReminder: boolean;
@@ -27,6 +27,7 @@ type MapControlsProps = {
     onDismissProfileReminder: () => void;
     zones: Zone[];
     searchScope: ZoneSearchScope | null;
+    onAreaChange: (area: MetroArea) => void;
     loading: boolean;
     error: string | null;
     hasActiveRegionLayers: boolean;
@@ -37,21 +38,24 @@ type MapControlsProps = {
     onRetryRecommendations: () => void;
     heatmapLoading: boolean;
     heatmapError: string | null;
-    heatmapEmpty: boolean;
     onRetryHeatmap: () => void;
     onReset: () => void;
     category: MapCategory | null;
     onCategoryChange: (category: MapCategory) => void;
     sidebarWidth: number;
+    account: AccountSummary | null;
 };
 
 export default function MapControls(props: MapControlsProps) {
     const [query, setQuery] = useState("");
     const [searchOpen, setSearchOpen] = useState(false);
+    const [areaOpen, setAreaOpen] = useState(false);
     const [categoryOverflow, setCategoryOverflow] = useState({ overflowing: false, left: false, right: false });
     const categoriesRef = useRef<HTMLDivElement>(null);
     const categoryContentRef = useRef<HTMLDivElement>(null);
     const matches = getZoneSearchMatches(props.zones, query, props.searchScope);
+    const accountName = props.account?.name ?? "Akun";
+    const area = getMetroArea(props.searchScope);
 
     useEffect(() => {
         const viewport = categoriesRef.current;
@@ -112,12 +116,35 @@ export default function MapControls(props: MapControlsProps) {
     }
 
     return (
-        <div data-hci-region="controls" className="pointer-events-none absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] z-100 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 md:inset-x-3 md:top-4 md:flex md:flex-row md:gap-3 md:items-start" style={{ right: props.sidebarWidth + 12 }}>
-            <div className="contents md:flex md:w-full md:min-w-0 md:flex-row md:items-center md:gap-3">
-            <search data-hci-region="search" className={`dropdown pointer-events-auto z-10 min-w-0 md:w-80 md:shrink-0 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
+        <div data-hci-region="controls" className="pointer-events-none absolute top-[max(1rem,env(safe-area-inset-top))] right-3 left-[max(0.75rem,env(safe-area-inset-left))] z-100 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 @container md:top-4 md:right-(--controls-right) md:left-4 md:flex md:flex-col md:items-start"
+            style={{ "--controls-right": `${Math.max(props.sidebarWidth, ACCOUNT_CLUSTER_WIDTH + 16) + 12}px` } as CSSProperties}>
+            {/* Header and lens row share one width on desktop; on mobile they are grid rows beside the account cluster. */}
+            <div className="contents md:flex md:w-full md:max-w-128 md:flex-col md:gap-2">
+            <div data-hci-region="map-header" className="pointer-events-auto col-start-1 row-start-1 flex h-11 min-w-0 items-center gap-1 rounded-2xl border border-rule bg-base-100 px-1 shadow-overlay md:h-15 md:px-2">
+                <div className="hidden shrink-0 md:flex"><BrandLogo border={false} /></div>
+                <span aria-hidden="true" className="hidden h-7 w-px shrink-0 bg-rule md:block" />
+                <div data-hci-region="area-picker" className={`dropdown shrink-0 ${areaOpen ? "dropdown-open" : "dropdown-close"}`}
+                    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setAreaOpen(false); }}>
+                    <button type="button" onClick={() => setAreaOpen((open) => !open)} onKeyDown={(event) => { if (event.key === "Escape") setAreaOpen(false); }}
+                        aria-label={`Wilayah: ${area?.name ?? "belum dipilih"}`} aria-expanded={areaOpen} aria-controls="map-area-options"
+                        className="btn btn-ghost h-9 min-h-9 gap-1 rounded-xl px-2 text-sm font-semibold text-ink focus-visible:-outline-offset-2 md:h-11 md:min-h-11">
+                        <MapPin aria-hidden="true" className="size-4 md:hidden" />
+                        <span className="hidden md:inline">{area?.name ?? "Pilih wilayah"}</span>
+                        <ChevronDown aria-hidden="true" className="size-4 text-ink-muted" />
+                    </button>
+                    <ul id="map-area-options" aria-label="Pilih wilayah" className="dropdown-content menu mt-2 w-52 gap-2 rounded-2xl border border-rule bg-base-100 p-2 font-body shadow-overlay">
+                        {metroAreas.map((item) => <li key={item.id}>
+                            <button type="button" aria-current={item.id === props.searchScope} onClick={() => { setAreaOpen(false); props.onAreaChange(item); }}
+                                className="min-h-11 flex items-center gap-2 rounded-lg px-2 py-2 text-left leading-relaxed">
+                                {item.name}
+                            </button>
+                        </li>)}
+                    </ul>
+                </div>
+                <search data-hci-region="search" className={`dropdown min-w-0 flex-1 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) { closeSearch(); props.onSelect(matches[0]); } }}>
-                        <label className="input h-11 min-h-11 w-full shadow-sm rounded-3xl md:gap-3">
+                        <label className="input h-9 min-h-9 w-full rounded-xl border-0 px-2 shadow-none md:h-11 md:min-h-11 md:gap-3 md:border md:border-rule md:px-3">
                             <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                             <span className="sr-only">Cari kecamatan</span>
                             <input type="search" placeholder="Cari kecamatan…" value={query}
@@ -128,7 +155,7 @@ export default function MapControls(props: MapControlsProps) {
                                 className="min-w-0 flex-1 text-base md:text-sm" />
                         </label>
                     </form>
-                    <div id="zone-search-results" className="dropdown-content mt-2 max-h-[min(16rem,40dvh)] w-full overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-2 font-body shadow-overlay">
+                    <div id="zone-search-results" className="dropdown-content mt-2 max-h-[min(16rem,40dvh)] w-full min-w-64 overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-2 font-body shadow-overlay">
                         {props.loading && <p role="status" className="p-2 text-sm">Memuat kecamatan…</p>}
                         {props.error && <div role="status" className="p-2 text-sm">{props.error}<button className="btn btn-sm btn-outline btn-neutral mt-2" onClick={props.onRetry}>Coba lagi</button></div>}
                         {!props.loading && !props.error && matches.length === 0 && <p role="status" className="p-2 text-sm">Tidak ada kecamatan yang cocok. Coba kata lain.</p>}
@@ -140,54 +167,68 @@ export default function MapControls(props: MapControlsProps) {
                             </li>)}
                         </ul>
                     </div>
-            </search>
-            <div data-hci-region="categories" className="pointer-events-auto relative col-span-2 row-start-2 flex min-w-0 w-full items-center rounded-3xl border border-rule bg-panel-surface px-2 py-1 shadow-sm md:col-auto md:row-auto md:-my-1 md:w-auto" role="group" aria-label="Kategori peta">
-                {scrollButton(scrollButtons[0])}
-                <div id="map-category-scroll" ref={categoriesRef} className="map-category-scroll min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
-                    <div ref={categoryContentRef} className="flex w-max flex-nowrap gap-2">
-                    {categories.map(({ id, Icon }) => <button key={id} onClick={() => props.onCategoryChange(id)} type="button"
-                        aria-pressed={props.category === id} title={mapCategories[id].panelLabel}
-                        className={`btn btn-sm min-h-11 shrink-0 whitespace-nowrap px-3 text-sm font-normal rounded-3xl focus-visible:-outline-offset-2 md:h-9 md:min-h-9 md:px-2.5 ${props.category === id ? "btn-primary font-semibold" : "border-rule bg-panel-surface font-semibold text-ink-muted"}`}>
-                        <Icon aria-hidden="true" className="size-3.5" />{mapCategories[id].panelLabel}
-                    </button>)}
-                    {props.hasActiveRegionLayers && <button type="button" onClick={() => { closeSearch(); props.onReset(); }} aria-label="Reset semua lapisan peta"
-                        className="btn btn-sm btn-outline btn-neutral min-h-11 shrink-0 rounded-3xl bg-base-100 px-3 text-sm hover:bg-neutral md:h-9 md:min-h-9 md:px-2.5">
-                        <RotateCcw aria-hidden="true" className="size-3.5" />Reset
-                    </button>}
+                </search>
+            </div>
+                {/* Beside the search bar when the controls row has room (32rem header + gap + banner); otherwise centered below. */}
+                {props.showProfileReminder && <aside aria-label="Pengingat profil" data-hci-region="profile-completion-banner"
+                    className="alert pointer-events-auto absolute left-1/2 top-full mt-2 grid w-[min(30rem,100%)] -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] gap-x-1 gap-y-0 rounded-xl border-neutral bg-neutral p-2 text-neutral-content shadow-overlay md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center @min-[52rem]:top-0 @min-[52rem]:left-[calc(32rem+0.75rem)] @min-[52rem]:mt-0 @min-[52rem]:min-h-15 @min-[52rem]:py-1.5 @min-[52rem]:w-[min(34rem,calc(100%-32.75rem))] @min-[52rem]:translate-x-0">
+                    <p className="min-w-0 font-body text-xs font-semibold">Lengkapi profilmu untuk melihat rekomendasi.</p>
+                    <button type="button" onClick={props.onCompleteProfile}
+                        className="btn btn-sm btn-ghost col-start-1 row-start-2 min-h-11 justify-self-start px-2 text-xs text-neutral-content underline underline-offset-4 hover:bg-neutral hover:text-accent border-none hover:shadow-none focus-visible:outline-neutral-content md:col-start-2 md:row-start-1">
+                        Lengkapi profil
+                    </button>
+                    <button type="button" onClick={props.onDismissProfileReminder} aria-label="Tutup pengingat profil"
+                        className="btn btn-square btn-ghost col-start-2 row-start-1 size-11 self-start text-neutral-content hover:bg-neutral focus-visible:outline-neutral-content md:col-start-3">
+                        <X aria-hidden="true" className="size-4" />
+                    </button>
+                </aside>}
+            <div data-hci-region="categories" className="pointer-events-auto col-span-2 row-start-2 flex w-full min-w-0 items-center gap-1 rounded-2xl border border-rule bg-base-100 p-1 shadow-overlay md:p-1.5" role="group" aria-label="Kategori peta">
+                <div className="relative flex min-w-0 flex-1 items-center">
+                    {scrollButton(scrollButtons[0])}
+                    <div id="map-category-scroll" ref={categoriesRef} className="map-category-scroll min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
+                        <div ref={categoryContentRef} className="flex w-max flex-nowrap gap-1">
+                        {categories.map((id) => <button key={id} onClick={() => props.onCategoryChange(id)} type="button"
+                            aria-pressed={props.category === id} title={mapCategories[id].panelLabel}
+                            className={`btn btn-sm min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 text-sm font-semibold focus-visible:-outline-offset-2 md:h-9 md:min-h-9 ${props.category === id ? "btn-primary" : "btn-ghost text-ink"}`}>
+                            {mapCategories[id].panelLabel}
+                        </button>)}
+                        </div>
                     </div>
+                    {scrollButton(scrollButtons[1])}
                 </div>
-                {scrollButton(scrollButtons[1])}
+                {props.hasActiveRegionLayers && <button type="button" onClick={() => { closeSearch(); props.onReset(); }} aria-label="Reset semua lapisan peta" title="Reset"
+                    className="btn btn-square btn-ghost size-11 shrink-0 rounded-xl text-ink focus-visible:-outline-offset-2 md:size-9">
+                    <RotateCcw aria-hidden="true" className="size-4" />
+                </button>}
             </div>
-            </div>
-            {(props.recommendationsLoading || props.recommendationsError) && <div role="status" className="pointer-events-auto col-span-2 row-start-3 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:row-auto">
+            {(props.recommendationsLoading || props.recommendationsError) && <div role="status" className="pointer-events-auto col-span-2 row-start-3 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:w-full">
                 {props.recommendationsLoading ? "Memuat rekomendasi…" : props.recommendationsError}
                 {props.recommendationsError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryRecommendations}>Coba lagi</button>}
             </div>}
-            {props.category && props.category !== "summary" && (props.heatmapLoading || props.heatmapError || props.heatmapEmpty) &&
-                <div role="status" className="pointer-events-auto col-span-2 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:row-auto md:w-80">
-                    {props.heatmapLoading ? "Memuat heatmap…" : props.heatmapError ?? "Belum ada data sel untuk kecamatan ini."}
+            {props.category && props.category !== "summary" && (props.heatmapLoading || props.heatmapError) &&
+                <div role="status" className="pointer-events-auto col-span-2 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:w-full">
+                    {props.heatmapLoading ? "Memuat heatmap…" : props.heatmapError}
                     {props.heatmapError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryHeatmap}>Coba lagi</button>}
                 </div>}
-            <div className="pointer-events-auto col-start-2 row-start-1 flex items-start gap-2 md:col-auto md:row-auto md:gap-3">
-                <button type="button" title="Area tersimpan" aria-label="Area tersimpan" className="btn btn-square size-11 shrink-0 rounded-2xl border border-rule bg-panel-surface shadow-sm focus-visible:outline-primary md:size-9">
-                    <Bookmark aria-hidden="true" className="size-4" />
-                </button>
-                <Link href="/user" title="Profil" aria-label="Profil" className="btn btn-square size-11 shrink-0 rounded-2xl border border-rule bg-panel-surface shadow-sm focus-visible:outline-primary md:size-9">
-                    <User aria-hidden="true" className="size-4" />
-                </Link>
             </div>
-            {props.showProfileReminder && <aside aria-label="Pengingat profil" data-hci-region="profile-completion-banner"
-                className="alert pointer-events-auto absolute left-1/2 top-full mt-2 grid w-[min(30rem,100%)] -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] gap-x-1 gap-y-0 rounded-xl border-neutral bg-neutral p-2 text-neutral-content shadow-overlay md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
-                <p className="min-w-0 font-body text-xs font-semibold">Lengkapi profilmu untuk melihat rekomendasi.</p>
-                <button type="button" onClick={props.onCompleteProfile}
-                    className="btn btn-sm btn-ghost col-start-1 row-start-2 min-h-11 justify-self-start px-2 text-xs text-neutral-content underline underline-offset-4 hover:bg-neutral hover:text-accent border-none hover:shadow-none focus-visible:outline-neutral-content md:col-start-2 md:row-start-1">
-                    Lengkapi profil
+            {/* In the grid beside search on mobile; on desktop it sits 16px from the map's top-right corner, above the detail card. */}
+            <nav aria-label="Akun" data-hci-region="account-cluster"
+                className="pointer-events-auto col-start-2 row-start-1 flex h-11 items-center gap-0.5 rounded-2xl border border-rule bg-base-100 px-1 font-body text-ink shadow-overlay md:absolute md:top-0 md:right-[calc(1rem-var(--controls-right))] md:h-15 md:w-(--account-cluster-width) md:px-1.5"
+                style={{ "--account-cluster-width": `${ACCOUNT_CLUSTER_WIDTH}px` } as CSSProperties}>
+                <button type="button" title="Area tersimpan" aria-label="Area tersimpan" className="btn btn-square btn-ghost size-9 shrink-0 rounded-xl focus-visible:outline-primary md:size-11">
+                    <Bookmark aria-hidden="true" className="size-4 md:size-5" />
                 </button>
-                <button type="button" onClick={props.onDismissProfileReminder} aria-label="Tutup pengingat profil"
-                    className="btn btn-square btn-ghost col-start-2 row-start-1 size-11 self-start text-neutral-content hover:bg-neutral focus-visible:outline-neutral-content md:col-start-3">
-                    <X aria-hidden="true" className="size-4" />
-                </button>
-            </aside>}
+                <span aria-hidden="true" className="mx-1 h-7 w-px shrink-0 bg-rule md:mx-1.5" />
+                <Link href="/user" title="Profil" aria-label={`Profil ${accountName}${props.account?.planName ? `, paket ${props.account.planName}` : ""}`}
+                    className="btn btn-ghost h-9 min-h-9 shrink-0 gap-2.5 rounded-xl px-0.5 font-normal focus-visible:outline-primary md:h-12 md:min-h-12 md:min-w-0 md:flex-1 md:justify-start md:px-1.5">
+                    <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-sans text-sm font-bold text-primary-content">{accountName.charAt(0).toUpperCase()}</span>
+                    <span className="hidden min-w-0 flex-col text-left leading-tight md:flex">
+                        <strong className="truncate text-sm font-semibold">{accountName}</strong>
+                        {props.account?.planName && <span className="truncate text-xs text-ink-muted">{props.account.planName}</span>}
+                    </span>
+                </Link>
+            </nav>
+            
         </div>
     );
 }

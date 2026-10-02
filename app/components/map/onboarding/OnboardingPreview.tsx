@@ -3,6 +3,7 @@ import { displayStep } from "@/app/engine/onboarding/preview";
 import type { FormSession, LiveOnboardingPreview as Preview } from "@/app/engine/onboarding/types";
 import type { MapCategory } from "@/app/engine/types";
 import DistrictListItem from "./DistrictListItem";
+import { getCityAreaName } from "@/app/engine/lib/metroArea";
 
 const categoryHints: Record<MapCategory, string> = {
     summary: "Urutan memakai bukti yang tersedia",
@@ -23,6 +24,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
     const [listOpen, setListOpen] = useState(false);
     const completed = session ? session.status === "completed" : (completedOverride ?? true);
     const step = session ? displayStep(session) : (stepOverride ?? 4);
+    const areaName = preview.city ? getCityAreaName(preview.city) : null;
     const unknownCount = preview.districts.filter((item) => item.eligible === null).length;
     const hasBudgetCriteria = preview.preferences.monthlyBudget !== null || preview.preferences.maximumRent !== null;
     // An unsaved LF-05 proposal and sample data are separate qualifiers.
@@ -35,11 +37,11 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
         <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
                 {!completed && preview.available && <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs md:hidden" role="status">
-                    <span>{step === 1 ? `${preview.city?.city_name} · ${preview.districts.length} kecamatan` : step === 2 ? <><strong className="text-base">{preview.affordableCount}</strong> kecamatan memenuhi batas data sewa</> : step === 3 ? <>Moda {transportLabel ?? (session ? session.answers.transport : "belum dipilih")} · Rute belum tersedia tanpa graf rute</> : <><strong>{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong> {hasBudgetCriteria ? "kecamatan lolos batas terverifikasi" : "kecamatan dirangking"}</>}</span>
+                    <span>{step === 1 ? `${areaName} · ${preview.districts.length} kecamatan` : step === 2 ? <><strong className="text-base">{preview.affordableCount}</strong> kecamatan memenuhi batas data sewa</> : step === 3 ? <>Moda {transportLabel ?? (session ? session.answers.transport : "belum dipilih")} · Rute belum tersedia tanpa graf rute</> : <><strong>{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong> {hasBudgetCriteria ? "kecamatan lolos batas terverifikasi" : "kecamatan dirangking"}</>}</span>
                     {badge}
                 </div>}
                 <div className={`${completed || !preview.available ? "flex" : "hidden md:flex"} flex-wrap items-center gap-x-2 gap-y-1`}>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{step === 3 ? "Perjalanan" : preview.city?.city_name ?? "Pratinjau kecamatan"}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{step === 3 ? "Perjalanan" : areaName ?? "Pratinjau kecamatan"}</p>
                     {badge}
                 </div>
             </div>

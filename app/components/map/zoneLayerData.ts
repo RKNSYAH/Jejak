@@ -1,13 +1,14 @@
 import type { FeatureCollection, MultiPolygon, Point, Polygon } from "geojson";
 import type { EvidenceCluster, MapCategory, MapCell, ZoneDetailResult, ZoneGeometry } from "@/app/engine/types";
-import { type CellLayer, mapCategories } from "./mapMetrics";
+import { type CellLayer, type EducationMetric, getMapMetricConfig } from "./mapMetrics";
 
 export function createZoneLayerData(
     geometry: ZoneGeometry,
     detailsByZone: Record<string, ZoneDetailResult | undefined>,
     category: MapCategory,
+    educationMetric: EducationMetric = "schools",
 ): FeatureCollection<Polygon | MultiPolygon, { zone_id: string; zone_name: string; value: number | null; approximate: boolean }> {
-    const metric = mapCategories[category].metric;
+    const metric = getMapMetricConfig(category, educationMetric).metric;
     return {
         type: "FeatureCollection",
         features: geometry.features.map((feature) => {

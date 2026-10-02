@@ -15,12 +15,12 @@ import type { LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
 import { clamp } from "./viewport";
 
-const MIN_HEIGHT = 30;
+export const SHEET_MIN_HEIGHT = 30;
 const CENTER_HEIGHT = 290;
 const KEY_STEP = 40;
 
 function getMinHeight() {
-    return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 44 : MIN_HEIGHT;
+    return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? 44 : SHEET_MIN_HEIGHT;
 }
 
 function getMaxHeight() {
@@ -60,7 +60,7 @@ export default function MapBottomSheet({
     recommendations?: LiveDistrictRecommendation[];
     onEditPreferences?: () => void;
 }) {
-    const [height, setHeight] = useState(MIN_HEIGHT);
+    const [height, setHeight] = useState(SHEET_MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
     const sheetRef = useRef<HTMLElement>(null);
     const dragHandleRef = useRef<HTMLDivElement>(null);

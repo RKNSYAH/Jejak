@@ -11,7 +11,7 @@ const savedProfile = {
         priority_weights: { career: 1 }, taxonomy_version: "2026-09", contract_version: "lf05-v2" },
 };
 
-test("incomplete profile banner dismisses until refresh and reuses the cached result", async ({ page }) => {
+test("incomplete profile banner dismisses until refresh and reuses the cached result", async ({ page }, testInfo) => {
     await stubZones(page);
     let calls = 0;
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
@@ -27,10 +27,20 @@ test("incomplete profile banner dismisses until refresh and reuses the cached re
         return { background: style.backgroundColor, text: style.color };
     });
     expect(colors).toEqual({ background: "rgb(33, 41, 124)", text: "rgb(255, 249, 249)" });
-    const controls = await page.locator('[data-hci-region="controls"]').boundingBox();
-    const box = await banner.boundingBox();
-    expect(box!.y).toBeGreaterThanOrEqual(controls!.y + controls!.height);
-    expect(Math.abs(box!.x + box!.width / 2 - (controls!.x + controls!.width / 2))).toBeLessThan(2);
+    const box = (await banner.boundingBox())!;
+    if (testInfo.project.name === "desktop") {
+        // Wide maps fit the banner beside the search bar, level with it and clear of the account cluster.
+        const header = (await page.locator('[data-hci-region="map-header"]').boundingBox())!;
+        const cluster = (await page.locator('[data-hci-region="account-cluster"]').boundingBox())!;
+        expect(Math.abs(box.y - header.y)).toBeLessThan(1);
+        expect(Math.abs(box.height - header.height)).toBeLessThan(1);
+        expect(box.x).toBeGreaterThanOrEqual(header.x + header.width + 8);
+        expect(box.x + box.width).toBeLessThanOrEqual(cluster.x);
+    } else {
+        const controls = (await page.locator('[data-hci-region="controls"]').boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(controls.y + controls.height);
+        expect(Math.abs(box.x + box.width / 2 - (controls.x + controls.width / 2))).toBeLessThan(2);
+    }
     await banner.getByRole("button", { name: "Tutup pengingat profil" }).click();
     await expect(banner).toHaveCount(0);
     await page.reload();

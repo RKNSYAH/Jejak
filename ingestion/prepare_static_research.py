@@ -474,6 +474,25 @@ def sql_string(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def scope_manifest(manifest, tables):
+    """Validate against the whole workbook first, then compile only this scope."""
+    selected = set(tables)
+    if not selected or not selected <= set(TABLES):
+        raise ValueError("Scope must contain known target tables")
+    rows = [row for row in manifest["rows"] if row["target_table"] in selected]
+    counts = Counter(row["status"] for row in rows)
+    report = dict(manifest["report"])
+    report.update(scope=sorted(selected), full_workbook_input_rows=report["input_rows"],
+                  input_rows=len(rows), import_rows=counts["prepared"] + counts["baseline"],
+                  prepared_rows=counts["prepared"], baseline_rows=counts["baseline"], review_rows=counts["review"],
+                  sheets={t: report["sheets"][t] for t in selected if t in report["sheets"]},
+                  missing_data_sheets=sorted(selected - set(report["sheets"])),
+                  scenario_formulas_checked=sum(len(row["formulas"]) for row in rows),
+                  issue_counts=dict(Counter(i["code"] for row in rows for i in row["issues"])),
+                  transformation_counts=dict(Counter(t["reason"] for row in rows for t in row["transformations"])))
+    return {"report": report, "rows": rows}
+
+
 def json_sql(value):
     return sql_string(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))) + "::jsonb"
 
@@ -552,8 +571,11 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "ingestion/data/prepared/static_research")
     parser.add_argument("--check-only", action="store_true", help="Print the report without creating outputs")
     parser.add_argument("--include-review-as-baseline", action="store_true", help="Include source-quality caveats as flagged static baselines; invalid values and relationships still block promotion")
+    parser.add_argument("--scope", nargs="+", choices=sorted(TABLES), help="Compile selected tables after whole-workbook dependency validation")
     args = parser.parse_args()
     manifest = prepare(args.workbook, args.include_review_as_baseline)
+    if args.scope:
+        manifest = scope_manifest(manifest, args.scope)
     if not args.check_only:
         write_preparation(manifest, args.workbook, args.output)
     print(json.dumps(manifest["report"], ensure_ascii=True, indent=2))

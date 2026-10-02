@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { evaluateLiveOnboarding, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
+import { evaluateLiveOnboarding, monthlyCostRange, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
 import type { OnboardingArea, OnboardingCity } from "../app/engine/onboarding/types";
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
@@ -150,4 +150,21 @@ test("districts up to 10% over the rent limit stay eligible", () => {
     const over = evaluate(2_200_001);
     assert.equal(over.eligible, false);
     assert.ok(over.exclusions.includes("Sewa di atas batasmu"));
+});
+
+test("monthly cost range covers districts within the budget, widened to whole Rp500.000 steps", () => {
+    const district = (monthlyCost: number | null, eligible: boolean | null, is_sample = false) => ({
+        district: { ...areas[0], is_sample }, rentFact: null, monthlyCost, eligible,
+    }) as unknown as Parameters<typeof monthlyCostRange>[0]["districts"][number];
+
+    // An over-budget 28.5 jt district must not stretch the top of the range.
+    assert.deepEqual(monthlyCostRange({ districts: [district(5_720_000, true), district(6_830_000, true), district(28_400_000, false), district(null, null)] }),
+        { low: 5_500_000, high: 7_000_000, is_sample: false });
+    assert.deepEqual(monthlyCostRange({ districts: [district(6_000_000, true)] }), { low: 6_000_000, high: 6_000_000, is_sample: false });
+    // Nothing fits: only the cheapest starting cost is shown.
+    assert.deepEqual(monthlyCostRange({ districts: [district(9_200_000, false), district(12_000_000, false)] }), { low: 9_000_000, high: null, is_sample: false });
+    // No budget given: every priced district counts.
+    assert.deepEqual(monthlyCostRange({ districts: [district(4_100_000, null), district(8_900_000, null)] }), { low: 4_000_000, high: 9_000_000, is_sample: false });
+    assert.equal(monthlyCostRange({ districts: [district(5_000_000, true, true)] })?.is_sample, true);
+    assert.equal(monthlyCostRange({ districts: [district(null, null)] }), null);
 });

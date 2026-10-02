@@ -1,6 +1,6 @@
 import JejakMap from '../components/map/JejakMap';
 import { redirect } from "next/navigation";
-import { getAuthenticatedUserId } from "../engine/controller/userServerController";
+import { getAccountSummary, getAuthenticatedUserId } from "../engine/controller/userServerController";
 import { loginPath } from "../engine/lib/authDestination";
 
 export default async function MapPage({ searchParams }: PageProps<"/map">) {
@@ -13,10 +13,11 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
     }
     redirect(loginPath(`/map${query.size ? `?${query}` : ""}`));
   }
+  const account = await getAccountSummary().catch(() => null);
 
   return (
     <main className="min-h-0 flex-1 overflow-hidden">
-      <JejakMap key={userId} userId={userId} />
+      <JejakMap key={userId} userId={userId} account={account} />
     </main>
   );
 }

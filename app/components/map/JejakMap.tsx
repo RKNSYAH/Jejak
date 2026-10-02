@@ -10,7 +10,7 @@ import jejakStyle from "@/public/jejak_light_openfreemap.json";
 import { urbanist, sourceSans3 } from "@/app/fonts";
 import type { MapCategory, Zone, ZoneGeometry, ZoneSummary } from "@/app/engine/types";
 import { getGeometryBounds } from "@/app/engine/lib/zoneGeometry";
-import { cellLayers, mapCategories, rentSharePercent } from "./mapMetrics";
+import { cellLayers, getMapMetricConfig, mapCategories, rentSharePercent, type EducationMetric } from "./mapMetrics";
 import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "./zoneLayerData";
 import { CELL_GLOW_LAYER, CELL_OUTLINE_LAYER, COMPANY_POINT_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_FILL_LAYER, ZONE_HOVER_OUTLINE_LAYER, ZONE_OUTLINE_LAYER, ZONE_SELECTED_CASING_LAYER, ZONE_SELECTED_OUTLINE_LAYER } from "./zoneLayers";
 import { useLocatedEvidence } from "./useEvidence";
@@ -19,6 +19,7 @@ import { useZoneIntelligence } from "./useZoneIntelligence";
 import Buildings3dToggle from "./Buildings3dToggle";
 import MapControls from "./MapControls";
 import { getZoneSearchScope, type ZoneSearchScope } from "./zoneSearch";
+import { getCityAreaName } from "@/app/engine/lib/metroArea";
 import MapChatComposer from "./MapChatComposer";
 import MapLegend from "./MapLegend";
 import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
@@ -33,12 +34,13 @@ import { useOnboardingGeometry } from "./onboarding/useOnboardingGeometry";
 import { useSavedRelocationProfile } from "./onboarding/useSavedRelocationProfile";
 import { isDesktopViewport, prefersReducedMotion, useMediaQuery } from "./viewport";
 import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
-import { evaluateLiveOnboarding, isLiveRecommendationSample, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
+import { evaluateLiveOnboarding, isLiveRecommendationSample, monthlyCostRange, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { saveRelocationProfile } from "@/app/engine/lib/relocationProfileApi";
 import { normalizeRelocationProfileInputs, type StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import type { LF05ProposedProfile } from "@/app/engine/lib/lf05Validation";
 import { getRelocationGoal } from "@/app/engine/lib/relocationGoal";
 import type { LivePreviewMapContext } from "@/app/engine/onboarding/types";
+import type { AccountSummary } from "@/app/engine/controller/userServerController";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -51,7 +53,14 @@ for (const layer of mapStyle.layers) {
     layer.layout["text-font"] = [DISPLAY_LAYERS.has(layer.id) ? urbanist.style.fontFamily : sourceSans3.style.fontFamily];
 }
 
-export default function JejakMap({ userId }: { userId: string }) {
+// Map width the floating detail card covers, including its gap from the right edge.
+function getDesktopPanelInset(container: HTMLElement | null) {
+    const panel = container?.querySelector<HTMLElement>("#zone-intelligence-desktop");
+    if (!container || !panel) return null;
+    return Math.ceil(container.getBoundingClientRect().right - panel.getBoundingClientRect().left);
+}
+
+export default function JejakMap({ userId, account }: { userId: string; account: AccountSummary | null }) {
     const mapRef = useRef<MapRef>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const bottomSheetRef = useRef<MapBottomSheetHandle>(null);
@@ -63,6 +72,7 @@ export default function JejakMap({ userId }: { userId: string }) {
     }, []);
     const [mapStyleReady, setMapStyleReady] = useState(false);
     const [category, setCategory] = useState<MapCategory | null>("summary");
+    const [educationMetric, setEducationMetric] = useState<EducationMetric>("schools");
     const [cellLayerId, setCellLayerId] = useState<string | null>(null);
     const [hoveredZone, setHoveredZone] = useState<{ id: string; longitude: number; latitude: number } | null>(null);
     const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -105,8 +115,10 @@ export default function JejakMap({ userId }: { userId: string }) {
     const [storyProposal, setStoryProposal] = useState<LF05ProposedProfile | null>(null);
     // Story step 2 previews LF-05's unsaved proposal; the form keeps priority while open.
     const storyDraftActive = storyStep === 2 && !form.active;
+    // Step 3 reviews the same proposal; it needs the city's costs but not the map preview.
+    const storyReviewActive = storyStep === 3 && !form.active;
     const storyMapProfile = useMemo(() => {
-        if (storyDraftActive) {
+        if (storyDraftActive || storyReviewActive) {
             if (!storyProposal || !getRelocationGoal(storyProposal)) return null;
             try {
                 // Canonicalize the proposal's fields without saving or confirming it.
@@ -117,7 +129,7 @@ export default function JejakMap({ userId }: { userId: string }) {
             }
         }
         return storyPreviewVisible ? storyPreviewProfile?.profile ?? null : null;
-    }, [storyDraftActive, storyProposal, storyPreviewVisible, storyPreviewProfile]);
+    }, [storyDraftActive, storyReviewActive, storyProposal, storyPreviewVisible, storyPreviewProfile]);
     const storyPreferences = useMemo(() => {
         const preferences = storyMapProfile ? profilePreviewPreferences(storyMapProfile, storyCityCatalog) : null;
         if (!preferences) return null;
@@ -127,9 +139,10 @@ export default function JejakMap({ userId }: { userId: string }) {
     }, [storyMapProfile, storyCityCatalog, storyDraftActive, onboardingMapPoint]);
     // Step 2 shows budget fills only; ranking markers wait for the saved profile.
     const storyPreview = useMemo(() => storyPreferences
-        ? evaluateLiveOnboarding(storyPreferences, storyDraftActive ? 2 : 4, form.data)
-        : null, [storyPreferences, storyDraftActive, form.data]);
+        ? evaluateLiveOnboarding(storyPreferences, storyDraftActive || storyReviewActive ? 2 : 4, form.data)
+        : null, [storyPreferences, storyDraftActive, storyReviewActive, form.data]);
     const storyMapVisible = storyDraftActive || storyPreviewVisible;
+    const storyCostRange = storyReviewActive && storyPreview?.available ? monthlyCostRange(storyPreview) : null;
     const activePreview = storyMapVisible ? storyPreview : form.preview;
     const mapContext: LivePreviewMapContext | null = storyMapVisible && storyPreferences
         ? { step: storyDraftActive ? 2 : 4, completed: !storyDraftActive, goal: storyPreferences.goal, overBudget: storyPreferences.overBudget,
@@ -142,13 +155,13 @@ export default function JejakMap({ userId }: { userId: string }) {
     const storyCityId = storyPreferences?.cityId ?? null;
     useEffect(() => {
         // Closing the story preview hands the data loader back to the form.
-        if (!storyMapVisible) {
+        if (!storyMapVisible && !storyReviewActive) {
             selectPreviewCity(undefined);
             return;
         }
         if (storyDataLoading && !storyDataError) return;
         selectPreviewCity(storyCityId);
-    }, [storyMapVisible, storyCityId, storyDataLoading, storyDataError, selectPreviewCity]);
+    }, [storyMapVisible, storyReviewActive, storyCityId, storyDataLoading, storyDataError, selectPreviewCity]);
     const [savedProfileRevision, setSavedProfileRevision] = useState<number | null>(null);
     function confirmProfileSaved(saved: StoredRelocationProfile) {
         profile.setSavedProfile(saved);
@@ -193,19 +206,20 @@ export default function JejakMap({ userId }: { userId: string }) {
         is_sample: isLiveRecommendationSample(item),
         average_monthly_wage_idr: null, median_monthly_rent_idr: item.rent, population: null, wage_to_rent_ratio: null,
     })) ?? [], [activePreview]);
-    const state = useZoneIntelligence(exploring);
+    const state = useZoneIntelligence(exploring, searchScope);
     const zonesById = useMemo(() => new Map(state.catalog.zones.map((zone) => [zone.zone_id, zone])), [state.catalog.zones]);
     const selectedId = state.selectedZone?.zone_id;
     const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
     const selectedResult = selectedId ? state.results[selectedId] : undefined;
+    const metricConfig = getMapMetricConfig(category ?? "summary", educationMetric);
 
     const layerData = useMemo(() => {
         const geometry: ZoneGeometry = {
             type: "FeatureCollection",
             features: Object.values(state.geometryByZone).flatMap((value) => value.features),
         };
-        return createZoneLayerData(geometry, state.results, category ?? "summary");
-    }, [state.geometryByZone, state.results, category]);
+        return createZoneLayerData(geometry, state.results, category ?? "summary", educationMetric);
+    }, [state.geometryByZone, state.results, category, educationMetric]);
     const propertiesByZone = useMemo(() => new Map(layerData.features.map((feature) => [feature.properties.zone_id, feature.properties])), [layerData]);
     const metricRange = useMemo(() => getMetricRange(layerData.features.map((feature) => feature.properties.value)), [layerData]);
     const visibleZoneIds = useMemo(() => [...new Set(layerData.features.map((feature) => feature.properties.zone_id))], [layerData]);
@@ -263,7 +277,7 @@ export default function JejakMap({ userId }: { userId: string }) {
         }
 
         const syncPanelWidth = () => {
-            setDesktopPanelWidth(isDesktopViewport() ? Math.ceil(panel.getBoundingClientRect().width) : 0);
+            setDesktopPanelWidth(isDesktopViewport() ? getDesktopPanelInset(mapContainerRef.current) ?? 0 : 0);
         };
         const observer = new ResizeObserver(syncPanelWidth);
         observer.observe(panel);
@@ -379,7 +393,7 @@ export default function JejakMap({ userId }: { userId: string }) {
         if (!bounds) return;
         const desktop = isDesktopViewport();
         const reducedMotion = prefersReducedMotion();
-        const panelWidth = mapContainerRef.current?.querySelector<HTMLElement>("#zone-intelligence-desktop")?.getBoundingClientRect().width ?? 420;
+        const panelInset = getDesktopPanelInset(mapContainerRef.current) ?? 416;
         const pendingSearch = pendingSearchFlyRef.current;
         if (!desktop && pendingSearch && pendingSearch.zoneId === selectedId) {
             pendingSearch.started = true;
@@ -394,7 +408,7 @@ export default function JejakMap({ userId }: { userId: string }) {
         }
         mapRef.current?.fitBounds(bounds, {
             padding: desktop
-                ? { top: 180, right: Math.ceil(panelWidth) + 16, bottom: 70, left: 40 }
+                ? { top: 180, right: panelInset + 16, bottom: 70, left: 40 }
                 : { top: Math.min(156, Math.round(window.innerHeight * 0.28)), right: 24, bottom: Math.min(180, Math.round(window.innerHeight * 0.28)), left: 24 },
             maxZoom: 15,
             animate: !reducedMotion,
@@ -641,7 +655,7 @@ export default function JejakMap({ userId }: { userId: string }) {
                         {category === "summary" && <p className="mt-3 text-sm">{hoveredRentSharePercent === null
                             ? <>Sewa dari gaji rata-rata {hoveredMetadata.city_name}: <span className="font-semibold tabular-nums text-accent">Tidak tersedia</span></>
                             : <>{mapCategories.summary.popupLabel}: sekitar <span className="font-semibold tabular-nums text-accent">{mapCategories.summary.format(hoveredRentSharePercent)}</span> dari gaji rata-rata {hoveredMetadata.city_name}</>}</p>}
-                        {category && category !== "summary" && <p className="mt-3 text-sm">{mapCategories[category].popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Tidak tersedia" : `${hoveredProperties?.approximate ? "sekitar " : ""}${mapCategories[category].format(hoveredValue)}`}</span></p>}
+                        {category && category !== "summary" && <p className="mt-3 text-sm">{metricConfig.popupLabel}: <span className="font-semibold tabular-nums text-accent">{hoveredValue == null ? "Tidak tersedia" : `${hoveredProperties?.approximate ? "sekitar " : ""}${metricConfig.format(hoveredValue)}`}</span></p>}
                     </div>
                 </Popup>}
             </MapView>
@@ -651,8 +665,14 @@ export default function JejakMap({ userId }: { userId: string }) {
                 onCompleteProfile={form.returnToStory}
                 onDismissProfileReminder={() => setProfileReminderDismissed(true)}
                 sidebarWidth={desktopPanelWidth}
+                account={account}
                 zones={prototypeActive ? sampleZones : state.catalog.zones}
                 searchScope={searchScope}
+                onAreaChange={(area) => {
+                    closeSelection();
+                    setSearchScope(area.id);
+                    mapRef.current?.flyTo({ center: [...area.center], zoom: area.zoom, pitch: 0, bearing: 0, duration: prefersReducedMotion() ? 0 : 1200 });
+                }}
                 loading={!prototypeActive && state.catalogLoading}
                 error={prototypeActive ? null : state.catalogError}
                 hasActiveRegionLayers={prototypeActive || state.recommendationsLoading || !!selectedId || layerData.features.length > 0 || campusData.features.length > 0}
@@ -662,7 +682,6 @@ export default function JejakMap({ userId }: { userId: string }) {
                 onRetryRecommendations={state.retryRecommendations}
                 heatmapLoading={cells.loading}
                 heatmapError={cells.error}
-                heatmapEmpty={cells.enabled && !cells.loading && !cells.error && !cellSummary}
                 onRetryHeatmap={cells.retry}
                 category={category}
                 onCategoryChange={(next) => {
@@ -676,6 +695,7 @@ export default function JejakMap({ userId }: { userId: string }) {
                     cancelPendingSearchFly();
                     setMobilePanelOpen(false);
                     setCategory(null);
+                    setEducationMetric("schools");
                     state.resetMap();
                 }} />}
             {passwordUpdated && <p role="status" className="pointer-events-none absolute left-1/2 top-32 z-200 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2 rounded-xl border border-rule bg-base-100 px-4 py-3 text-center font-body text-sm font-semibold text-ink shadow-overlay md:top-20" data-hci-region="account-feedback">
@@ -687,6 +707,7 @@ export default function JejakMap({ userId }: { userId: string }) {
             {!onboardingActive && !sheetCoversTools && <div className={`pointer-events-auto absolute bottom-(--map-tools-bottom) z-100 flex w-11 flex-col gap-2 font-body transition-[bottom] duration-200 motion-reduce:transition-none md:bottom-8 ${prototypeActive ? "right-4" : "left-[max(0.75rem,env(safe-area-inset-left))] md:left-4"}`} style={{ "--map-tools-bottom": `calc(var(--map-sheet-height, ${bottomSheetState.height}px) + ${!bottomSheetState.isExpanded && !(isMobileViewport && mobilePanelOpen) ? "var(--map-chat-height, 112px) + 32px" : "16px"})` } as CSSProperties}>
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
                 {!prototypeActive && (layerData.features.length > 0 || cellSummary) && <MapLegend category={category ?? "summary"} range={metricRange}
+                    educationMetric={educationMetric} onEducationMetricChange={setEducationMetric}
                     detailsByZone={state.results} visibleZoneIds={visibleZoneIds} selectedZoneName={state.selectedZone?.zone_name ?? null}
                     cellLayerOptions={selectedId ? cellOptions : []} activeCellLayer={selectedId ? activeCellLayer : null}
                     cellSummary={cellSummary} cellsLoading={cells.loading} cellsError={cells.error}
@@ -749,6 +770,9 @@ export default function JejakMap({ userId }: { userId: string }) {
                 formReady={form.ready}
                 storyOpenRequest={form.storyOpenRequest}
                 onOpenForm={form.open}
+                costRange={storyCostRange}
+                costCityName={storyReviewActive && storyPreview?.city ? getCityAreaName(storyPreview.city) : null}
+                costLoading={storyReviewActive && storyDataLoading}
             />
             {form.active && <div className="absolute left-4 top-4 z-100"><BrandLogo /></div>}
             {prototypeActive && activePreview && <OnboardingPreview session={storyMapVisible ? null : form.session} preview={activePreview}

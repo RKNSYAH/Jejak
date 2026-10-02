@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/app/engine/lib/server";
 import { includeSample, type RegionDetailRow } from "./zoneController";
+import { getMetroCityIds } from "../lib/metroArea";
 import type { OnboardingArea, OnboardingCity, OnboardingCampus } from "../onboarding/types";
 import type { RegionFact } from "../types";
 
@@ -78,13 +79,14 @@ export async function getOnboardingCityRows(cityId: string | null): Promise<Onbo
 
     const city = cities.find((item) => item.city_id === cityId);
     if (!city) throw new Error("Unsupported city_id");
-    const { data: areaData, error: areaError } = await supabase.rpc("get_onboarding_city_preview", {
-        p_parent_code: cityId,
-        p_include_sample: includeSample,
-    });
-    if (areaError) throw areaError;
+    // A destination inside a metro (e.g. Jakarta Selatan) ranks kecamatan across the whole
+    // metro (Jabodetabek), since people live in one city and commute to another.
+    const results = await Promise.all(getMetroCityIds(cityId, cities).map((parentCode) =>
+        supabase.rpc("get_onboarding_city_preview", { p_parent_code: parentCode, p_include_sample: includeSample })));
+    const failed = results.find((result) => result.error);
+    if (failed?.error) throw failed.error;
 
-    const rawAreas = (areaData ?? []) as RawArea[];
+    const rawAreas = results.flatMap((result) => (result.data ?? []) as RawArea[]);
     const areas: OnboardingArea[] = rawAreas.map((row) => ({
         zone_id: row.region_code,
         zone_name: row.region_name,

@@ -1,6 +1,6 @@
 import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
 import { List } from "lucide-react";
-import { type CellLayer, mapCategories } from "./mapMetrics";
+import { type CellLayer, type EducationMetric, educationMetrics, getMapMetricConfig } from "./mapMetrics";
 import { type CellSummary, summarizeFacts } from "./zoneLayerData";
 import { GLOW_RAMP, type MetricRange } from "./zoneLayers";
 
@@ -62,7 +62,8 @@ function SummaryKey() {
 }
 
 export default function MapLegend({ category, range, detailsByZone, visibleZoneIds, selectedZoneName,
-    cellLayerOptions, activeCellLayer, cellSummary, cellsLoading, cellsError, onCellLayerChange, companyPointShown }: {
+    cellLayerOptions, activeCellLayer, cellSummary, cellsLoading, cellsError, onCellLayerChange, companyPointShown,
+    educationMetric, onEducationMetricChange }: {
     category: MapCategory;
     range: MetricRange;
     detailsByZone: Record<string, ZoneDetailResult>;
@@ -75,9 +76,13 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
     cellsError: string | null;
     onCellLayerChange: (id: string) => void;
     companyPointShown: boolean;
+    educationMetric: EducationMetric;
+    onEducationMetricChange: (metric: EducationMetric) => void;
 }) {
-    const config = mapCategories[category];
-    const { sources, periods } = summarizeFacts(visibleZoneIds.flatMap((id) =>
+    const config = getMapMetricConfig(category, educationMetric);
+    const missingCount = visibleZoneIds.filter((id) => !detailsByZone[id]?.facts.some((fact) =>
+        fact.metric === config.metric && fact.evidence_type !== "unavailable")).length;
+    const { sources, periods, isSample } = summarizeFacts(visibleZoneIds.flatMap((id) =>
         detailsByZone[id]?.facts.filter((fact) => fact.metric === config.metric && fact.evidence_type !== "unavailable") ?? []));
 
     return (
@@ -97,9 +102,24 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
             </div>}
             <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 max-h-[min(65dvh,32rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
                 <h2 className="font-semibold">{config.label}</h2>
+                {category === "education" && isSample && <span className="badge badge-neutral badge-sm mt-2">Data contoh</span>}
+                {category === "education" && <fieldset className="mt-3" data-hci-region="education-metric">
+                    <legend className="text-xs text-ink-muted">Metrik pendidikan</legend>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        {(Object.keys(educationMetrics) as EducationMetric[]).map((metric) => <label key={metric} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+                            <input type="radio" name="education-metric" value={metric} className="radio radio-sm radio-primary"
+                                checked={educationMetric === metric} onChange={() => onEducationMetricChange(metric)} />
+                            {educationMetrics[metric].popupLabel}
+                        </label>)}
+                    </div>
+                </fieldset>}
                 {category === "summary" ? <SummaryKey /> : <>
                     <p className="mt-1 text-xs text-ink-muted">Warna kecamatan · {provenance(sources, periods)}</p>
                     {range ? <RangeKey range={range} format={config.format} /> : <p className="mt-3">Belum ada nilai kecamatan yang ditampilkan.</p>}
+                    {category === "education" && <>
+                        <p className="mt-2 text-xs text-ink-muted">{visibleZoneIds.length - missingCount} dari {visibleZoneIds.length} kecamatan memiliki data.</p>
+                        {missingCount > 0 && <p className="mt-1 text-xs text-ink-muted">Tanpa warna: data belum tersedia.</p>}
+                    </>}
                     {companyPointShown && selectedZoneName && <p className="mt-2 flex items-center gap-2 text-xs"><span className="size-3 shrink-0 rounded-full bg-ink/85" aria-hidden="true" />Perusahaan di {selectedZoneName}, ditampilkan di titik tengah kecamatan</p>}
                     {selectedZoneName && activeCellLayer && <div className="mt-3 border-t border-rule pt-3">
                         <p className="font-semibold">{selectedZoneName} · {activeCellLayer.label}</p>
