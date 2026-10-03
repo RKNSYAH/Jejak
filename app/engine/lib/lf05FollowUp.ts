@@ -143,7 +143,7 @@ export function getLF05TargetCity(proposal: LF05ProposedProfile | null, story: s
     return typeof city === "string" ? onboardingTaxonomy.areas?.find((area) => area.id === city)?.label ?? city : extractUserProfile(story).targetCity;
 }
 
-export function getLF05ClarificationQuestions(proposal: LF05ProposedProfile, story: string, answers: LF05ClarificationAnswer[] = [], goal?: RelocationGoal, details: LF05FollowUpDetails = {}, language: "id" | "en" = "id"): string[] {
+export function getLF05ClarificationQuestions(proposal: LF05ProposedProfile, story: string, answers: LF05ClarificationAnswer[] = [], goal?: RelocationGoal, details: LF05FollowUpDetails = {}): string[] {
     const answered = new Set(answers.map(({ question }) => question.trim()));
     const destinationAnswered = !!details.destination || answers.some(({ question }) => getLF05ClarificationField(question) === "destination");
     const questions = proposal.clarification_questions.filter((question) => {
@@ -152,7 +152,7 @@ export function getLF05ClarificationQuestions(proposal: LF05ProposedProfile, sto
         return !answered.has(question.trim()) && !(field === "goal" && goal) && !(field === "destination" && destinationAnswered) && !(field && Object.hasOwn(details, field));
     });
     const transport = resolveLF05FollowUpDetails(answers, details, story).transport_mode;
-    if (!transport) questions.push(getLF05TransportQuestion(language));
+    if (!transport) questions.push(getLF05TransportQuestion());
     const destination = proposal.hard_constraints.destination ?? proposal.soft_preferences.destination;
     const city = getLF05TargetCity(proposal, story);
     const hasSpecificDestination = isRecord(destination) && destination.precision !== "city" && typeof destination.name === "string" && destination.name.toLowerCase() !== city?.toLowerCase();

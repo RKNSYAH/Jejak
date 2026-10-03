@@ -40,8 +40,6 @@ async function openMap(page: Page) {
                 : details,
         });
     });
-    await page.route((url) => url.pathname === "/api/geometry", (route) =>
-        route.fulfill({ json: geometry() }));
 
     await openDemoMap(page);
     await expect(page.getByRole("button", { name: "Legenda" })).toBeVisible();

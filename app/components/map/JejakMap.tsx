@@ -23,8 +23,9 @@ import { getZoneSearchScope, type ZoneSearchScope } from "./zoneSearch";
 import { getCityAreaName, getCityMetroArea, getMetroArea, getMetroCityIds, isMetroCity } from "@/app/engine/lib/metroArea";
 import MapChatComposer from "./MapChatComposer";
 import MapLegend from "./MapLegend";
+import MapZoomControls from "./MapZoomControls";
 import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
-import MapBottomSheet, { type MapBottomSheetHandle, type MapBottomSheetState } from "./MapBottomSheet";
+import MapBottomSheet, { SHEET_MIN_HEIGHT, type MapBottomSheetHandle, type MapBottomSheetState } from "./MapBottomSheet";
 import RelocationOnboarding, { type MapPoint, type OfficeChoice, type StoryStep } from "./RelocationOnboarding";
 import BrandLogo from "../BrandLogo";
 import RelocationFormOnboarding from "./onboarding/RelocationFormOnboarding";
@@ -59,7 +60,6 @@ for (const layer of mapStyle.layers) {
     layer.layout["text-font"] = [DISPLAY_LAYERS.has(layer.id) ? urbanist.style.fontFamily : sourceSans3.style.fontFamily];
 }
 
-// Map width the floating detail card covers, including its gap from the right edge.
 function getDesktopPanelInset(container: HTMLElement | null) {
     const panel = container?.querySelector<HTMLElement>("#zone-intelligence-desktop");
     if (!container || !panel) return null;
@@ -122,9 +122,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const selectPreviewCity = form.selectPreviewCity;
     const [storyStep, setStoryStep] = useState<StoryStep>(0);
     const [storyProposal, setStoryProposal] = useState<LF05ProposedProfile | null>(null);
-    // Story step 2 previews LF-05's unsaved proposal; the form keeps priority while open.
     const storyDraftActive = storyStep === 2 && !form.active;
-    // Step 3 reviews the same proposal; it needs the city's costs but not the map preview.
     const storyReviewActive = storyStep === 3 && !form.active;
     const storyMapProfile = useMemo(() => {
         if (storyDraftActive || storyReviewActive) {
@@ -142,12 +140,9 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const storyPreferences = useMemo(() => {
         const preferences = storyMapProfile ? profilePreviewPreferences(storyMapProfile, storyCityCatalog) : null;
         if (!preferences) return null;
-        // A freshly picked point is not in the proposal until LF-05 reanalyzes it.
         return storyDraftActive && onboardingMapPoint ? { ...preferences, destinationName: "Titik pilihanmu",
             destinationPoint: [onboardingMapPoint.longitude, onboardingMapPoint.latitude] as [number, number] } : preferences;
     }, [storyMapProfile, storyCityCatalog, storyDraftActive, onboardingMapPoint]);
-    // Step 2 already ranks (budget, evidence, distance to the chosen point). The map badges only the top few
-    // until the profile is saved, then every district.
     const storyPreview = useMemo(() => storyPreferences
         ? evaluateLiveOnboarding(storyPreferences, storyDraftActive || storyReviewActive ? 2 : 4, form.data)
         : null, [storyPreferences, storyDraftActive, storyReviewActive, form.data]);
@@ -167,7 +162,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         ? profilePreviewPreferences(profile.savedProfile.profile, form.data.cities) : null,
     [profile.savedProfile, form.data.cities]);
     useEffect(() => {
-        // Exploration retains confirmed-plan districts; active setup owns its city.
         if (!storyMapVisible && !storyReviewActive) {
             selectPreviewCity(!form.active && !legacyOnboardingActive ? savedPreferences?.cityId ?? undefined : undefined);
             return;
@@ -189,16 +183,20 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const [profileReminderDismissed, setProfileReminderDismissed] = useState(false);
     const onboardingActive = legacyOnboardingActive || form.active || !form.ready;
     const prototypeActive = form.previewVisible || storyMapVisible;
-    // A setup panel (form or story step 2) shares the screen with the map.
     const setupPanelActive = form.active || storyDraftActive;
-    // The live map (real regions, panel, legend) shows only outside onboarding and the demo preview.
     const exploring = !onboardingActive && !prototypeActive;
-    const regularPreview = useMemo(() => {
+    const regularAreas = useMemo(() => {
         if (!exploring || !savedPreferences) return null;
         const cityIds = new Set(savedPreferences.cityId ? getMetroCityIds(savedPreferences.cityId, form.data.cities) : []);
-        return evaluateLiveOnboarding(savedPreferences, 4, { ...form.data,
-            areas: form.data.areas.filter((area) => cityIds.has(area.city_id)) });
+        return { ...form.data, areas: form.data.areas.filter((area) => cityIds.has(area.city_id)) };
     }, [exploring, savedPreferences, form.data]);
+    const regularBase = useMemo(() => regularAreas && savedPreferences ? evaluateLiveOnboarding(savedPreferences, 4, regularAreas) : null,
+        [regularAreas, savedPreferences]);
+    const regularGeometry = useOnboardingGeometry(exploring && !!regularBase?.planningReach && !!regularBase.available,
+        regularBase?.city?.city_id ?? null, regularBase?.districts.map((item) => item.district.zone_id) ?? []);
+    const regularPreview = useMemo(() => regularAreas && savedPreferences && regularGeometry.geometry
+        ? evaluateLiveOnboarding(savedPreferences, 4, { ...regularAreas, geometry: regularGeometry.geometry }) : regularBase,
+    [regularAreas, savedPreferences, regularBase, regularGeometry.geometry]);
     const regularReach = regularPreview?.planningReach ?? null;
     const regularReachCameraRef = useRef(false);
     const regularDistrictDataAvailable = !!regularPreview?.available && (!searchScope || !!regularPreview.city && getCityMetroArea(regularPreview.city)?.id === searchScope);
@@ -208,8 +206,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         const scope = getMetroArea(searchScope);
         return visiblePreviewDistricts(regularPreview).filter((item) => !scope || isMetroCity(scope, item.district));
     }, [regularReach, regularPreview, searchScope]);
-    const regularGeometry = useOnboardingGeometry(exploring && !!regularReach && !!regularPreview?.available,
-        regularPreview?.city?.city_id ?? null, regularPreview?.districts.map((item) => item.district.zone_id) ?? []);
     const regularZones = useMemo<ZoneSummary[]>(() => regularDistricts.map((item) => ({
         zone_id: item.district.zone_id, zone_name: item.district.zone_name,
         city_id: item.district.city_id, city_name: item.district.city_name,
@@ -224,8 +220,9 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const [sampleSelection, setSampleSelection] = useState<{ cityId: string; id: string } | null>(null);
     const activePreview = useMemo(() => basePreview && mapContext
         ? evaluateLiveOnboarding(basePreview.preferences, mapContext.step, { cities: basePreview.cities,
-            areas: basePreview.districts.map((item) => item.district), destinations: basePreview.destinations })
-        : basePreview, [basePreview, mapContext]);
+            areas: basePreview.districts.map((item) => item.district), destinations: basePreview.destinations,
+            geometry: onboardingGeometry.geometry })
+        : basePreview, [basePreview, mapContext, onboardingGeometry.geometry]);
     const previewDistricts = useMemo(() => activePreview ? [...visiblePreviewDistricts(activePreview)]
         .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.district.zone_id.localeCompare(b.district.zone_id)) : [], [activePreview]);
     const sampleSelected = sampleSelection?.cityId === activePreview?.city?.city_id
@@ -552,17 +549,11 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
             ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2] as [number, number]
             : null);
         if (!destinationCenter && !fallbackCenter) return;
-        // Frame once per explicit city/destination/mode change. Border responses,
-        // refreshed preview objects, and panel resizes must not reset the user's view.
         onboardingCameraRef.current = onboardingCameraKey;
-        // fitBounds bakes its padding into the camera. Clear an earlier easeTo's
-        // global padding before switching camera strategies, avoiding double offsets.
         mapRef.current?.getMap().setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
         const reachBounds = previewReach && getGeometryBounds(previewReach.geometry);
         if (reachBounds) {
             mapRef.current?.fitBounds(reachBounds, { padding, maxZoom: 14, pitch: 0, bearing: 0, animate: !reducedMotion, duration: reducedMotion ? 0 : 500 });
-        } else if (bounds && !destinationCenter && (desktop || !setupPanelActive)) {
-            mapRef.current?.fitBounds(bounds, { padding, maxZoom: 12.5, pitch: 0, bearing: 0, animate: !reducedMotion, duration: reducedMotion ? 0 : 500 });
         } else {
             mapRef.current?.easeTo({ center: destinationCenter ?? fallbackCenter!, zoom: destinationCenter ? 13 : 11,
                 padding, pitch: 0, bearing: 0, animate: !reducedMotion, duration: reducedMotion ? 0 : 500 });
@@ -575,7 +566,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         map.setLayoutProperty(BUILDINGS_3D_LAYER, "visibility", is3dEnabled && !setupPanelActive ? "visible" : "none");
     }, [mapStyleReady, is3dEnabled, setupPanelActive]);
 
-    // Zone under a pointer, with a 6px margin so boundary clicks still hit.
     function queryZoneIdAt(x: number, y: number) {
         return mapRef.current?.queryRenderedFeatures([[x - 6, y - 6], [x + 6, y + 6]], {
             layers: regularReach ? [PLANNING_DISTRICT_FILL_ID, ZONE_FILL_LAYER.id] : [ZONE_FILL_LAYER.id],
@@ -599,8 +589,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     useEffect(() => {
         if (!exploring) { regularReachCameraRef.current = false; return; }
         if (!mapStyleReady || !regularReach || regularReachCameraRef.current) return;
-        // A fresh exploration visit opens the saved destination, not the default
-        // Jakarta camera. Later evidence/geometry responses must not undo user pans.
         regularReachCameraRef.current = true;
         showPlanningReach();
     }, [exploring, mapStyleReady, regularReach, showPlanningReach]);
@@ -623,7 +611,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 onResize={syncSearchScope}
                 onStyleData={() => { if (mapRef.current?.getMap().getLayer(BUILDINGS_3D_LAYER)) setMapStyleReady(true); }}
                  onClick={(event) => {
-                     // The story draft preview is read-only; clicks only place a chosen destination.
                      if (storyDraftActive) {
                          if (onboardingMapPicking) handleOnboardingMapPick({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
                          return;
@@ -691,7 +678,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                         {sampleSelected.district.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
                         <h2 className="mt-2 font-sans text-xl font-bold">{sampleSelected.district.zone_name}</h2>
                         <dl className="mt-3 space-y-2 text-sm">
-                            <div><dt className="text-xs text-ink-muted">Median sewa / bulan</dt><dd className="font-semibold">{sampleSelected.rent === null ? "Belum tersedia" : `Rp${formatRupiah(sampleSelected.rent)}`}</dd></div>
+                            <div><dt className="text-xs text-ink-muted">Rata-rata sewa / bulan</dt><dd className="font-semibold">{sampleSelected.rent === null ? "Belum tersedia" : `Rp${formatRupiah(sampleSelected.rent)}`}</dd></div>
                             <div><dt className="text-xs text-ink-muted">Perkiraan sewa + biaya kota</dt><dd className="font-semibold">{sampleSelected.monthlyCost === null ? "Belum tersedia" : `sekitar Rp${formatRupiah(sampleSelected.monthlyCost)}`}</dd></div>
                             <div><dt className="text-xs text-ink-muted">Perkiraan jangkauan</dt><dd className="font-semibold">{activePreview?.planningReach ? planningReachLabel(sampleSelected.reachBand) : "Belum tersedia"}</dd></div>
                         </dl>
@@ -750,7 +737,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 reachSummary={exploring && regularReach && regularPreview ? <PlanningReachSummary reach={regularReach}
                     districts={regularDistricts} destinationName={regularPreview.preferences.destinationName}
                     loading={form.dataLoading} error={form.dataError}
-                    filled={showRegularReachFill}
                     savedRevision={profile.savedProfile?.revision}
                     districtsAvailable={regularDistrictDataAvailable} geometryError={regularGeometry.error}
                     geometryMissing={!regularGeometry.loading && regularDistricts.some((item) => !regularGeometry.geometry?.features.some((feature) => feature.properties.zone_id === item.district.zone_id))}
@@ -796,7 +782,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 <p>Profil terbaru belum dapat dimuat. Profil tersimpan tidak berubah.</p>
                 <button type="button" onClick={() => window.location.reload()} className="btn btn-ghost mt-1 min-h-11 px-0 text-primary">Coba lagi</button>
             </div>}
-            {!onboardingActive && !sheetCoversTools && <div className={`pointer-events-auto absolute bottom-(--map-tools-bottom) z-100 flex w-11 flex-col gap-2 font-body transition-[bottom] duration-200 motion-reduce:transition-none md:bottom-8 ${prototypeActive ? "right-4" : "left-[max(0.75rem,env(safe-area-inset-left))] md:left-4"}`} style={{ "--map-tools-bottom": `calc(var(--map-sheet-height, ${bottomSheetState.height}px) + ${!bottomSheetState.isExpanded && !(isMobileViewport && mobilePanelOpen) ? "var(--map-chat-height, 112px) + 32px" : "16px"})` } as CSSProperties}>
+            {!onboardingActive && !sheetCoversTools && <div className={`pointer-events-auto absolute bottom-(--map-tools-bottom) z-100 flex w-11 flex-col gap-2 font-body transition-[bottom] duration-200 motion-reduce:transition-none md:bottom-(--map-tools-md-bottom) right-(--map-tools-right)`} style={{ "--map-tools-right": desktopPanelWidth ? `${desktopPanelWidth + 12}px` : "1rem",
+                    "--map-tools-md-bottom": `${SHEET_MIN_HEIGHT + 16}px`, "--map-tools-bottom":`calc(var(--map-sheet-height, ${bottomSheetState.height}px) + ${!bottomSheetState.isExpanded && !(isMobileViewport && mobilePanelOpen) ? "var(--map-chat-height, 112px) + 32px" : "16px"})` } as CSSProperties}>
                 <Buildings3dToggle enabled={is3dEnabled} onToggle={() => setIs3dEnabled((enabled) => !enabled)} />
                 {!prototypeActive && !showRegularReachFill && (layerData.features.length > 0 || cellSummary) && <MapLegend category={category ?? "summary"} range={metricRange}
                     educationMetric={educationMetric} onEducationMetricChange={setEducationMetric}
@@ -805,6 +792,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                     cellSummary={cellSummary} cellsLoading={cells.loading} cellsError={cells.error}
                     onCellLayerChange={setCellLayerId}
                     companyPointShown={companyPointActive && companyPointData.features.length > 0} />}
+                <MapZoomControls onZoomIn={() => mapRef.current?.zoomIn({ duration: prefersReducedMotion() ? 0 : 300 })}
+                    onZoomOut={() => mapRef.current?.zoomOut({ duration: prefersReducedMotion() ? 0 : 300 })} />
             </div>}
             {exploring && state.selectedZone && (
                 <ZoneIntelligencePanel

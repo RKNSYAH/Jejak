@@ -128,8 +128,7 @@ export async function runFlow(flowId: string, input: unknown, options: RunFlowOp
         const text = await upstream.text();
         if (text.length > (options.maxBytes ?? 200_000)) throw new Error("RESPONSE_TOO_LARGE");
         envelope = JSON.parse(text);
-    } catch (error) {
-        if (error instanceof Error && error.name === "TimeoutError") throw new LangflowError("timeout", "Langflow took too long to respond");
+    } catch {
         throw new LangflowError("invalid_response", "Langflow returned an unreadable response");
     }
     return parseFlowEnvelope(envelope, options.contract);

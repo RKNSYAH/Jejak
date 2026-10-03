@@ -3,6 +3,7 @@ import { getRelocationGoal } from "../lib/relocationGoal";
 import { isRecord } from "../lib/zoneGeometry";
 import type { PersistedRelocationProfile } from "../lib/relocationProfile";
 import type { CommuteResponse } from "../routing/types";
+import type { ZoneGeometry } from "../types";
 import { previewDestination } from "../routing/sampling";
 import { estimatePlanningReach, planningReachBand, pointDistanceKm } from "./planningReach";
 import type {
@@ -22,6 +23,8 @@ export type PreviewInput = {
     areas: OnboardingArea[];
     destinations: OnboardingCampus[];
     commute?: CommuteResponse | null;
+    // Loaded boundaries let a district count as reached when its outline touches the reach circle.
+    geometry?: ZoneGeometry | null;
 };
 
 const housingTypes: Exclude<Housing, "unsure">[] = ["kos", "apartment"];
@@ -249,6 +252,10 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
     const commute = step >= 3 && input.commute?.mode === answers.transport &&
         JSON.stringify(input.commute.destination) === JSON.stringify(destination) ? input.commute : null;
     const byId = new Map(commute?.estimates.map((estimate) => [estimate.id, estimate]) ?? []);
+    const boundaries = new Map<string, ZoneGeometry["features"][number]["geometry"][]>();
+    if (planningReach) for (const feature of input.geometry?.features ?? []) {
+        boundaries.set(feature.properties.zone_id, [...boundaries.get(feature.properties.zone_id) ?? [], feature.geometry]);
+    }
     const raw = input.areas.map((area) => {
         const choices = rentFacts(area, selectedTypes.length ? selectedTypes : ["unsure"]);
         const rentFact = choices.length ? choices.reduce((lowest, current) => current.value < lowest.value ? current : lowest) : null;
@@ -260,7 +267,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
 
         if (step >= 2) {
             if (answers.maximumRent !== null) {
-                if (rent === null) unknowns.push("Belum ada median sewa untuk tipe hunian ini");
+                if (rent === null) unknowns.push("Belum ada rata-rata sewa untuk tipe hunian ini");
                 else if (!withinBudget(rent, answers.maximumRent)) exclusions.push("Sewa di atas batasmu");
                 else reasons.push("Sewa dalam batasmu");
             }
@@ -281,7 +288,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const commuteMinutes = commuteEstimate?.minutes?.high ?? null;
         const distanceKm = distanceToDestination(area.center, destination);
         if (step >= 2 && distanceKm !== null) reasons.push(distanceLabel(distanceKm));
-        const reachBand = planningReachBand(area.center, planningReach);
+        const reachBand = planningReachBand(area.center, planningReach, boundaries.get(area.zone_id));
         let commuteUnknown = false;
         if (step >= 3) {
             if (!destination) { unknowns.push("Pilih lokasi tujuan untuk memeriksa perjalanan"); commuteUnknown = true; }
@@ -300,7 +307,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const constrained = (step >= 2 && financiallyConstrained) || (step >= 3 && answers.commuteMinutes !== null);
         const eligible = !constrained ? null : exclusions.length ? false : financialUnknown ||
             (step >= 3 && answers.commuteMinutes !== null && commuteUnknown) ? null : true;
-        if (rent !== null && rentFact) reasons.unshift(`Median sewa Rp${Math.round(rent).toLocaleString("id-ID")} · ${rentFact.source}`);
+        if (rent !== null && rentFact) reasons.unshift(`Rata-rata sewa Rp${Math.round(rent).toLocaleString("id-ID")} · ${rentFact.source}`);
 
         return {
             district: area, rent, rentFact, monthlyCost, commuteMinutes, commuteEstimate, distanceKm, financialEligible,

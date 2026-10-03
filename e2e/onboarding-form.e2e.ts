@@ -146,7 +146,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
         await separator.press("Home");
         const marker = page.locator(".maplibregl-marker button").filter({ hasText: "Kecamatan A" });
         await marker.click();
-        await expect(detail).toContainText("Median sewa / bulan");
+        await expect(detail).toContainText("Rata-rata sewa / bulan");
     }
     await page.reload();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);

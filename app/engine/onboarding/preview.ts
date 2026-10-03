@@ -1,5 +1,5 @@
-import { demoDistricts, demoDestinations, initialFormAnswers } from "./demoData";
-import type { DemoDistrict, FormAnswers, FormSession, FormStep, Housing, OnboardingPreview, Priority, Weights } from "./types";
+import { demoDestinations, initialFormAnswers } from "./demoData";
+import type { FormAnswers, FormSession, FormStep, Housing, Priority, Weights } from "./types";
 import { isCentroid, isRegionCode } from "../lib/zoneGeometry";
 
 export const priorityKeys: Priority[] = ["opportunity", "affordability", "mobility", "environment"];
@@ -20,6 +20,28 @@ export function redistributeWeights(weights: Weights, key: Priority, value: numb
     return result;
 }
 
+// Priorities suggested by steps 1-3. Neutral answers (the form defaults) give 40/30/20/10; a hard
+// budget cap or tight budget lifts affordability, a short commute, walking or a fixed destination
+// lifts mobility, and wanting both work and study lifts opportunity.
+export function suggestWeights(answers: FormAnswers): Weights {
+    const raw: Weights = {
+        opportunity: answers.goal === "both" ? 45 : 40,
+        affordability: 30 + (answers.overBudget === "hide" ? 10 : 0) + (answers.monthlyBudget < 4_000_000 ? 10 : 0),
+        mobility: 20 + { 15: 15, 30: 8, 45: 0, 60: -8 }[answers.commuteMinutes] + (answers.transport === "active" ? 5 : 0) +
+            (answers.destinationPoint || answers.destinationId ? 5 : 0),
+        environment: 10,
+    };
+    const total = priorityKeys.reduce((sum, key) => sum + raw[key], 0);
+    return redistributeWeights(raw, "opportunity", Math.round(raw.opportunity / total * 100));
+}
+
+// Weights track the suggestion until the user edits a slider; after that they differ from it and stay put.
+export function followSuggestedWeights(before: FormAnswers, after: FormAnswers): FormAnswers {
+    const suggested = suggestWeights(before);
+    return after.weights === before.weights && priorityKeys.every((key) => before.weights[key] === suggested[key])
+        ? { ...after, weights: suggestWeights(after) } : after;
+}
+
 export function toggleHousing(current: Housing[], choice: Housing): Housing[] {
     if (choice === "unsure") return ["unsure"];
     const selected = current.filter((item) => item !== "unsure");
@@ -29,58 +51,6 @@ export function toggleHousing(current: Housing[], choice: Housing): Housing[] {
 // A completed form keeps showing the final (priorities) step on the map.
 export function displayStep(session: FormSession): FormStep {
     return session.status === "completed" ? 4 : session.step;
-}
-
-export function availableDestinations(goal: FormAnswers["goal"]) {
-    return demoDestinations.filter((destination) => goal === "both" || destination.kind === (goal === "study" ? "campus" : "office"));
-}
-
-export function sampleCommute(district: DemoDistrict, answers: FormAnswers): number | null {
-    if (!answers.destinationId) return null;
-    const base = district.commute[answers.destinationId];
-    if (base === undefined) return null;
-    const modeFactor = { transit: 1, motorcycle: 0.7, car: 0.95, active: 2.4 }[answers.transport];
-    const timeFactor = { morning: 1, midday: 0.8, evening: 1.12, flexible: 0.9 }[answers.departure];
-    return Math.max(5, Math.round(base * modeFactor * timeFactor));
-}
-
-export function evaluateOnboarding(answers: FormAnswers, step: FormStep = 4): OnboardingPreview {
-    const available = answers.city === "jakarta-selatan" || answers.city === "unsure";
-    if (!available) return { available, districts: [], ranked: [], affordableCount: 0, eligibleCount: 0 };
-    const housing = answers.housing.filter((item): item is Exclude<Housing, "unsure"> => item !== "unsure");
-    const types = housing.length ? housing : ["kos", "apartment"] as const;
-    const transportCost = { transit: 450_000, motorcycle: 650_000, car: 1_100_000, active: 150_000 }[answers.transport];
-    const districts = demoDistricts.map((district) => {
-        const rent = Math.min(...types.map((type) => district.rent[type]));
-        const monthlyCost = rent + district.otherCosts + transportCost;
-        const commuteMinutes = sampleCommute(district, answers);
-        const exclusions: string[] = [];
-        if (step >= 2) {
-            if (rent > answers.maximumRent) exclusions.push("Sewa contoh melebihi batas");
-            if (monthlyCost > answers.monthlyBudget) exclusions.push("Biaya bulanan contoh melebihi anggaran");
-        }
-        if (step >= 3 && commuteMinutes !== null && commuteMinutes > answers.commuteMinutes) {
-            exclusions.push("Perjalanan contoh melebihi batas");
-        }
-        const opportunity = answers.goal === "study" ? district.education : answers.goal === "both"
-            ? (district.education + district.career) / 2 : district.career;
-        const affordability = Math.max(0, 100 - rent / Math.max(answers.maximumRent, 1) * 35);
-        const mobility = commuteMinutes === null ? 50 : Math.max(0, 100 - commuteMinutes);
-        const extraMatches = answers.extras.filter((extra) => district.extras.includes(extra)).length;
-        const environment = Math.min(100, district.environment + extraMatches * 3);
-        const score = Math.round((opportunity * answers.weights.opportunity + affordability * answers.weights.affordability +
-            mobility * answers.weights.mobility + environment * answers.weights.environment) / 100);
-        const reasons = ["Sewa contoh dalam batasmu", "Biaya bulanan contoh sesuai anggaran"];
-        if (commuteMinutes !== null) reasons.push(`Perjalanan contoh ${commuteMinutes} menit`);
-        if (extraMatches) reasons.push(`${extraMatches} preferensi tambahan cocok`);
-        return { district, rent, monthlyCost, commuteMinutes, exclusions, eligible: !exclusions.length, score, reasons, rank: null as number | null };
-    });
-    const ranked = districts.filter((item) => item.eligible).sort((a, b) => b.score - a.score || a.district.id.localeCompare(b.district.id));
-    ranked.forEach((item, index) => { item.rank = index + 1; });
-    return {
-        available, districts, ranked, eligibleCount: ranked.length,
-        affordableCount: districts.filter((item) => item.rent <= answers.maximumRent && item.monthlyCost <= answers.monthlyBudget).length,
-    };
 }
 
 export function validateFormStep(answers: FormAnswers, step: FormStep): Record<string, string> {

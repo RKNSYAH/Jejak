@@ -15,7 +15,7 @@ export type LF04Request = {
     accepted_snapshot: LF04Snapshot;
     source_coverage: Record<string, unknown>;
     comparison_zone?: LF04Snapshot | null;
-    language?: "id" | "en";
+    language?: "id";
 };
 
 type LF04NumericClaim = { text: string; snapshot_path: string; value: number };
@@ -70,7 +70,7 @@ export function validateLF04Request(value: unknown): LF04Request {
         (value.comparison_zone !== undefined && value.comparison_zone !== null && !isAcceptedSnapshot(value.comparison_zone)) ||
         !isRecord(coverage) || (coverage.coverage !== undefined && !COVERAGES.has(String(coverage.coverage))) ||
         (coverage.incomplete_evidence_categories !== undefined && !isStringList(coverage.incomplete_evidence_categories, 20)) ||
-        (value.language !== undefined && value.language !== "id" && value.language !== "en")) {
+        (value.language !== undefined && value.language !== "id")) {
         throw new Error("INVALID_LF04_REQUEST");
     }
     return value as LF04Request;

@@ -89,7 +89,7 @@ bun run dev
 
 Open [http://localhost:3000/map](http://localhost:3000/map). Signed-out visitors are redirected to `/login`, with their map query parameters preserved for after sign-in. Protected map APIs return `403` JSON for missing or invalid sessions; authenticated requests for unknown regions return `404`.
 
-The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/` (gitignored). Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change. `bun run fetch:boundaries` regenerates the onboarding preview boundaries in `public/onboarding/`.
+The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/` (gitignored). Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change.
 
 ### Production build
 
@@ -184,7 +184,7 @@ For map-data changes, follow this path:
 JejakMap → useZoneIntelligence → zoneApi → app/api → zoneController → Supabase RPCs
 ```
 
-The main read routes are `/api/zones`, `/api/zones/[zoneId]/intelligence`, and `/api/geometry`.
+The main read routes are `/api/zones` and `/api/zones/[zoneId]/intelligence`.
 
 Evidence enrichment follows this path:
 

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { spyOn } from "bun:test";
 import * as server from "../app/engine/lib/server";
 import { GET as zones } from "../app/api/zones/route";
-import { GET as geometry } from "../app/api/geometry/route";
 import { GET as heatmap } from "../app/api/heatmap/route";
 import { GET as intelligence } from "../app/api/zones/[zoneId]/intelligence/route";
 import { GET as evidence } from "../app/api/zones/[zoneId]/evidence/route";
@@ -32,7 +31,6 @@ test("map APIs reject missing, invalid and failed sessions before data access", 
     context.mock.method(globalThis, "fetch", async () => { throw new Error("Network must not be called"); });
     const handlers = [
         () => zones(request("/api/zones")),
-        () => geometry(request("/api/geometry?zone_id=unknown-region")),
         () => heatmap(request("/api/heatmap?zone_id=unknown-region&category=housing")),
         () => intelligence(request("/api/zones/unknown-region/intelligence"), zone),
         () => evidence(request("/api/zones/unknown-region/evidence?scope=career"), zone),
@@ -70,9 +68,8 @@ test("authenticated map requests retain successful responses and genuine 404s", 
         assert.equal(list.status, 200);
         assert.deepEqual(await list.json(), { is_sample: false, zones: [] });
         assert.equal((await heatmap(request("/api/heatmap?zone_id=unknown-region&category=housing"))).status, 200);
-        assert.equal((await geometry(request("/api/geometry?zone_id=unknown-region"))).status, 404);
         assert.equal((await intelligence(request("/api/zones/unknown-region/intelligence"), zone)).status, 404);
-        assert.deepEqual(calls, ["get_map_regions", "get_map_cells", "get_map_region", "get_map_region"]);
+        assert.deepEqual(calls, ["get_map_regions", "get_map_cells", "get_map_region"]);
     } finally {
         session.mockRestore();
     }

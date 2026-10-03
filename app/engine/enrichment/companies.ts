@@ -53,7 +53,9 @@ export function officesByCompany(candidates: LF01Candidate[]): Map<string, Compa
 }
 
 export function officesFor(offices: Map<string, CompanyOffice[]>, key: string): CompanyOffice[] {
-    return [...offices].filter(([officeKey]) => sameCompany(officeKey, key)).flatMap(([, list]) => list);
+    const result: CompanyOffice[] = [];
+    for (const [officeKey, list] of offices) if (sameCompany(officeKey, key)) result.push(...list);
+    return result;
 }
 
 // A posting without a precise location borrows its company's office. A posting

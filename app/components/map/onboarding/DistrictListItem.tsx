@@ -7,7 +7,7 @@ import { planningReachLabel } from "@/app/engine/onboarding/planningReach";
 export default function DistrictListItem({ item, step, selected, onSelect }: {
     item: LiveDistrictRecommendation; step: FormStep; selected: boolean; onSelect: () => void;
 }) {
-    const rent = item.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(item.rent)}/bulan`;
+    const rent = item.rent === null ? "Sewa belum tersedia" : `Rata-rata sewa Rp${formatRupiah(item.rent)}/bulan`;
     // A fitting district needs no status; only flag what is over the limit or unchecked.
     const status = [
         ...(item.eligible === false ? item.exclusions : []),

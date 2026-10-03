@@ -17,7 +17,7 @@ test("signed-out map navigation goes to login before mounting the map", async ({
 
 test("anonymous map API requests return forbidden JSON", async ({ request }) => {
     for (const path of [
-        "/api/zones", "/api/geometry?zone_id=unknown-region",
+        "/api/zones",
         "/api/heatmap?zone_id=unknown-region&category=housing",
         "/api/zones/unknown-region/intelligence", "/api/zones/unknown-region/evidence?scope=career",
         "/api/evidence/clusters?city_id=jakarta-selatan&scope=career",
@@ -49,7 +49,6 @@ test("a tampered signed-in cookie cannot open the map or its API", async ({ cont
 test("authenticated users receive data responses and genuine missing-region 404s", async ({ context, baseURL }) => {
     await authenticateContext(context, baseURL!);
     expect((await context.request.get("/api/zones")).status()).toBe(200);
-    expect((await context.request.get("/api/geometry?zone_id=unknown-region")).status()).toBe(404);
     expect((await context.request.get("/api/zones/unknown-region/intelligence")).status()).toBe(404);
 });
 

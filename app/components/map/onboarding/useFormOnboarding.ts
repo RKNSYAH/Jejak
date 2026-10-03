@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { initialFormAnswers } from "@/app/engine/onboarding/demoData";
-import { displayStep, parseFormSession } from "@/app/engine/onboarding/preview";
+import { displayStep, followSuggestedWeights, parseFormSession } from "@/app/engine/onboarding/preview";
 import { evaluateLiveOnboarding, formPreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { getOnboardingData, type OnboardingDataResponse } from "@/app/engine/lib/onboardingApi";
 import { FORM_DRAFT_KEY, type FormAnswers, type FormSession, type FormStep, type LiveOnboardingPreview } from "@/app/engine/onboarding/types";
@@ -63,7 +63,7 @@ export function useFormOnboarding(skipRestoredDraft = false) {
                 setSession((current) => {
                     if (!current || current.answers.city !== cityId || !current.answers.destinationId ||
                         result.destinations.some((item) => item.id === current.answers.destinationId)) return current;
-                    return { ...current, answers: { ...current.answers, destinationId: null, destinationName: null, destinationPoint: null } };
+                    return { ...current, answers: followSuggestedWeights(current.answers, { ...current.answers, destinationId: null, destinationName: null, destinationPoint: null }) };
                 });
             }).catch((error: unknown) => {
                 if (!controller.signal.aborted) setDataError(error instanceof Error ? error.message : "Data onboarding belum dapat dimuat.");
@@ -90,17 +90,17 @@ export function useFormOnboarding(skipRestoredDraft = false) {
                 answers.destinationName = null;
                 answers.destinationPoint = null;
             }
-            return { ...current, answers };
+            return { ...current, answers: followSuggestedWeights(current.answers, answers) };
         });
     }, []);
     const startPickingDestination = useCallback(() => setPickingDestination(true), []);
     const setDestinationPoint = useCallback((point: [number, number]) => {
-        setSession((current) => current ? { ...current, answers: {
+        setSession((current) => current ? { ...current, answers: followSuggestedWeights(current.answers, {
             ...current.answers,
             destinationId: null,
             destinationName: "Titik pilihanmu",
             destinationPoint: point,
-        } } : current);
+        }) } : current);
         setPickingDestination(false);
     }, []);
     const goToStep = useCallback((step: FormStep) => setSession((current) => current ? { ...current, step } : null), []);

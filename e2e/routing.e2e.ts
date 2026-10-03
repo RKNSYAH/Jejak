@@ -65,7 +65,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
     test(`${region} estimated reach updates mode and time without journey services`, async ({ page }) => {
         const routeCalls = await openReachForm(page, region);
         const panel = page.locator(".onboarding-form-panel");
-        await expect(panel).toContainText("Perkiraan jangkauan 5,1–10,2 km · 2 titik kecamatan");
+        await expect(panel).toContainText("Perkiraan jangkauan 5,1–10,2 km · 2 kecamatan");
         await page.locator('[data-hci-region="onboarding-preview"]').getByRole("button", { name: "Lihat daftar kecamatan", exact: true }).click();
         const list = page.locator('[data-hci-region="onboarding-preview"]').getByRole("list", { name: "Kecamatan dalam pratinjau" });
         await expect(list).toContainText("Titik kecamatan dalam perkiraan jangkauan");
@@ -73,16 +73,17 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await expect(panel).toContainText("Perkiraan jangkauan 7,7–15,4 km");
         await page.getByRole("radio", { name: "Jalan kaki", exact: true }).check();
         await expect(panel).toContainText("Perkiraan jangkauan 1,9–3,1 km");
-        await expect(list).toContainText("Titik kecamatan di tepi perkiraan jangkauan");
+        await expect(list).toContainText("Kecamatan di tepi perkiraan jangkauan");
         await page.getByRole("radio", { name: "15 mnt", exact: true }).check();
-        await expect(panel).toContainText("Perkiraan jangkauan 0,6–1,0 km · 0 titik kecamatan");
+        await expect(panel).toContainText("Perkiraan jangkauan 0,6–1,0 km · 0 kecamatan");
         await expect(list).toContainText("Titik kecamatan di luar perkiraan jangkauan");
         await page.getByRole("radio", { name: "45 mnt", exact: true }).check();
         await page.getByRole("radio", { name: "Transport umum", exact: true }).check();
         await expect(panel).toContainText("Perkiraan jangkauan 3,1–7,0 km");
-        await expect(panel).toContainText("Layanan transit belum diperiksa");
         await expect(panel).not.toContainText("TransJakarta + jalan kaki");
-        await expect(panel).toContainText("bukan jangkauan jaringan");
+        await expect(panel).not.toContainText(/Layanan transit belum diperiksa|bukan jangkauan jaringan/);
+        await page.getByRole("radio", { name: "Siang", exact: true }).check();
+        await expect(panel).toContainText("Perkiraan jangkauan 3,9–8,9 km");
         expect(routeCalls()).toBe(0);
     });
 
@@ -99,7 +100,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await page.getByRole("button", { name: "Jelajahi data peta", exact: true }).click();
         const summary = page.locator('[data-hci-region="map-planning-reach"]');
         await expect(summary).toContainText("Perkiraan jangkauan 5,1–10,2 km");
-        await expect(summary).toContainText("2 titik kecamatan dalam kisaran");
+        await expect(summary).toContainText("2 kecamatan dalam kisaran");
         const headingBox = await summary.getByRole("heading", { name: /Perkiraan jangkauan/ }).boundingBox();
         const feedbackBox = await page.locator('[data-hci-region="profile-save-feedback"]').boundingBox();
         expect(headingBox).not.toBeNull();
@@ -108,11 +109,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await summary.getByRole("button", { name: "Lihat jangkauan" }).click();
         await expect(page.locator('[data-hci-region="planning-radius-label"]').filter({ hasText: "Dalam · 5,1 km" })).toBeVisible();
         await expect(page.locator('[data-hci-region="planning-radius-label"]').filter({ hasText: "Luar · 10,2 km" })).toBeVisible();
-        await expect(summary).toContainText("bukan seluruh wilayah");
-        await page.getByRole("button", { name: "Hunian", exact: true }).click();
-        await expect(summary).toContainText("Garis kecamatan: posisi titik pusat");
-        await page.getByRole("button", { name: "Ringkasan", exact: true }).click();
-        await expect(summary).toContainText("Warna kecamatan: posisi titik pusat");
+        await expect(summary).not.toContainText(/bukan seluruh wilayah|bukan jangkauan jaringan/);
         await page.screenshot({ path: testInfo.outputPath("regular-circles.png") });
         const separator = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
         await separator.press("End");
@@ -144,7 +141,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await expect(page.getByRole("heading", { name: "Kecamatan B", exact: true })).toBeVisible();
         await page.goto("/map");
         await expect(summary).toContainText("Perkiraan jangkauan 5,1–10,2 km");
-        await expect(summary).toContainText("2 titik kecamatan dalam kisaran");
+        await expect(summary).toContainText("2 kecamatan dalam kisaran");
         await summary.getByRole("button", { name: "Lihat jangkauan" }).click();
         await expect(page.locator('[data-hci-region="planning-radius-label"]').filter({ hasText: "Luar · 10,2 km" })).toBeVisible();
         expect(routeCalls()).toBe(0);

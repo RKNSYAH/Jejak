@@ -5,7 +5,7 @@ import type { RegionFact, ZoneDetailResult, ZoneGeometry } from "../app/engine/t
 import { getMapMetricConfig } from "../app/components/map/mapMetrics";
 import { createZoneLayerData } from "../app/components/map/zoneLayerData";
 import { getMetricRange, getZoneFillLayer } from "../app/components/map/zoneLayers";
-import { getZoneIntelligence } from "../app/engine/lib/zoneApi";
+import { getZoneMapData } from "../app/engine/lib/zoneApi";
 import MapLegend from "../app/components/map/MapLegend";
 import ZoneIntelligencePanel from "../app/components/map/ZoneIntelligencePanel";
 
@@ -123,8 +123,8 @@ test("education legend uses the selected measure for its heading, source, scale,
 });
 
 test("education counts survive the browser API as recorded, including zero", async (context) => {
-    context.mock.method(globalThis, "fetch", async () => Response.json(details.zero));
-    const result = await getZoneIntelligence("district-zero", new AbortController().signal);
+    context.mock.method(globalThis, "fetch", async () => Response.json({ details: details.zero, geometry: null, geometry_error: null }));
+    const result = (await getZoneMapData("district-zero", new AbortController().signal)).details;
     assert.deepEqual(result.facts.map((fact) => [fact.metric, fact.value]), [["schools", 24], ["universities", 0]]);
     context.mock.restoreAll();
 });

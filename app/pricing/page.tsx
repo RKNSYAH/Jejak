@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Header from "../components/Header";
 import BrandLogo from "../components/BrandLogo";
+import Footer from "../components/Footer";
 
 export const metadata: Metadata = {
   title: "Harga | Jejak",
@@ -48,9 +49,6 @@ export default function PricingPage() {
                 Pilih akses sesuai caramu merencanakan pindah.
               </h1>
             </div>
-            <p className="max-w-sm text-base leading-relaxed text-ink-muted md:justify-self-end">
-              Jelajahi Jejak sekarang. Rincian paket, manfaat, dan masa akses akan diumumkan setelah model harga ditetapkan.
-            </p>
           </div>
 
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
@@ -180,12 +178,7 @@ export default function PricingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-rule py-6 font-body text-sm">
-        <div className="mx-auto flex w-full max-w-344 items-center gap-4 px-4 md:px-6">
-          <BrandLogo />
-          <span className="text-ink-muted">© {new Date().getFullYear()} Jejak</span>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

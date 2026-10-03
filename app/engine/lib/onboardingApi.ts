@@ -1,10 +1,8 @@
-import { getJson, isNullableString } from "./zoneApi";
+import { evidenceTypes, getJson, isNullableString } from "./zoneApi";
 import { isCentroid, isRecord } from "./zoneGeometry";
 import { getMetroCityIds } from "./metroArea";
 import type { RegionFact } from "../types";
 import type { OnboardingArea, OnboardingCampus, OnboardingCity } from "../onboarding/types";
-
-const evidenceTypes = ["observed", "estimated", "derived", "unavailable"];
 
 function isCity(value: unknown): value is OnboardingCity {
     return isRecord(value) && typeof value.city_id === "string" && typeof value.city_name === "string" &&

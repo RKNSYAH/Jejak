@@ -100,7 +100,7 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
                     {layer.shortLabel}
                 </button>)}
             </div>}
-            <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top inset-auto mb-2 max-h-[min(65dvh,32rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
+            <div id="map-legend" popover="auto" className="map-legend-popover dropdown dropdown-top dropdown-end inset-auto mb-2 max-h-[min(65dvh,32rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-box border border-rule bg-base-100 p-4 text-sm text-ink shadow-overlay [position-anchor:--map-legend]">
                 <h2 className="font-semibold">{config.label}</h2>
                 {category === "education" && isSample && <span className="badge badge-neutral badge-sm mt-2">Data contoh</span>}
                 {category === "education" && <fieldset className="mt-3" data-hci-region="education-metric">

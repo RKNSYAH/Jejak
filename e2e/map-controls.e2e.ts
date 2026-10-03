@@ -18,9 +18,6 @@ async function openMapWithZone(page: Page) {
             ? { details, geometry: { type: "FeatureCollection", features: [] }, geometry_error: null }
             : details });
     });
-    await page.route((url) => url.pathname === "/api/geometry", (route) => route.fulfill({ json: {
-        type: "FeatureCollection", features: [],
-    } }));
     await openDemoMap(page);
     await page.getByRole("searchbox").fill("Pancoran");
     await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Pancoran/ }).click();
@@ -142,9 +139,6 @@ test("overflow updates when sidebar resizes and Reset disappears", async ({ page
             ? { details, geometry: { type: "FeatureCollection", features: [] }, geometry_error: null }
             : details });
     });
-    await page.route((url) => url.pathname === "/api/geometry", (route) => route.fulfill({ json: {
-        type: "FeatureCollection", features: [],
-    } }));
     await openDemoMap(page);
     const right = page.getByRole("button", { name: "Gulir kategori ke kanan", includeHidden: true });
     const left = page.getByRole("button", { name: "Gulir kategori ke kiri", includeHidden: true });

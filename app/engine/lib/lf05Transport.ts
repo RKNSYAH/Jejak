@@ -1,7 +1,7 @@
 export type LF05TransportMode = "transit" | "motorcycle" | "car" | "active";
 
-export function getLF05TransportQuestion(language: "id" | "en" = "id"): string {
-    return language === "en" ? "Which transport mode do you choose?" : "Moda transportasi apa yang kamu pilih?";
+export function getLF05TransportQuestion(): string {
+    return "Moda transportasi apa yang kamu pilih?";
 }
 
 const modes: [LF05TransportMode, RegExp][] = [

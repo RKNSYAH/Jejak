@@ -77,8 +77,6 @@ async function openMap(page: Page) {
         await new Promise((resolve) => setTimeout(resolve, API_DELAY_MS));
         await route.fulfill({ json: url.searchParams.get("include_geometry") === "1" ? { details, geometry: geometry(zoneId), geometry_error: null } : details });
     });
-    await page.route((url) => url.pathname === "/api/geometry", (route) =>
-        route.fulfill({ json: geometry(new URL(route.request().url()).searchParams.get("zone_id")!) }));
     await page.route((url) => url.pathname === "/api/hci", (route) => {
         batches.push(route.request().postDataJSON());
         return route.fulfill({ status: 204 });
@@ -139,7 +137,7 @@ test("housing cells switch between median rent and listings", async ({ page }, t
     await page.getByRole("list", { name: "Hasil pencarian kecamatan" }).getByRole("button", { name: /Tebet/ }).click();
     await page.getByRole("button", { name: "Hunian", exact: true }).click();
     const layers = page.getByRole("group", { name: "Lapisan sel" });
-    await expect(layers.getByRole("button", { name: "Median sewa" })).toHaveAttribute("aria-pressed", "true");
+    await expect(layers.getByRole("button", { name: "Rata-rata sewa" })).toHaveAttribute("aria-pressed", "true");
     await layers.getByRole("button", { name: "Iklan" }).click();
     await expect(layers.getByRole("button", { name: "Iklan" })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Pendidikan", exact: true }).click();

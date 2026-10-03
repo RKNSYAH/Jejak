@@ -3,7 +3,7 @@ import { isBoundary, isCentroid, isRecord } from "./zoneGeometry";
 import { handleAuthFailure } from "./authRedirect";
 import { ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "./zoneRequestTimeouts";
 
-const evidenceTypes = ["observed", "estimated", "derived", "unavailable"];
+export const evidenceTypes = ["observed", "estimated", "derived", "unavailable"];
 
 function isNullableNumber(value: unknown): value is number | null {
     return value === null || (typeof value === "number" && Number.isFinite(value));
@@ -128,14 +128,6 @@ function parseDetails(data: unknown): ZoneDetailResult {
         throw new Error("Invalid region data");
     }
     return data as ZoneDetailResult;
-}
-
-export async function getZoneGeometry(zoneId: string, signal: AbortSignal): Promise<ZoneGeometry> {
-    return parseGeometry(await getJson(`/api/geometry?zone_id=${encodeURIComponent(zoneId)}`, signal, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS), zoneId);
-}
-
-export async function getZoneIntelligence(zoneId: string, signal: AbortSignal): Promise<ZoneDetailResult> {
-    return parseDetails(await getJson(`/api/zones/${encodeURIComponent(zoneId)}/intelligence?sector_id=software_and_it_services`, signal));
 }
 
 export async function getZoneMapData(zoneId: string, signal: AbortSignal): Promise<{

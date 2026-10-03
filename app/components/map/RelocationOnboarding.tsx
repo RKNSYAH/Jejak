@@ -8,7 +8,7 @@ import { validateLF05Proposal, type LF05ProposedProfile } from "../../engine/lib
 import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
-import { formatRupiah } from "../../engine/onboarding/demoData";
+import { formatRupiah, transportModeLabels } from "../../engine/onboarding/demoData";
 import { STORY_DRAFT_KEY, type FormSession } from "../../engine/onboarding/types";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
@@ -37,7 +37,6 @@ type Draft = {
   explicitGoal?: RelocationGoal | null;
   analyzedInput?: string | null;
   mapPoint?: MapPoint | null;
-  language?: string;
 };
 
 export type MapPoint = { longitude: number; latitude: number };
@@ -108,7 +107,7 @@ function formatProfileValue(field: string, value: unknown): string {
   if (field === "goal" && typeof value === "string") {
     return relocationGoalLabels[value as RelocationGoal] ?? value;
   }
-  if (field === "transport_mode" && typeof value === "string") return ({ transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Jalan atau sepeda" } as Record<string, string>)[value] ?? value;
+  if (field === "transport_mode" && typeof value === "string") return transportModeLabels[value] ?? value;
   if (field === "destination" && isRecord(value) && typeof value.name === "string") return value.name;
   if (field === "target_occupations" && Array.isArray(value)) {
     return value.map((id) => onboardingTaxonomy.occupations.find((item) => item.id === id)?.label ?? String(id)).join(", ");
@@ -232,7 +231,6 @@ export default function RelocationOnboarding({
   const ignoreCloseRef = useRef(false);
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
-  const [language, setLanguage] = useState("Bahasa Indonesia");
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [explicitGoal, setExplicitGoal] = useState<RelocationGoal | null>(null);
   const [analyzedInput, setAnalyzedInput] = useState<string | null>(null);
@@ -281,7 +279,6 @@ export default function RelocationOnboarding({
         onOfficeChange(draft.office);
         if (draft.mapPoint && Number.isFinite(draft.mapPoint.latitude) && Math.abs(draft.mapPoint.latitude) <= 90 &&
             Number.isFinite(draft.mapPoint.longitude) && Math.abs(draft.mapPoint.longitude) <= 180) onMapPointChange(draft.mapPoint);
-        setLanguage(draft.language === "English" ? "English" : "Bahasa Indonesia");
         setTransport(draft.transport);
         // Old drafts may contain a model-picked mode. Only restore user-supplied transport.
         let restoredProposal = draft.proposal ?? null;
@@ -292,7 +289,7 @@ export default function RelocationOnboarding({
           restoredProposal = groundLF05Transport(restoredProposal, draft.story, mode ? { transport_mode: mode } : {});
           const questions = restoredProposal.clarification_questions.filter((question) => getLF05ClarificationField(question) !== "transport_mode");
           // Keep an answered radio visible until LF-05 processes this draft's follow-ups.
-          if (!restoredProposal.soft_preferences.transport_mode || (mode && hadTransportQuestion)) questions.push(getLF05TransportQuestion(draft.language === "English" ? "en" : "id"));
+          if (!restoredProposal.soft_preferences.transport_mode || (mode && hadTransportQuestion)) questions.push(getLF05TransportQuestion());
           restoredProposal = { ...restoredProposal, clarification_questions: questions };
         }
         setProposal(restoredProposal);
@@ -333,9 +330,9 @@ export default function RelocationOnboarding({
       return;
     }
 
-    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, language };
+    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint };
     try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
-  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, language, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport]);
+  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport]);
 
   useEffect(() => {
     const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
@@ -439,7 +436,7 @@ export default function RelocationOnboarding({
         signal: AbortSignal.timeout(125_000),
         body: JSON.stringify({
           message: story,
-          language: language === "English" ? "en" : "id",
+          language: "id",
           clarification_answers: submitted.answers,
           ...(explicitGoal && !fresh ? { goal: explicitGoal } : {}),
           details: submitted.details,
@@ -546,14 +543,6 @@ export default function RelocationOnboarding({
     setProposal(null);
     setSaveError(null);
     setRequestError(null);
-  }
-
-  function changeLanguage(value: string) {
-    setLanguage(value);
-    setProposal(null);
-    setSaveError(null);
-    setRequestError(null);
-    resetFollowUps();
   }
 
   function chooseOffice(office: OfficeChoice) {

@@ -8,7 +8,7 @@ import type { PersistedRelocationProfile } from "../lib/relocationProfile";
 
 // Sends an already screened onboarding story to LF-05 and returns the validated,
 // still unconfirmed profile proposal. Throws LangflowError or INVALID_LF05_PROFILE.
-export async function interpretOnboardingStory(message: string, language: "id" | "en", answers: LF05ClarificationAnswer[] = [], goal?: RelocationGoal, details: LF05FollowUpDetails = {}): Promise<LF05ProposedProfile> {
+export async function interpretOnboardingStory(message: string, language: "id", answers: LF05ClarificationAnswer[] = [], goal?: RelocationGoal, details: LF05FollowUpDetails = {}): Promise<LF05ProposedProfile> {
     const sessionReference = crypto.randomUUID();
     const explicitDetails = resolveLF05FollowUpDetails(answers, details, message);
     const input = { ...buildLF05Input(buildLF05FollowUpMessage(message, answers, goal, explicitDetails), onboardingTaxonomy, sessionReference, language),
@@ -16,7 +16,7 @@ export async function interpretOnboardingStory(message: string, language: "id" |
     const result = await runFlow(LANGFLOW_FLOWS.lf05, input, { timeoutMs: 120_000, sessionId: sessionReference });
     const proposal = applyLF05ExplicitDetails(groundLF05Transport(validateLF05Proposal(result, onboardingTaxonomy), message, explicitDetails), goal, explicitDetails);
     return validateLF05Proposal({ ...proposal,
-        clarification_questions: getLF05ClarificationQuestions(proposal, message, answers, goal, explicitDetails, language),
+        clarification_questions: getLF05ClarificationQuestions(proposal, message, answers, goal, explicitDetails),
     }, onboardingTaxonomy);
 }
 
