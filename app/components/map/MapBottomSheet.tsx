@@ -51,6 +51,9 @@ export default function MapBottomSheet({
     ref,
     recommendations,
     onEditPreferences,
+    reachActive = false,
+    title,
+    emptyMessage,
 }: {
     zones: ZoneSummary[];
     onSelect: (zone: ZoneSummary) => void;
@@ -59,6 +62,9 @@ export default function MapBottomSheet({
     ref: Ref<MapBottomSheetHandle>;
     recommendations?: LiveDistrictRecommendation[];
     onEditPreferences?: () => void;
+    reachActive?: boolean;
+    title?: string;
+    emptyMessage?: string;
 }) {
     const [height, setHeight] = useState(SHEET_MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
@@ -175,13 +181,13 @@ export default function MapBottomSheet({
             </div>
             <div className="shrink-0 px-4 pb-3">
                 <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{recommendations ? "Kecamatan dalam pratinjau" : "Pilih kecamatan jejakmu selanjutnya"}</h2>
+                    <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{title ?? (recommendations ? "Kecamatan dalam pratinjau" : "Pilih kecamatan jejakmu selanjutnya")}</h2>
                     <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} kecamatan tersedia</p>
                 </div>
                 {onEditPreferences && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Ubah preferensi</button>}
             </div>
             <div inert={height <= getMinHeight()} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
-                {recommendations && !recommendations.length && <p role="status" className="py-2 text-sm text-ink-muted">Belum ada hasil yang dapat dirangking dari bukti tersedia. Waktu rute belum dinilai.</p>}
+                {recommendations && !recommendations.length && <p role="status" className="py-2 text-sm text-ink-muted">{emptyMessage ?? (reachActive ? "Titik kecamatan di wilayah ini belum tersedia." : "Belum ada hasil yang dapat dirangking dari bukti tersedia. Waktu rute belum dinilai.")}</p>}
                 <div className={isExpanded
                     ? "grid grid-cols-2 gap-2 @min-[480px]:grid-cols-3 @min-[768px]:grid-cols-4 @min-[768px]:gap-4 @min-[1200px]:grid-cols-5"
                     : "flex gap-2 snap-x snap-mandatory md:gap-8"}>
@@ -193,6 +199,7 @@ export default function MapBottomSheet({
                             isSample={zone.is_sample}
                             compact={!isExpanded}
                             recommendation={recommendations?.find((item) => item.district.zone_id === zone.zone_id)}
+                            reachActive={reachActive}
                             onClick={() => onSelect(zone)}
                         />
                     ))}
@@ -202,18 +209,24 @@ export default function MapBottomSheet({
     )
 }
 
-function RegionCard({ name, cityName, isSample, compact, onClick, recommendation }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation }) {
+function RegionCard({ name, cityName, isSample, compact, onClick, recommendation, reachActive }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation; reachActive: boolean }) {
+    const reachStyle = reachActive && recommendation?.reachBand === "near" ? "border-primary bg-primary/10"
+        : reachActive && recommendation?.reachBand === "edge" ? "border-secondary bg-accent/20" : "bg-base-100";
     return (
         <button
             type="button"
             onClick={onClick}
-            className={`card card-border min-h-24 min-w-0 cursor-pointer bg-base-100 text-left shadow-overlay hover:border-primary focus-visible:outline-primary md:min-h-28 ${compact ? "w-[min(10rem,calc((100cqi-0.5rem)/2))] shrink-0 snap-start md:w-[min(16rem,calc((100cqi-3rem)/5))]" : "w-full"}`}
+            data-reach-band={reachActive ? recommendation?.reachBand ?? "unknown" : undefined}
+            className={`card card-border min-h-24 min-w-0 cursor-pointer ${reachStyle} text-left shadow-overlay hover:border-primary focus-visible:outline-primary md:min-h-28 ${compact ? "w-[min(10rem,calc((100cqi-0.5rem)/2))] shrink-0 snap-start md:w-[min(16rem,calc((100cqi-3rem)/5))]" : "w-full"}`}
         >
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
                 <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{recommendation?.rank ? `${recommendation.rank}. ` : ""}{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
                 <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data kecamatan"}</span>
                 {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Median sewa Rp${formatRupiah(recommendation.rent)}`}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
+                {recommendation?.commuteEstimate?.minutes && <span className="font-body text-xs text-ink-muted">Estimasi {recommendation.commuteEstimate.minutes.low}–{recommendation.commuteEstimate.minutes.high} mnt · titik kecamatan</span>}
+                {recommendation && recommendation.reachBand !== "unknown" && <span className="font-body text-xs text-ink-muted">{recommendation.reachBand === "near" ? "Dalam perkiraan jangkauan" : recommendation.reachBand === "edge" ? "Tepi perkiraan jangkauan" : "Di luar perkiraan jangkauan"} · titik kecamatan</span>}
+                {reachActive && (!recommendation || recommendation.reachBand === "unknown") && <span className="font-body text-xs text-ink-muted">Lokasi kecamatan belum tersedia</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>
                     <span className="hidden md:inline">Jelajahi kecamatan ini</span>

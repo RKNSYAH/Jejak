@@ -2,6 +2,9 @@ import type { MapCategory, RegionFact } from "../types";
 import { getRelocationGoal } from "../lib/relocationGoal";
 import { isRecord } from "../lib/zoneGeometry";
 import type { PersistedRelocationProfile } from "../lib/relocationProfile";
+import type { CommuteResponse } from "../routing/types";
+import { previewDestination } from "../routing/sampling";
+import { estimatePlanningReach, planningReachBand, pointDistanceKm } from "./planningReach";
 import type {
     FormAnswers,
     FormStep,
@@ -18,12 +21,31 @@ export type PreviewInput = {
     cities: OnboardingCity[];
     areas: OnboardingArea[];
     destinations: OnboardingCampus[];
+    commute?: CommuteResponse | null;
 };
 
 const housingTypes: Exclude<Housing, "unsure">[] = ["kos", "apartment"];
 
 // Use 10% margin for the budget
 export const BUDGET_MARGIN = 0.1;
+
+// Only the best-ranked districts are highlighted while the form or story is still open.
+export const TOP_RANK_COUNT = 5;
+
+export function distanceLabel(km: number): string {
+    return `Sekitar ${km.toLocaleString("id-ID", { maximumFractionDigits: km < 10 ? 1 : 0 })} km dari tujuan`;
+}
+
+// The recommended few: best ranked and not beyond the commute reach the user set.
+export function isTopRanked(item: Pick<LiveDistrictRecommendation, "rank" | "beyondReach">): boolean {
+    return item.rank !== null && item.rank <= TOP_RANK_COUNT && !item.beyondReach;
+}
+
+function distanceToDestination(center: [number, number] | null, destination: [number, number] | null): number | null {
+    if (!center || !destination) return null;
+    const distance = pointDistanceKm(center, destination);
+    return Number.isFinite(distance) ? distance : null;
+}
 
 function withinBudget(value: number, limit: number): boolean {
     return value <= limit * (1 + BUDGET_MARGIN);
@@ -86,7 +108,9 @@ export function profilePreviewPreferences(profile: PersistedRelocationProfile, c
     const destinationPoint: [number, number] | null = latitude !== null && longitude !== null &&
         Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? [longitude, latitude] : null;
     const mode = soft.transport_mode;
-    const transport = mode === "transit" || mode === "motorcycle" || mode === "car" || mode === "active" ? mode : null;
+    // Legacy active means walking OR cycling. Never silently turn it into pedestrian fit.
+    const transport = mode === "transit" || mode === "motorcycle" || mode === "car" ||
+        (mode === "active" && soft.active_mode === "walk") ? mode : null;
     const goal = getRelocationGoal({ hard_constraints: hard, soft_preferences: soft });
     if (!goal) return null;
     const weights = profile.priority_weights;
@@ -100,6 +124,8 @@ export function profilePreviewPreferences(profile: PersistedRelocationProfile, c
         destinationName: rawDestination && typeof rawDestination.name === "string" ? rawDestination.name : null,
         destinationPoint,
         transport,
+        departure: ["morning", "midday", "evening", "flexible"].includes(String(soft.departure_time))
+            ? soft.departure_time as FormAnswers["departure"] : null,
         commuteMinutes: typeof hard.commute_minutes === "number" && Number.isFinite(hard.commute_minutes) ? hard.commute_minutes : null,
         overBudget: soft.over_budget === "hide" ? "hide" : "mark",
         weights: normalizedWeights([
@@ -145,8 +171,8 @@ export type MonthlyCostRange = { low: number; high: number | null; is_sample: bo
 export function monthlyCostRange(preview: Pick<LiveOnboardingPreview, "districts">): MonthlyCostRange | null {
     const priced = preview.districts.filter((item): item is LiveDistrictRecommendation & { monthlyCost: number } => item.monthlyCost !== null);
     if (!priced.length) return null;
-    const budgeted = priced.some((item) => item.eligible !== null);
-    const fitting = budgeted ? priced.filter((item) => item.eligible === true) : priced;
+    const budgeted = priced.some((item) => item.financialEligible !== null);
+    const fitting = budgeted ? priced.filter((item) => item.financialEligible === true) : priced;
     const counted = fitting.length ? fitting : priced;
     const costs = counted.map((item) => item.monthlyCost);
     return {
@@ -187,7 +213,7 @@ function profileDimensionScore(area: OnboardingArea, dimension: keyof ProfilePri
         const cost = area.living_cost?.value;
         return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? 1 / cost : null;
     }
-    if (dimension === "commute") return area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null;
+    if (dimension === "commute") return null; // Stop counts never proxy journey time.
     return null;
 }
 
@@ -211,12 +237,18 @@ export function formPreviewPreferences(answers: FormAnswers): LivePreviewPrefere
         destinationId: answers.destinationId, destinationName: answers.destinationName,
         destinationPoint: answers.destinationPoint, transport: answers.transport,
         commuteMinutes: answers.commuteMinutes, overBudget: answers.overBudget, weights: answers.weights,
+        departure: answers.departure,
     };
 }
 
 export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: FormStep, input: PreviewInput): LiveOnboardingPreview {
     const city = input.cities.find((item) => item.city_id === answers.cityId) ?? null;
     const selectedTypes = answers.housing.filter((type): type is Exclude<Housing, "unsure"> => type !== "unsure");
+    const destination = previewDestination(answers, input.destinations);
+    const planningReach = step >= 3 ? estimatePlanningReach(answers, input.destinations) : null;
+    const commute = step >= 3 && input.commute?.mode === answers.transport &&
+        JSON.stringify(input.commute.destination) === JSON.stringify(destination) ? input.commute : null;
+    const byId = new Map(commute?.estimates.map((estimate) => [estimate.id, estimate]) ?? []);
     const raw = input.areas.map((area) => {
         const choices = rentFacts(area, selectedTypes.length ? selectedTypes : ["unsure"]);
         const rentFact = choices.length ? choices.reduce((lowest, current) => current.value < lowest.value ? current : lowest) : null;
@@ -239,36 +271,64 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
             }
         }
 
-        if (step >= 3) {
-            if (!answers.destinationId && !answers.destinationPoint && !answers.destinationName) unknowns.push("Pilih lokasi tujuan untuk memeriksa perjalanan");
-            else unknowns.push("Estimasi rute belum tersedia");
-        }
-
         const financiallyConstrained = answers.maximumRent !== null || answers.monthlyBudget !== null;
         const financialUnknown = unknowns.some((item) => /sewa|biaya hidup/i.test(item));
-        const eligible = step < 2 || !financiallyConstrained ? null : exclusions.length ? false : financialUnknown ? null : true;
-        const affordable = financiallyConstrained && eligible === true;
+        const financialEligible = step < 2 || !financiallyConstrained ? null : exclusions.length ? false : financialUnknown ? null : true;
+        const affordable = financiallyConstrained && financialEligible === true;
+        const commuteEstimate = byId.get(area.zone_id) ?? null;
+        const routeKnown = commuteEstimate?.status === "ok" && commuteEstimate.minutes !== null &&
+            !!commute?.provenance && commute.provenance.freshness !== "stale";
+        const commuteMinutes = commuteEstimate?.minutes?.high ?? null;
+        const distanceKm = distanceToDestination(area.center, destination);
+        if (step >= 2 && distanceKm !== null) reasons.push(distanceLabel(distanceKm));
+        const reachBand = planningReachBand(area.center, planningReach);
+        let commuteUnknown = false;
+        if (step >= 3) {
+            if (!destination) { unknowns.push("Pilih lokasi tujuan untuk memeriksa perjalanan"); commuteUnknown = true; }
+            else if (!routeKnown) {
+                const status = commuteEstimate?.status;
+                unknowns.push(status === "outside_coverage" ? "Rute di luar cakupan moda ini" : status === "departure_required" ? "Pilih waktu berangkat untuk rute transit" :
+                    status === "no_service" ? "Tanggal di luar layanan GTFS" : status === "no_route" ? "Rute tidak ditemukan untuk titik sampel" :
+                    status === "partial" ? "Sebagian titik sampel belum terhubung" : commute?.provenance?.freshness === "stale" ? "Data rute lama; batas belum dinilai" : planningReach ? "Waktu tempuh belum dinilai" : "Estimasi rute belum tersedia");
+                commuteUnknown = true;
+            } else if (answers.commuteMinutes !== null && commuteEstimate!.minutes!.low > answers.commuteMinutes) {
+                exclusions.push("Estimasi titik sampel melebihi batas perjalanan");
+            } else if (answers.commuteMinutes !== null && commuteMinutes! > answers.commuteMinutes) {
+                unknowns.push("Sebagian titik sampel melebihi batas perjalanan"); commuteUnknown = true;
+            } else reasons.push("Perjalanan titik sampel sesuai estimasi");
+        }
+        const constrained = (step >= 2 && financiallyConstrained) || (step >= 3 && answers.commuteMinutes !== null);
+        const eligible = !constrained ? null : exclusions.length ? false : financialUnknown ||
+            (step >= 3 && answers.commuteMinutes !== null && commuteUnknown) ? null : true;
         if (rent !== null && rentFact) reasons.unshift(`Median sewa Rp${Math.round(rent).toLocaleString("id-ID")} · ${rentFact.source}`);
 
         return {
-            district: area, rent, rentFact, monthlyCost, commuteMinutes: null,
+            district: area, rent, rentFact, monthlyCost, commuteMinutes, commuteEstimate, distanceKm, financialEligible,
+            reachBand, beyondReach: commute === null && reachBand === "outside",
             eligible, exclusions, unknowns, reasons, score: null, rank: null,
             affordabilityRaw: answers.monthlyBudget !== null ? monthlyCost : rent,
             opportunityRaw: featureScore(area, answers.goal, "opportunity"),
-            mobilityRaw: featureScore(area, answers.goal, "mobility"),
+            mobilityRaw: destination ? routeKnown && commuteMinutes !== null ? -commuteMinutes : null : featureScore(area, answers.goal, "mobility"),
             affordable,
         };
     });
 
     const affordability = normalize(raw.map((item) => item.affordabilityRaw), true);
     const opportunity = normalize(raw.map((item) => item.opportunityRaw));
-    const mobility = normalize(raw.map((item) => item.mobilityRaw));
+    // Route times rank when any exist. Otherwise a chosen destination ranks by straight-line distance, so
+    // far-away districts that only pass the rent limit don't read as good fits. Distance never excludes one.
+    const useDistance = destination !== null && !raw.some((item) => item.mobilityRaw !== null);
+    // A distance shared by every district separates nothing, so a lone or equidistant district gets no score from it.
+    const distances = raw.map((item) => item.distanceKm === null ? null : -item.distanceKm);
+    const nearness = normalize(new Set(distances.filter((value) => value !== null)).size > 1 ? distances : distances.map(() => null));
+    const mobility = useDistance ? nearness : normalize(raw.map((item) => item.mobilityRaw));
     const profileDimensions = answers.priorityWeights ? {
         career: normalize(input.areas.map((area) => profileDimensionScore(area, "career"))),
         education: normalize(input.areas.map((area) => profileDimensionScore(area, "education"))),
         housing: normalize(input.areas.map((area) => profileDimensionScore(area, "housing", answers.housing))),
         cost_of_living: normalize(input.areas.map((area) => profileDimensionScore(area, "cost_of_living"))),
-        commute: normalize(input.areas.map((area) => profileDimensionScore(area, "commute"))),
+        commute: useDistance ? nearness : normalize(raw.map((item) => item.commuteEstimate?.status === "ok" && commute?.provenance?.freshness !== "stale" &&
+            item.commuteMinutes !== null ? -item.commuteMinutes : null)),
     } : null;
     const weights = answers.weights;
     const districts: LiveDistrictRecommendation[] = raw.map((item, index) => {
@@ -291,8 +351,10 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         return { ...item, score };
     });
 
+    // Changing the commute time or mode moves the reach, so districts outside it drop below the rest. This only
+    // reorders: the reach is an assumption-based estimate, so it never excludes a district or changes a score.
     const ranked = districts.filter((item) => item.eligible !== false && item.score !== null)
-        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.district.zone_id.localeCompare(b.district.zone_id));
+        .sort((a, b) => Number(a.beyondReach) - Number(b.beyondReach) || (b.score ?? 0) - (a.score ?? 0) || a.district.zone_id.localeCompare(b.district.zone_id));
     ranked.forEach((item, index) => { item.rank = index + 1; });
     return {
         available: city !== null && input.areas.length > 0,
@@ -300,7 +362,9 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         districts, ranked, affordableCount: raw.filter((item) => item.affordable).length,
         eligibleCount: districts.filter((item) => item.eligible === true).length,
         is_sample: districts.some(isLiveRecommendationSample),
-        commuteAvailable: false,
+        commuteAvailable: raw.some((item) => item.commuteMinutes !== null),
+        commute,
+        planningReach,
         preferences: answers,
     };
 }
@@ -313,7 +377,7 @@ export function onboardingCategoryValue(item: LiveDistrictRecommendation, catego
         }
         case "education": return item.district.campuses.length ? item.district.campuses.length : null;
         case "housing": return item.rent;
-        case "mobility": return item.district.transit_stop_count > 0 ? item.district.transit_stop_count : null;
+        case "mobility": return item.commuteMinutes;
         default: return item.score;
     }
 }

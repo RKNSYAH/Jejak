@@ -1,5 +1,7 @@
 import type { RelocationGoal } from "../lib/relocationGoal";
 import type { RegionFact } from "../types";
+import type { CommuteEstimate, CommuteResponse } from "../routing/types";
+import type { PlanningReach, PlanningReachBand } from "./planningReach";
 
 export const FORM_DRAFT_KEY = "jejak:relocation-form:v1";
 export const STORY_DRAFT_KEY = "jejak:relocation-onboarding";
@@ -116,7 +118,14 @@ export type LiveDistrictRecommendation = {
     rent: number | null;
     rentFact: RegionFact | null;
     monthlyCost: number | null;
-    commuteMinutes: null;
+    commuteMinutes: number | null;
+    commuteEstimate: CommuteEstimate | null;
+    // Straight-line km from the district point to the destination. Ranks only; it is not a journey time.
+    distanceKm: number | null;
+    financialEligible: boolean | null;
+    reachBand: PlanningReachBand;
+    // Outside the estimated reach with no route evidence to say otherwise: ranks after the rest, never excluded.
+    beyondReach: boolean;
     eligible: boolean | null;
     exclusions: string[];
     unknowns: string[];
@@ -136,6 +145,7 @@ export type LivePreviewPreferences = {
     destinationPoint: [number, number] | null;
     transport: Transport | null;
     commuteMinutes: number | null;
+    departure?: FormAnswers["departure"] | null;
     overBudget: "mark" | "hide";
     weights: Weights;
     priorityWeights?: {
@@ -167,6 +177,8 @@ export type LiveOnboardingPreview = {
     affordableCount: number;
     eligibleCount: number;
     is_sample: boolean;
-    commuteAvailable: false;
+    commuteAvailable: boolean;
+    commute: CommuteResponse | null;
+    planningReach: PlanningReach | null;
     preferences: LivePreviewPreferences;
 };

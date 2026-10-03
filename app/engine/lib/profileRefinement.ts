@@ -22,7 +22,7 @@ const PROFILE_KEYS = new Set([
     "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
     "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
     "transport_mode", "destination", "housing_types", "occupation", "study_field", "career_stage", "departure_time",
-    "extras", "over_budget",
+    "extras", "over_budget", "active_mode",
 ]);
 
 export function validateRelocationDraft(value: unknown, allowMissingWeights = false): PersistedRelocationProfile {
@@ -142,16 +142,20 @@ export function buildNativeProfileRefinementInput(
     }
 
     const naturalMessage = message?.trim() ?? "";
+    // Keep the deployed LF-05 key allowlist unchanged; transmit the local subtype in prose.
+    const activeMode = draft.soft_preferences.active_mode;
+    const activeContext = draft.soft_preferences.transport_mode === "active" && (activeMode === "walk" || activeMode === "bicycle")
+        ? `Moda aktif yang ditetapkan: ${activeMode === "walk" ? "jalan kaki" : "sepeda"}. Jangan menggantinya dengan moda aktif lain.` : "";
     let finalMessage: string;
     if (naturalMessage) {
-        finalMessage = [naturalMessage, clarifiedLines.length ? `Jawaban klarifikasi:\n${clarifiedLines.join("\n")}` : ""].filter(Boolean).join("\n\n");
+        finalMessage = [naturalMessage, activeContext, clarifiedLines.length ? `Jawaban klarifikasi:\n${clarifiedLines.join("\n")}` : ""].filter(Boolean).join("\n\n");
     } else {
         const descriptions = explicitChanges.filter((field) => ANSWER_FIELDS.has(field) || field === "priorities")
             .map((field) => describeTypedChange(field, draft));
         const instruction = descriptions.length
             ? `Periksa perubahan preferensi berikut tanpa mengubah nilai yang ditetapkan: ${descriptions.join("; ")}.`
             : "Periksa perubahan preferensi berikut tanpa mengubah nilai yang ditetapkan: perubahan preferensi lokal.";
-        finalMessage = [instruction, clarifiedLines.length ? `Jawaban klarifikasi:\n${clarifiedLines.join("\n")}` : ""].filter(Boolean).join("\n\n");
+        finalMessage = [instruction, activeContext, clarifiedLines.length ? `Jawaban klarifikasi:\n${clarifiedLines.join("\n")}` : ""].filter(Boolean).join("\n\n");
     }
 
     const input: NativeLF05RefinementInput = {

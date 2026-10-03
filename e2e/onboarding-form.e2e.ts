@@ -46,7 +46,7 @@ test("preview card stays compact across steps and keeps the district disclosure 
             expect(toggleBounds!.height).toBeGreaterThanOrEqual(44);
             expect(toggleBounds!.y).toBeLessThan(bounds!.y + 24);
             if (step === 2 || step === 4) {
-                const matchingKey = await preview.getByText("Sewa dan biaya sesuai", { exact: true }).boundingBox();
+                const matchingKey = await preview.getByText(step === 2 ? "Sewa dan biaya sesuai" : "Sesuai data dan estimasi", { exact: true }).boundingBox();
                 const otherKey = await preview.getByText("Data kurang / di luar batas", { exact: true }).boundingBox();
                 expect(Math.abs(matchingKey!.y - otherKey!.y)).toBeLessThanOrEqual(1);
             }
@@ -79,6 +79,9 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
     const districtList = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     await expect(districtList).toContainText("Kecamatan A");
+    // Step 2 already ranks: the list numbers districts, and the card names the best ones (desktop only).
+    await expect(districtList).toContainText("1. Kecamatan A");
+    if (!mobile) await expect(preview.getByRole("list", { name: "Peringkat teratas" })).toContainText("1 Kecamatan A");
     const districtA = districtList.getByRole("button", { name: /Kecamatan A/ });
     await districtA.click();
     await expect(districtA).toHaveAttribute("aria-pressed", "true");
@@ -93,8 +96,11 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.getByRole("button", { name: "Pilih titik di peta", exact: true }).click();
     await page.mouse.click(mobile ? (viewport?.width ?? 412) - 4 : 150, mobile ? 60 : 180);
     await expect(page.getByText("Titik pilihanmu di peta")).toBeVisible();
-    await expect(preview).toContainText("belum tersedia tanpa graf rute");
-    await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).toContainText("Estimasi rute belum tersedia");
+    // The form explains the reach; the card stays short and does not repeat it.
+    await expect(page.locator(".onboarding-form-panel")).toContainText("Perkiraan jangkauan");
+    await expect(preview).not.toContainText(/Perkiraan jangkauan|titik tersimpan|kecamatan belum terverifikasi/);
+    await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).toContainText("Waktu tempuh belum dinilai");
+    await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).toContainText("perkiraan jangkauan");
     await page.getByRole("radio", { name: "Motor", exact: true }).check();
     await page.screenshot({ path: testInfo.outputPath("step-3.png") });
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
@@ -325,4 +331,25 @@ test("mobile sheet reflows with usable fixed navigation and keyboard controls", 
     await page.getByRole("radio", { name: /Sembunyikan/ }).focus();
     await page.keyboard.press("ArrowLeft");
     await expect(page.getByRole("radio", { name: /Tampilkan dengan tanda/ })).toBeChecked();
+});
+
+test("campus points are dots and pressing the chosen campus again clears it", async ({ page }) => {
+    await startForm(page);
+    await page.getByRole("radio", { name: "Kuliah", exact: true }).check();
+    const campus = page.getByRole("button", { name: "Pilih kampus Kampus Selatan" });
+    // dispatchEvent: on mobile the form sheet can cover the marker, but the button itself is the target.
+    await expect(campus).toHaveAttribute("aria-pressed", "false");
+    await expect(campus).not.toContainText("Kampus Selatan", { useInnerText: true });
+    await campus.dispatchEvent("click");
+    await expect(campus).toHaveAttribute("aria-pressed", "true");
+    await expect(campus).toContainText("Kampus Selatan", { useInnerText: true });
+
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Seberapa jauh perjalanan yang nyaman?" })).toBeVisible();
+    await expect(page.locator('[data-hci-region="onboarding-destination"]')).toContainText("Lokasi kampus");
+
+    await campus.dispatchEvent("click");
+    await expect(campus).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator('[data-hci-region="onboarding-destination"]')).toContainText("Belum ditentukan");
 });

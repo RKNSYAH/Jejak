@@ -29,7 +29,7 @@ export const cityCenters = {
     yogyakarta: [110.3695, -7.7956], unsure: [106.812, -6.27],
 } satisfies Record<string, [number, number]>;
 export const cityLabels = { "jakarta-selatan": "Jakarta Selatan", bandung: "Bandung", yogyakarta: "Yogyakarta", unsure: "Belum yakin" };
-export const transportLabels = { transit: "transport umum", motorcycle: "motor", car: "mobil", active: "jalan atau sepeda" };
+export const transportLabels = { transit: "transport umum", motorcycle: "motor", car: "mobil", active: "jalan kaki" };
 export const getDestination = (id: string | null) => demoDestinations.find((item) => item.id === id);
 export const formatRupiah = (value: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value);
 

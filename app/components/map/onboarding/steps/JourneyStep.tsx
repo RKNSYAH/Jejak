@@ -20,7 +20,7 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
             <p className="mb-2 text-sm font-semibold">{answers.goal === "study" ? "Kampus atau kawasan tujuan" : "Kantor atau kawasan tujuan"}</p>
             <div className="flex min-h-14 items-center gap-3 rounded-xl border border-primary bg-primary-tint px-3.5 py-2 ring-1 ring-primary">
                 <MapPin aria-hidden="true" className="size-5 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{selected?.name ?? (hasPoint ? answers.destinationName : "Belum ditentukan")}</p><p className="mt-0.5 text-xs text-ink-muted">{selected ? "Lokasi kampus" : hasPoint ? "Titik pilihanmu di peta" : "Belum ada estimasi rute terverifikasi"}</p></div>
+                <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{selected?.name ?? (hasPoint ? answers.destinationName : "Belum ditentukan")}</p><p className="mt-0.5 text-xs text-ink-muted">{selected ? "Lokasi kampus" : hasPoint ? "Titik pilihanmu di peta" : "Pilih tujuan untuk melihat perkiraan jangkauan"}</p></div>
                 {campusChoices.length > 0 && <button type="button" aria-expanded={searchOpen} aria-controls="form-destination-picker" onClick={() => setSearchOpen(!searchOpen)} className="btn btn-ghost min-h-11 px-1 text-xs text-primary">Cari kampus</button>}
             </div>
             {searchOpen && <div id="form-destination-picker" className="mt-3">
@@ -36,13 +36,13 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
             </div>
             {pickingDestination && <p role="status" className="text-xs text-ink-muted">Klik lokasi tujuan pada peta di belakang formulir.</p>}
             {answers.goal !== "work" && campusChoices.length === 0 && <p className="text-xs text-ink-muted">Belum ada kampus terdaftar untuk kota ini. Kamu tetap bisa memilih titik di peta.</p>}
-            <p className="alert alert-info mt-2 text-xs">Estimasi waktu perjalanan dan jangkauan rute belum tersedia. Titik ini belum dipakai untuk menilai kelayakan kecamatan.</p>
+            <p className="mt-2 text-xs text-ink-muted">Perkiraan jarak berdasarkan moda dan batas waktumu</p>
         </div>
         <RadioChoices name="transport" label="Moda utama" value={answers.transport} onChange={(transport) => onChange({ transport })} cards choices={[
             { value: "transit", label: "Transport umum", icon: <TrainFront className="size-4" /> },
             { value: "motorcycle", label: "Motor", icon: <Bike className="size-4" /> },
             { value: "car", label: "Mobil", icon: <Car className="size-4" /> },
-            { value: "active", label: "Jalan atau sepeda", icon: <Footprints className="size-4" /> },
+            { value: "active", label: "Jalan kaki", icon: <Footprints className="size-4" /> },
         ]} />
         <RadioChoices name="commuteMinutes" label="Batas waktu tempuh sekali jalan" value={answers.commuteMinutes} onChange={(commuteMinutes) => onChange({ commuteMinutes })}
             className="grid! grid-cols-4 rounded-xl border border-rule p-1 [&>label>span]:px-1 [&>label>span]:border-transparent" choices={[15, 30, 45, 60].map((value) => ({ value: value as 15 | 30 | 45 | 60, label: `${value} mnt` }))} />

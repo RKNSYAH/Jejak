@@ -2,12 +2,13 @@ import { isLF05Destination, SENSITIVE_TEXT, type LF05ProposedProfile } from "./l
 import { isRecord } from "./zoneGeometry";
 import { relocationGoalLabels, type RelocationGoal } from "./relocationGoal";
 import { extractUserProfile, onboardingTaxonomy } from "../extractUserProfile";
-import { extractLF05TransportMode, getLF05TransportQuestion, parseLF05TransportAnswer, type LF05TransportMode } from "./lf05Transport";
+import { extractLF05ActiveMode, extractLF05TransportMode, getLF05TransportQuestion, parseLF05TransportAnswer, type LF05TransportMode } from "./lf05Transport";
 
 export type LF05ClarificationAnswer = { question: string; answer: string; field?: "commute_minutes" | "transport_mode" };
 export type LF05FollowUpDetails = {
     commute_minutes?: number;
     transport_mode?: LF05TransportMode;
+    active_mode?: "walk" | "bicycle";
     destination?: { name: string; precision: "city" | "area" | "point"; latitude?: number; longitude?: number };
 };
 
@@ -28,11 +29,13 @@ export function parseLF05CommuteAnswer(answer: string): number | null {
 
 export function validateFollowUpDetails(value: unknown): LF05FollowUpDetails {
     if (value === undefined) return {};
-    if (!isRecord(value) || Object.keys(value).some((key) => !["commute_minutes", "transport_mode", "destination"].includes(key)) ||
+    if (!isRecord(value) || Object.keys(value).some((key) => !["commute_minutes", "transport_mode", "active_mode", "destination"].includes(key)) ||
         (value.commute_minutes !== undefined && (typeof value.commute_minutes !== "number" || !Number.isInteger(value.commute_minutes) || value.commute_minutes < 0 || value.commute_minutes > 240)) ||
         (value.transport_mode !== undefined && (typeof value.transport_mode !== "string" || !["transit", "motorcycle", "car", "active"].includes(value.transport_mode)))) {
         throw new Error("INVALID_CLARIFICATION_ANSWERS");
     }
+    if (value.active_mode !== undefined && (value.transport_mode !== "active" || (value.active_mode !== "walk" && value.active_mode !== "bicycle")))
+        throw new Error("INVALID_CLARIFICATION_ANSWERS");
     if (value.destination !== undefined && !isLF05Destination(value.destination)) throw new Error("INVALID_CLARIFICATION_ANSWERS");
     if (SENSITIVE_TEXT.test(JSON.stringify(value))) throw new Error("SENSITIVE_ONBOARDING_INPUT");
     return value as LF05FollowUpDetails;
@@ -54,7 +57,8 @@ export function validateClarificationAnswers(value: unknown): LF05ClarificationA
         const minutes = boundField === "commute_minutes" ? parseLF05CommuteAnswer(answer) : null;
         const transport = boundField === "transport_mode" ? parseLF05TransportAnswer(answer) : null;
         if ((boundField === "commute_minutes" && minutes === null) || (boundField === "transport_mode" && transport === null)) throw new Error("INVALID_CLARIFICATION_ANSWERS");
-        return { question: question.trim(), answer: boundField === "commute_minutes" ? `${minutes} menit` : transport ?? answer.trim(), ...(boundField ? { field: boundField } : {}) };
+        const activeMode = transport === "active" ? extractLF05ActiveMode(answer) : null;
+        return { question: question.trim(), answer: boundField === "commute_minutes" ? `${minutes} menit` : activeMode ?? transport ?? answer.trim(), ...(boundField ? { field: boundField } : {}) };
     });
     if (new Set(answers.map((item) => item.question)).size !== answers.length) throw new Error("INVALID_CLARIFICATION_ANSWERS");
     return answers;
@@ -64,10 +68,18 @@ export function resolveLF05FollowUpDetails(answers: LF05ClarificationAnswer[], d
     const explicit = { ...validateFollowUpDetails(details) };
     for (const item of validateClarificationAnswers(answers)) {
         if (item.field === "commute_minutes" && explicit.commute_minutes === undefined) explicit.commute_minutes = parseLF05CommuteAnswer(item.answer)!;
-        if (item.field === "transport_mode" && explicit.transport_mode === undefined) explicit.transport_mode = parseLF05TransportAnswer(item.answer)!;
+        if (item.field === "transport_mode" && explicit.transport_mode === undefined) {
+            explicit.transport_mode = parseLF05TransportAnswer(item.answer)!;
+            const activeMode = extractLF05ActiveMode(item.answer);
+            if (explicit.transport_mode === "active" && activeMode) explicit.active_mode = activeMode;
+        }
     }
     const storyTransport = extractLF05TransportMode(story);
-    if (explicit.transport_mode === undefined && storyTransport) explicit.transport_mode = storyTransport;
+    if (explicit.transport_mode === undefined && storyTransport) {
+        explicit.transport_mode = storyTransport;
+        const activeMode = extractLF05ActiveMode(story);
+        if (storyTransport === "active" && activeMode) explicit.active_mode = activeMode;
+    }
     return explicit;
 }
 
@@ -77,9 +89,14 @@ export function groundLF05Transport(proposal: LF05ProposedProfile, story: string
     const transport = details.transport_mode ?? extractLF05TransportMode(story);
     delete hard.transport_mode;
     delete soft.transport_mode;
+    delete hard.active_mode;
+    delete soft.active_mode;
     if (transport) soft.transport_mode = transport;
+    // An explicit generic active follow-up overrides the story subtype as ambiguous.
+    const activeMode = details.active_mode ?? (details.transport_mode === undefined ? extractLF05ActiveMode(story) : null);
+    if (transport === "active" && activeMode) soft.active_mode = activeMode;
     return { ...proposal, hard_constraints: hard, soft_preferences: soft,
-        inferred_fields: proposal.inferred_fields.filter((field) => field !== "transport_mode") };
+        inferred_fields: proposal.inferred_fields.filter((field) => field !== "transport_mode" && field !== "active_mode") };
 }
 
 export function applyLF05ExplicitDetails(proposal: LF05ProposedProfile, goal?: RelocationGoal, details: LF05FollowUpDetails = {}): LF05ProposedProfile {
@@ -106,8 +123,18 @@ export function applyLF05FieldEdit(proposal: LF05ProposedProfile, field: string,
     delete hard[field];
     delete soft[field];
     target[field] = value;
+    if (field === "transport_mode") {
+        delete hard.transport_mode;
+        soft.transport_mode = value;
+        delete hard.active_mode;
+        delete soft.active_mode;
+        if (value === "walk" || value === "bicycle") {
+            soft.transport_mode = "active";
+            soft.active_mode = value;
+        }
+    }
     return { ...proposal, hard_constraints: hard, soft_preferences: soft,
-        inferred_fields: proposal.inferred_fields.filter((item) => item !== field) };
+        inferred_fields: proposal.inferred_fields.filter((item) => item !== field && !(field === "transport_mode" && item === "active_mode")) };
 }
 
 export function getLF05TargetCity(proposal: LF05ProposedProfile | null, story: string): string | null {
@@ -151,7 +178,7 @@ export function buildLF05FollowUpMessage(message: string, answers: LF05Clarifica
         followUps.push({ question: "Tujuan pindah", answer: relocationGoalLabels[goal] });
     }
     if (details.commute_minutes !== undefined) followUps.push({ question: "Batas waktu tempuh sekali jalan", answer: `${details.commute_minutes} menit` });
-    if (details.transport_mode) followUps.push({ question: "Moda transportasi", answer: details.transport_mode });
+    if (details.transport_mode) followUps.push({ question: "Moda transportasi", answer: details.active_mode ?? details.transport_mode });
     if (details.destination) followUps.push({ question: "Lokasi tujuan", answer: JSON.stringify(details.destination) });
     return buildLF05Message(message, followUps);
 }

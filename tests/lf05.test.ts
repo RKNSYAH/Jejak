@@ -7,6 +7,7 @@ import { completed, countFetches, postJson, withWorkflowEnvironment } from "./he
 import { validateLF05Proposal } from "../app/engine/lib/lf05Validation";
 import { applyLF05FieldEdit, buildLF05Message, getLF05ClarificationField, getLF05ClarificationQuestions, parseLF05CommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/lf05FollowUp";
 import { extractLF05TransportMode, parseLF05TransportAnswer } from "../app/engine/lib/lf05Transport";
+import { buildPersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
 const validProfile = {
   hard_constraints: {
@@ -160,6 +161,7 @@ test("transport evidence excludes negation, ownership, unrelated context and und
     assert.equal(parseLF05TransportAnswer(answer), mode);
   }
   assert.equal(extractLF05TransportMode("budget belum tahu, saya ke kantor naik motor"), "motorcycle");
+  assert.equal(extractLF05TransportMode("Saya pakai sepeda motor."), "motorcycle");
   assert.equal(extractLF05TransportMode("Saya mempertimbangkan transportasi umum sebagai pilihan utama untuk perjalanan ke kantor."), "transit");
   assert.throws(() => validateClarificationAnswers([{ question: "Moda transportasi?", field: "transport_mode", answer: "mobil atau motor" }]), /INVALID_CLARIFICATION_ANSWERS/);
 });
@@ -210,6 +212,28 @@ test("unknown specific destination retains a city without inventing coordinates 
     assert.ok(sentMessage.includes(JSON.stringify(destination)));
     assert.throws(() => validateFollowUpDetails({ destination: { ...destination, latitude: -6, longitude: 106 } }), /INVALID_CLARIFICATION_ANSWERS/);
     assert.throws(() => validateLF05Proposal({ ...profile, soft_preferences: { destination: { ...destination, latitude: -6 } } }, onboardingTaxonomy), /INVALID_LF05_PROFILE/);
+  } finally { restoreEnvironment(); }
+});
+
+test("walking and cycling follow-ups retain their subtype through normalization and confirmation", async (context) => {
+  const restoreEnvironment = withWorkflowEnvironment();
+  context.mock.method(globalThis, "fetch", async () => Response.json(completed({ output: { text: JSON.stringify(validProfile) } })));
+  try {
+    for (const [answer, subtype] of [["Jalan kaki", "walk"], ["Sepeda", "bicycle"], ["Bicycle", "bicycle"]]) {
+      const profile = await interpretOnboardingStory("Saya pindah untuk kerja.", "id",
+        [{ question: "Moda transportasi apa yang kamu pilih?", field: "transport_mode", answer }]);
+      assert.equal(profile.soft_preferences.transport_mode, "active");
+      assert.equal(profile.soft_preferences.active_mode, subtype);
+      assert.ok(!profile.inferred_fields.includes("active_mode"));
+      assert.equal(buildPersistedRelocationProfile(profile, profile.inferred_fields).soft_preferences.active_mode, subtype);
+      const corrected = applyLF05FieldEdit(profile, "transport_mode", "car");
+      assert.equal(corrected.soft_preferences.active_mode, undefined);
+    }
+    const ambiguous = await interpretOnboardingStory("Jalan kaki.", "id", [], "work", { transport_mode: "active" });
+    assert.equal(ambiguous.soft_preferences.active_mode, undefined);
+    const walkingStory = await interpretOnboardingStory("Saya memilih jalan kaki.", "id");
+    assert.equal(walkingStory.soft_preferences.active_mode, "walk");
+    assert.throws(() => validateFollowUpDetails({ transport_mode: "car", active_mode: "walk" }), /INVALID_CLARIFICATION_ANSWERS/);
   } finally { restoreEnvironment(); }
 });
 

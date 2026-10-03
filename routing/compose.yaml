@@ -1,0 +1,30 @@
+services:
+  road-build:
+    image: ghcr.io/valhalla/valhalla@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c
+    profiles: [build]
+    entrypoint: [/bin/sh, /opt/jejak/build-road.sh]
+    volumes:
+      - ../ingestion/data/routing:/data
+      - ../ingestion/data/java-261001.osm.pbf:/data/source-java.osm.pbf:ro
+      - ./build-road.sh:/opt/jejak/build-road.sh:ro
+  road:
+    image: ghcr.io/valhalla/valhalla@sha256:511c095b8caf393dccceb8b519ec96b6f85a0166b2288ba014a8a748acc5a63c
+    command: [valhalla_service, /data/valhalla/valhalla.json, "1"]
+    ports: ["127.0.0.1:8002:8002"]
+    volumes: ["../ingestion/data/routing:/data:ro"]
+    restart: unless-stopped
+  transit-build:
+    image: opentripplanner/opentripplanner@sha256:8fad2ec1c6b1f97d2d2ef12002641f5991481c2354bc14ad9aae5fb809fcfa2f
+    platform: linux/amd64
+    profiles: [build]
+    command: [--build, --save]
+    environment: {JAVA_TOOL_OPTIONS: "-Xmx8g"}
+    volumes: ["../ingestion/data/routing/otp:/var/opentripplanner"]
+  transit:
+    image: opentripplanner/opentripplanner@sha256:8fad2ec1c6b1f97d2d2ef12002641f5991481c2354bc14ad9aae5fb809fcfa2f
+    platform: linux/amd64
+    command: [--load, --serve]
+    environment: {JAVA_TOOL_OPTIONS: "-Xmx8g"}
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["../ingestion/data/routing/otp:/var/opentripplanner:ro"]
+    restart: unless-stopped
