@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import CostEstimate from "../app/components/map/onboarding/CostEstimate";
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
 import { evaluateLiveOnboarding, formPreviewPreferences } from "../app/engine/onboarding/livePreview";
-import type { OnboardingArea } from "../app/engine/onboarding/types";
+import type { FormStep, OnboardingArea } from "../app/engine/onboarding/types";
 
 const area: OnboardingArea = {
     zone_id: "district-a", zone_name: "Kecamatan A", city_id: "jakarta-selatan", city_name: "Jakarta Selatan",
@@ -16,8 +16,8 @@ const area: OnboardingArea = {
         limitations: "Estimasi satu orang", is_sample: false },
 };
 
-function render(selectedDistrictId: string | null, district = area) {
-    const preview = evaluateLiveOnboarding(formPreviewPreferences(initialFormAnswers), 2, {
+function render(selectedDistrictId: string | null, district = area, step: FormStep = 2) {
+    const preview = evaluateLiveOnboarding(formPreviewPreferences(initialFormAnswers), step, {
         cities: [{ city_id: area.city_id, city_name: area.city_name, district_count: 1, center: area.center, is_sample: false }],
         areas: [district], destinations: [],
     });
@@ -48,7 +48,13 @@ test("missing rent or city costs never produce a fabricated total or zero-cost f
     for (const district of [{ ...area, living_cost: null }, { ...area, facts: [] }]) {
         const html = render(area.zone_id, district);
         assert.match(html, /Belum tersedia/);
-        assert.match(html, /Batas belum terverifikasi/);
+        assert.match(html, /Batas biaya belum terverifikasi/);
         assert.doesNotMatch(html, /Rp0|Rp4\.500\.000|Batas sewa dan biaya terpenuhi/);
     }
+});
+
+test("missing commute does not relabel a supported financial fit as unknown cost", () => {
+    const html = render(area.zone_id, area, 4);
+    assert.match(html, /sekitar Rp4\.500\.000/);
+    assert.doesNotMatch(html, /Batas biaya belum terverifikasi/);
 });

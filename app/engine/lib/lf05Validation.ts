@@ -22,7 +22,7 @@ const PROFILE_FIELDS = new Set([
     "goal", "target_fields", "target_occupations", "destination_cities", "monthly_budget", "housing_budget",
     "commute_minutes", "work_arrangement", "education_level", "language_preferences", "priorities", "deal_breakers",
     "transport_mode", "destination", "housing_types", "occupation", "study_field", "career_stage",
-    "departure_time", "extras", "over_budget",
+    "departure_time", "extras", "over_budget", "active_mode",
 ]);
 const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living", "environment"]);
 // Decimal coordinates are not identity-number strings.
@@ -56,6 +56,10 @@ function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Ta
         }
         if (field === "transport_mode") {
             if (typeof value !== "string" || !["transit", "motorcycle", "car", "active"].includes(value)) return false;
+            continue;
+        }
+        if (field === "active_mode") {
+            if (value !== "walk" && value !== "bicycle") return false;
             continue;
         }
         if (field === "over_budget") {

@@ -12,6 +12,8 @@ import JourneyStep from "./steps/JourneyStep";
 import PrioritiesStep from "./steps/PrioritiesStep";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
 import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
+import CommuteSummary from "./CommuteSummary";
+import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 
 const steps = ["Tujuan", "Batas", "Perjalanan", "Prioritas"];
 const stepNumbers: FormStep[] = [1, 2, 3, 4];
@@ -19,12 +21,14 @@ const titles = ["Apa yang membawamu pindah?", "Berapa batas yang realistis?", "S
 const descriptions = ["", "Peta memakai data sewa dan biaya yang tersedia.", "Pilih tujuan; perjalanan baru dinilai jika data rute tersedia.", "Bobot merangkum dimensi yang memiliki bukti. Data kosong tidak dianggap nol."];
 
 export default function RelocationFormOnboarding({ session, onChange, onStepChange, onDismiss, onStory, onFinish, storageAvailable, preview,
-    previewLoading, previewError, onRetryPreview, onMapPick, pickingDestination, selectedDistrictId, onSelectDistrict }: {
+    previewLoading, previewError, onRetryPreview, onMapPick, pickingDestination, selectedDistrictId, onSelectDistrict,
+    commuteLoading, commuteError, onRetryCommute }: {
     session: FormSession; onChange: (patch: Partial<FormAnswers>) => void; onStepChange: (step: FormStep) => void;
     onDismiss: () => void; onStory: () => void; onFinish: () => Promise<void>; storageAvailable: boolean;
     preview: LiveOnboardingPreview; previewLoading: boolean; previewError: string | null; onRetryPreview: () => void;
     onMapPick: () => void; pickingDestination: boolean;
     selectedDistrictId: string | null; onSelectDistrict: (id: string) => void;
+    commuteLoading?: boolean; commuteError?: string | null; onRetryCommute?: () => void;
 }) {
     const dialogRef = useRef<HTMLDialogElement>(null);
     const titleRef = useRef<HTMLHeadingElement>(null);
@@ -100,6 +104,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                     {session.step === 3 && <JourneyStep answers={session.answers} onChange={change} errors={errors} destinations={preview.destinations} onMapPick={onMapPick} pickingDestination={pickingDestination} />}
                     {session.step === 4 && <PrioritiesStep answers={session.answers} onChange={change} errors={errors} />}
                 </fieldset>
+                {session.step >= 3 && <CommuteSummary preview={preview} loading={commuteLoading} error={commuteError} onRetry={onRetryCommute} />}
                 {session.step >= 2 && preview.available && <CostEstimate preview={preview} selectedDistrictId={selectedDistrictId}
                     onSelectDistrict={onSelectDistrict} disabled={isSaving} />}
                 {session.step === 4 && <section aria-label="Ringkasan profil" className="mt-5 border-t border-rule pt-4 text-sm">
@@ -113,12 +118,12 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                 {saveError && <p role="alert" className="alert alert-error mt-4 text-sm">{saveError}</p>}
                 {previewLoading && <p role="status" className="mt-4 text-sm text-ink-muted">Memuat data kecamatan…</p>}
                 {previewError && <p role="alert" className="mt-4 text-sm text-error">{previewError}<button type="button" onClick={onRetryPreview} className="btn btn-ghost min-h-11 px-2 text-xs text-primary underline">Coba lagi</button></p>}
-                {preview.available && session.step >= 2 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan yang memenuhi batas sewa dan biaya dari data tersedia. Perjalanan belum dinilai.</p>}
+                {preview.available && session.step >= 2 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan yang memenuhi semua batas dari data dan estimasi tersedia.</p>}
                 {preview.available && <details className="mt-5 border-t border-rule pt-1 text-xs" data-hci-region="onboarding-accessible-results">
                     <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
                     <p className="mb-2 text-ink-muted">Sumber dan status data dicantumkan per kecamatan. Batas kecamatan memakai geometri tersimpan atau BIG RBI.</p>
                     <ul className="space-y-2" aria-label="Kecamatan dalam pratinjau">
-                        {preview.districts.map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={session.step}
+                        {visiblePreviewDistricts(preview, session.step >= 2).map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={session.step}
                             selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
                     </ul>
                 </details>}

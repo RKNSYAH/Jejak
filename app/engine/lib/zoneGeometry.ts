@@ -1,4 +1,4 @@
-import type { MultiPolygon, Polygon, Position } from "geojson";
+import type { FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
 import type { Zone, ZoneGeometry } from "../types";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,7 +94,7 @@ export function normalizeGeometry(value: unknown, zone: Zone): ZoneGeometry {
     };
 }
 
-export function getGeometryBounds(geometry: ZoneGeometry): [[number, number], [number, number]] | null {
+export function getGeometryBounds(geometry: FeatureCollection<Polygon | MultiPolygon>): [[number, number], [number, number]] | null {
     let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
     for (const feature of geometry.features) {
         const polygons = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates;

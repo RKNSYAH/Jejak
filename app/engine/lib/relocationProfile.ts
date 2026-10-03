@@ -89,6 +89,7 @@ export function buildFormRelocationProfile(value: unknown): PersistedRelocationP
         career_stage: null,
         housing_types: answers.housing.filter((type) => type !== "unsure"),
         transport_mode: answers.transport, departure_time: answers.departure, extras: [], over_budget: answers.overBudget,
+        ...(answers.transport === "active" ? { active_mode: "walk" } : {}),
         destination: destination ? {
             name: destination.name,
             precision: "precision" in destination ? destination.precision : "area",

@@ -8,7 +8,7 @@ const modes: [LF05TransportMode, RegExp][] = [
     ["transit", /\b(?:transit|transport(?:asi)? umum|angkutan umum|public transport(?:ation)?|mrt|lrt|krl|transjakarta|bus|angkot)\b/iu],
     ["motorcycle", /\b(?:motorcycle|motorbike|sepeda motor|motor)\b/iu],
     ["car", /\b(?:mobil|car)\b/iu],
-    ["active", /\b(?:active|jalan kaki|bersepeda|walk(?:ing)?|cycl(?:e|ing)|bicycle|bike)\b/iu],
+    ["active", /\b(?:active|jalan kaki|sepeda(?!\s+motor\b)|bersepeda|walk(?:ing)?|cycl(?:e|ing)|bicycle|bike)\b/iu],
 ];
 
 export function parseLF05TransportAnswer(answer: string): LF05TransportMode | null {
@@ -41,4 +41,18 @@ export function extractLF05TransportMode(story: string): LF05TransportMode | nul
         if (chosen) choices.add(mode);
     }
     return choices.size === 1 ? [...choices][0] : null;
+}
+
+// Preserve only a grounded active subtype. Generic active and alternatives stay unresolved.
+export function extractLF05ActiveMode(story: string): "walk" | "bicycle" | null {
+    const chosen = new Set<"walk" | "bicycle">();
+    for (const clause of story.split(/[.!?;\n]+|\b(?:tapi|tetapi|but)\b/iu)) {
+        if (extractLF05TransportMode(clause) !== "active") continue;
+        const walk = /\b(?:jalan kaki|walk(?:ing)?)\b/iu.test(clause);
+        const bicycle = /\b(?:sepeda|bersepeda|cycl(?:e|ing)|bicycle|bike)\b/iu.test(clause);
+        if (walk && bicycle) return null;
+        if (walk) chosen.add("walk");
+        if (bicycle) chosen.add("bicycle");
+    }
+    return chosen.size === 1 ? [...chosen][0] : null;
 }

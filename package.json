@@ -15,7 +15,11 @@
     "test:research": "python -B -m unittest discover -s ingestion/tests -p test_static_research.py",
     "check:research": "node ingestion/check_static_import.mjs",
     "test:e2e": "playwright test",
-    "fetch:boundaries": "node scripts/fetch-onboarding-boundaries.mjs"
+    "fetch:boundaries": "node scripts/fetch-onboarding-boundaries.mjs",
+    "check:routing": "python -B ingestion/prepare_routing.py --check",
+    "extract:routing": "python -B ingestion/prepare_routing.py --extract",
+    "test:routing-data": "python -B -m unittest discover -s ingestion/tests -p test_routing.py",
+    "smoke:routing": "bun scripts/routing-smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

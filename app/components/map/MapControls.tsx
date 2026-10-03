@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, X } from "lucide-react";
 import type { MapCategory, Zone } from "@/app/engine/types";
 import type { AccountSummary } from "@/app/engine/controller/userServerController";
@@ -42,6 +42,7 @@ type MapControlsProps = {
     onCategoryChange: (category: MapCategory) => void;
     sidebarWidth: number;
     account: AccountSummary | null;
+    reachSummary?: ReactNode;
 };
 
 export default function MapControls(props: MapControlsProps) {
@@ -198,7 +199,8 @@ export default function MapControls(props: MapControlsProps) {
                     <RotateCcw aria-hidden="true" className="size-4" />
                 </button>}
             </div>
-            {(props.recommendationsLoading || props.recommendationsError) && <div role="status" className="pointer-events-auto col-span-2 row-start-3 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:w-full">
+            {props.reachSummary}
+            {(props.recommendationsLoading || props.recommendationsError) && <div role="status" className="pointer-events-auto col-span-2 min-w-0 rounded-box border border-rule bg-panel-surface px-3 py-2 font-body text-sm text-ink-muted wrap-break-word md:w-full">
                 {props.recommendationsLoading ? "Memuat rekomendasi…" : props.recommendationsError}
                 {props.recommendationsError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryRecommendations}>Coba lagi</button>}
             </div>}

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { evaluateLiveOnboarding, monthlyCostRange, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
+import { evaluateLiveOnboarding, isTopRanked, monthlyCostRange, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
-import type { OnboardingArea, OnboardingCity } from "../app/engine/onboarding/types";
+import type { LivePreviewPreferences, OnboardingArea, OnboardingCity } from "../app/engine/onboarding/types";
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
+import { buildFormRelocationProfile } from "../app/engine/lib/relocationProfile";
+
+test("ambiguous active and cycling profiles never silently request walking estimates", () => {
+    const walking = buildFormRelocationProfile({ ...initialFormAnswers, transport: "active" });
+    assert.equal(profilePreviewPreferences(walking, [])?.transport, "active");
+    for (const activeMode of [undefined, null, "bicycle"]) {
+        const ambiguous = { ...walking, soft_preferences: { ...walking.soft_preferences, active_mode: activeMode } };
+        assert.equal(profilePreviewPreferences(ambiguous, [])?.transport, null);
+    }
+});
 
 const cities: OnboardingCity[] = [{
     city_id: "jakarta-selatan", city_name: "Kota Administrasi Jakarta Selatan", district_count: 2,
@@ -54,9 +64,10 @@ test("live onboarding ranks database evidence and never fabricates a commute dur
 
     assert.equal(preview.commuteAvailable, false);
     assert.equal(preview.ranked[0]?.district.zone_id, "jakarta-selatan-a");
-    assert.equal(preview.ranked[0]?.eligible, true);
+    assert.equal(preview.ranked[0]?.eligible, null);
+    assert.equal(preview.ranked[0]?.financialEligible, true);
     assert.equal(preview.ranked[0]?.commuteMinutes, null);
-    assert.ok(preview.ranked[0]?.unknowns.includes("Estimasi rute belum tersedia"));
+    assert.ok(preview.ranked[0]?.unknowns.includes("Waktu tempuh belum dinilai"));
     assert.equal(preview.districts.find((item) => item.district.zone_id === "jakarta-selatan-b")?.eligible, false);
 });
 
@@ -154,7 +165,7 @@ test("districts up to 10% over the rent limit stay eligible", () => {
 
 test("monthly cost range covers districts within the budget, widened to whole Rp500.000 steps", () => {
     const district = (monthlyCost: number | null, eligible: boolean | null, is_sample = false) => ({
-        district: { ...areas[0], is_sample }, rentFact: null, monthlyCost, eligible,
+        district: { ...areas[0], is_sample }, rentFact: null, monthlyCost, eligible, financialEligible: eligible,
     }) as unknown as Parameters<typeof monthlyCostRange>[0]["districts"][number];
 
     // An over-budget 28.5 jt district must not stretch the top of the range.
@@ -167,4 +178,72 @@ test("monthly cost range covers districts within the budget, widened to whole Rp
     assert.deepEqual(monthlyCostRange({ districts: [district(4_100_000, null), district(8_900_000, null)] }), { low: 4_000_000, high: 9_000_000, is_sample: false });
     assert.equal(monthlyCostRange({ districts: [district(5_000_000, true, true)] })?.is_sample, true);
     assert.equal(monthlyCostRange({ districts: [district(null, null)] }), null);
+});
+
+// Three kecamatan on one line: the nearest to the destination is the priciest, the farthest the cheapest.
+const spread = [["near", 106.82, 2_000_000], ["mid", 106.9, 1_600_000], ["far", 107.2, 1_000_000]].map(([id, longitude, rent]) => ({
+    ...areas[0], zone_id: String(id), zone_name: String(id), center: [Number(longitude), -6.24] as [number, number],
+    transit_stop_count: 0, facts: [{ ...areas[0].facts[0], value: Number(rent) }],
+}) satisfies OnboardingArea);
+const nearDestination: [number, number] = [106.82, -6.24];
+
+function spreadPreferences(destinationPoint: [number, number] | null): LivePreviewPreferences {
+    return {
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: 8_000_000, maximumRent: 3_000_000, housing: ["kos"],
+        destinationId: null, destinationName: destinationPoint ? "Titik pilihanmu" : null, destinationPoint,
+        transport: "transit", commuteMinutes: 45, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 20, mobility: 80, environment: 0 },
+    };
+}
+
+test("step 2 ranks by distance to the chosen destination without excluding or inventing a commute time", () => {
+    const rankOf = (destinationPoint: [number, number] | null) => evaluateLiveOnboarding(spreadPreferences(destinationPoint), 2,
+        { cities, areas: spread, destinations: [] });
+
+    // No destination: only cost separates them, so the cheapest, farthest district leads.
+    const without = rankOf(null);
+    assert.deepEqual(without.ranked.map((item) => item.district.zone_id), ["far", "mid", "near"]);
+    assert.ok(without.districts.every((item) => item.distanceKm === null));
+
+    // A destination reorders them even though every district passes rent and budget.
+    const withDestination = rankOf(nearDestination);
+    assert.deepEqual(withDestination.ranked.map((item) => item.district.zone_id), ["near", "mid", "far"]);
+    assert.deepEqual(withDestination.ranked.map((item) => item.rank), [1, 2, 3]);
+    assert.ok(withDestination.districts.every((item) => item.eligible === true));
+    assert.ok(withDestination.districts.every((item) => item.commuteMinutes === null));
+    const [near, mid, far] = ["near", "mid", "far"].map((id) => withDestination.districts.find((item) => item.district.zone_id === id)!);
+    assert.ok(near.distanceKm! < mid.distanceKm! && mid.distanceKm! < far.distanceKm!);
+    assert.ok(near.reasons.some((reason) => reason.startsWith("Sekitar") && reason.endsWith("km dari tujuan")));
+    assert.ok(far.reasons.some((reason) => reason.endsWith("km dari tujuan")));
+});
+
+test("a saved profile's commute weight ranks nearer districts first only once a destination exists", () => {
+    const priorityWeights = { career: 0, education: 0, housing: 0.2, cost_of_living: 0, commute: 0.8 };
+    const rankOf = (destinationPoint: [number, number] | null) => evaluateLiveOnboarding(
+        { ...spreadPreferences(destinationPoint), priorityWeights }, 2, { cities, areas: spread, destinations: [] })
+        .ranked.map((item) => item.district.zone_id);
+
+    assert.deepEqual(rankOf(null), ["far", "mid", "near"]);
+    assert.deepEqual(rankOf(nearDestination), ["near", "mid", "far"]);
+});
+
+test("changing the commute time reorders the recommendations without excluding or rescoring districts", () => {
+    const weights = { opportunity: 0, affordability: 80, mobility: 20, environment: 0 };
+    const evaluate = (step: 2 | 3, commuteMinutes: number) => evaluateLiveOnboarding(
+        { ...spreadPreferences(nearDestination), transport: "car", commuteMinutes, weights }, step, { cities, areas: spread, destinations: [] });
+    const order = (preview: ReturnType<typeof evaluate>) => preview.ranked.map((item) => item.district.zone_id);
+
+    // Cost dominates, so with no reach applied (step 2) the cheapest, farthest district leads.
+    assert.deepEqual(order(evaluate(2, 60)), ["far", "mid", "near"]);
+
+    // 60 min by car still reaches "mid" (edge) but not "far"; 15 min reaches only "near".
+    const wide = evaluate(3, 60), tight = evaluate(3, 15);
+    assert.deepEqual(order(wide), ["mid", "near", "far"]);
+    assert.deepEqual(order(tight), ["near", "far", "mid"]);
+    assert.deepEqual(wide.ranked.filter(isTopRanked).map((item) => item.district.zone_id), ["mid", "near"]);
+    assert.deepEqual(tight.ranked.filter(isTopRanked).map((item) => item.district.zone_id), ["near"]);
+
+    // The reach is an estimate: it never excludes a district and never changes a score.
+    assert.deepEqual(tight.districts.map((item) => item.score), wide.districts.map((item) => item.score));
+    assert.ok([...wide.districts, ...tight.districts].every((item) => item.eligible === null && item.commuteMinutes === null));
 });

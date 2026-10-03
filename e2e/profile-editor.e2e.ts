@@ -317,7 +317,7 @@ test("stale revision keeps draft", async ({ page }) => {
 test("recalc retry avoids duplicate revision and map adopts latest server profile while preserving session drafts", async ({ page }) => {
     const initial = await openEditor(page);
     await expect(page.getByRole("heading", { name: "Perubahan kecamatan", exact: true })).toBeVisible();
-    await expect(page.getByText(/Tersimpan \(.+\): 2 kecamatan\./)).toBeVisible();
+    await expect(page.getByText(/Tersimpan \(.+\): 2 kecamatan sesuai batas anggaran\./)).toBeVisible();
     let previewOutage = false;
     await page.route((url) => url.pathname === "/api/onboarding/preview", (route) => {
         if (previewOutage) {
@@ -333,6 +333,7 @@ test("recalc retry avoids duplicate revision and map adopts latest server profil
         await route.fulfill({ response });
     });
     await editField(page, "housing-budget", String(updatedRent));
+    await expect(page.getByText(/Draf \(.+\): 1 kecamatan sesuai batas anggaran\./)).toBeVisible();
     await field(page, "over-budget").getByRole("button", { name: /Ubah/ }).click();
     await page.locator("#over-budget").selectOption("hide");
     await page.getByRole("button", { name: "Simpan dan hitung ulang", exact: true }).click();
@@ -356,6 +357,8 @@ test("recalc retry avoids duplicate revision and map adopts latest server profil
     expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-form:v1"))).toContain("monthlyBudget");
     const preview = page.locator('[data-hci-region="onboarding-preview"]');
     await expect(preview).toBeVisible();
-    await expect(preview).toContainText("1 kecamatan memenuhi batas sewa dan biaya");
+    // Budget fits, but no route may silently satisfy this profile's commute limit.
+    await expect(preview).toContainText("0 kecamatan sesuai data dan estimasi");
+    await expect(preview).toContainText("Pilih tujuan untuk melihat jangkauan");
     await expect(page.getByText("Kecamatan B", { exact: true })).toHaveCount(0);
 });

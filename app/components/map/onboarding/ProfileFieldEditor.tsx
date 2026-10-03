@@ -5,7 +5,7 @@ import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import { MoneyField } from "./FormControls";
 
-const transportLabels: Record<string, string> = { transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Jalan atau sepeda" };
+const transportLabels: Record<string, string> = { transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Aktif · belum dibedakan", walk: "Jalan kaki", bicycle: "Sepeda · rute belum didukung" };
 
 // Review-step fields the user can correct in place; priorities keep their own controls.
 export const editableProfileFields = new Set([

@@ -204,6 +204,13 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
         changeDraft(updateProfileField(draft, group, key, value));
     }
 
+    function setTransportMode(value: string) {
+        if (!draft) return;
+        const activeMode = value === "walk" || value === "bicycle" ? value : null;
+        changeDraft({ ...draft, soft_preferences: { ...draft.soft_preferences,
+            transport_mode: activeMode ? "active" : value || null, active_mode: activeMode } });
+    }
+
     function validateProfile(profile: PersistedRelocationProfile): ValidationErrors {
         const next: ValidationErrors = {};
         for (const key of Object.keys(invalidNumericFields)) {
@@ -554,7 +561,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
 
                         <ProfileSection title="Perjalanan" note="Estimasi rute belum tersedia">
                             <ProfileRow label="Tipe hunian" value={selectedHousingLabel} editing={editingField === "housing_types"} onToggle={() => toggleEditing("housing_types")} editor={<fieldset className="flex flex-wrap gap-x-4 gap-y-1"><legend className="sr-only">Tipe hunian pilihan</legend>{[["kos", "Kos"], ["apartment", "Apartemen"], ["house", "Rumah"], ["unsure", "Belum yakin"]].map(([value, label]) => <label key={value} className="inline-flex min-h-11 items-center gap-2 text-sm"><input id={value === "kos" ? "housing-kos" : undefined} type="checkbox" name="housing_types" value={value} className="checkbox checkbox-primary" checked={housingTypes.includes(value)} onChange={(event) => toggleHousing(value, event.target.checked)} />{label}</label>)}</fieldset>} />
-                            <ProfileRow label="Moda transportasi" value={({ transit: "Transportasi umum", motorcycle: "Motor", car: "Mobil", active: "Jalan kaki atau sepeda" } as Record<string, string>)[String(soft.transport_mode)] ?? "Belum diisi"} editing={editingField === "transport_mode"} onToggle={() => toggleEditing("transport_mode")} editor={<select id="transport-mode" name="transport_mode" className={selectClass} value={typeof soft.transport_mode === "string" ? soft.transport_mode : ""} onChange={(event) => setField("soft_preferences", "transport_mode", event.target.value || null)}><option value="">Belum diisi</option><option value="transit">Transportasi umum</option><option value="motorcycle">Motor</option><option value="car">Mobil</option><option value="active">Jalan kaki atau sepeda</option></select>} />
+                            <ProfileRow label="Moda transportasi" value={soft.transport_mode === "active" ? soft.active_mode === "walk" ? "Jalan kaki" : soft.active_mode === "bicycle" ? "Sepeda · rute belum didukung" : "Aktif · belum dibedakan" : ({ transit: "Transportasi umum", motorcycle: "Motor", car: "Mobil" } as Record<string, string>)[String(soft.transport_mode)] ?? "Belum diisi"} editing={editingField === "transport_mode"} onToggle={() => toggleEditing("transport_mode")} editor={<select id="transport-mode" name="transport_mode" className={selectClass} value={soft.transport_mode === "active" && (soft.active_mode === "walk" || soft.active_mode === "bicycle") ? soft.active_mode : typeof soft.transport_mode === "string" ? soft.transport_mode : ""} onChange={(event) => setTransportMode(event.target.value)}><option value="">Belum diisi</option><option value="transit">Transportasi umum</option><option value="motorcycle">Motor</option><option value="car">Mobil</option><option value="active">Aktif · belum dibedakan</option><option value="walk">Jalan kaki</option><option value="bicycle">Sepeda · rute belum didukung</option></select>} />
                             <ProfileRow label="Lokasi tujuan" value={destinationName} editing={editingField === "destination"} onToggle={() => toggleEditing("destination")} editor={<div><input id="destination-name" name="destination" className={fieldClass} maxLength={200} value={destinationName} onChange={(event) => editDestinationName(event.target.value)} /><p className="mt-1 text-xs text-ink-muted">Mengubah nama melepas pin tersimpan.</p></div>} />
                             <ProfileRow label="Waktu berangkat" value={({ morning: "Pagi", midday: "Siang", evening: "Sore atau malam", flexible: "Fleksibel" } as Record<string, string>)[String(soft.departure_time)] ?? "Belum diisi"} editing={editingField === "departure_time"} onToggle={() => toggleEditing("departure_time")} editor={<select id="departure-time" name="departure_time" className={selectClass} value={typeof soft.departure_time === "string" ? soft.departure_time : ""} onChange={(event) => setField("soft_preferences", "departure_time", event.target.value || null)}><option value="">Belum diisi</option><option value="morning">Pagi</option><option value="midday">Siang</option><option value="evening">Sore atau malam</option><option value="flexible">Fleksibel</option></select>} />
                         </ProfileSection>
@@ -594,8 +601,8 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                     {showMissingCity && <p className="mt-2 text-sm text-ink-muted">{showMissingCity}</p>}
                     {catalogError && <div className="mt-2 flex items-center gap-3"><p className="text-sm text-ink-muted">{catalogError}</p><button type="button" className="btn btn-ghost min-h-11 px-2 text-primary" onClick={() => void getOnboardingData(null, AbortSignal.timeout(30_000)).then(setCityCatalog).catch(() => setCatalogError("Daftar kota belum tersedia."))}>Coba lagi</button></div>}
                     {activePreviewError && <div className="mt-2 flex flex-wrap items-center gap-2"><p className="text-sm text-ink-muted">{activePreviewError}</p><button type="button" className="btn btn-ghost min-h-11 px-2 text-primary" onClick={() => { const cityId = afterCityId && previewErrors[afterCityId] ? afterCityId : beforeCityId; if (cityId) void refreshCityPreview(cityId).catch(() => undefined); }}>Coba lagi</button></div>}
-                    {beforeCityId && beforePreview !== null && <p className="mt-2 text-sm text-ink-muted">Tersimpan ({cityName(beforeCityId, cityCatalog?.cities ?? [])}): {beforePreview} kecamatan.{beforeSample && <span className="ml-2 rounded bg-ink px-2 py-0.5 text-xs text-base-100">Data contoh</span>}</p>}
-                    {afterCityId && afterPreview !== null && <p className="mt-1 text-sm text-ink-muted">Draf ({cityName(afterCityId, cityCatalog?.cities ?? [])}): {afterPreview} kecamatan.{afterSample && <span className="ml-2 rounded bg-ink px-2 py-0.5 text-xs text-base-100">Data contoh</span>}</p>}
+                    {beforeCityId && beforePreview !== null && <p className="mt-2 text-sm text-ink-muted">Tersimpan ({cityName(beforeCityId, cityCatalog?.cities ?? [])}): {beforePreview} {previewCountLabel(original, cityCatalog?.cities ?? [])}.{beforeSample && <span className="ml-2 rounded bg-ink px-2 py-0.5 text-xs text-base-100">Data contoh</span>}</p>}
+                    {afterCityId && afterPreview !== null && <p className="mt-1 text-sm text-ink-muted">Draf ({cityName(afterCityId, cityCatalog?.cities ?? [])}): {afterPreview} {previewCountLabel(draft, cityCatalog?.cities ?? [])}.{afterSample && <span className="ml-2 rounded bg-ink px-2 py-0.5 text-xs text-base-100">Data contoh</span>}</p>}
                 </section>
             </>
         </div>}
@@ -736,7 +743,14 @@ function getCount(profile: PersistedRelocationProfile | null, cities: Onboarding
         : data;
     const preview = evaluateLiveOnboarding(preferences, 4, input);
     const hasBudget = preferences.monthlyBudget !== null || preferences.maximumRent !== null;
-    return preview.available ? hasBudget ? preview.eligibleCount : preview.ranked.length : null;
+    // This editor compares budget changes; no routing request is made here.
+    return preview.available ? hasBudget ? preview.affordableCount : preview.ranked.length : null;
+}
+
+function previewCountLabel(profile: PersistedRelocationProfile | null, cities: OnboardingDataResponse["cities"]): string {
+    const preferences = profile ? profilePreviewPreferences(profile, cities) : null;
+    return preferences && (preferences.monthlyBudget !== null || preferences.maximumRent !== null)
+        ? "kecamatan sesuai batas anggaran" : "kecamatan dirangking";
 }
 
 function previewUsesSampleData(profile: PersistedRelocationProfile | null, cities: OnboardingDataResponse["cities"], data: OnboardingDataResponse | null): boolean {
@@ -759,7 +773,7 @@ function fieldLabel(field: string): string {
     const labels: Record<string, string> = {
         goal: "Tujuan pindah", target_fields: "Bidang pekerjaan", target_occupations: "Pekerjaan", destination_cities: "Kota tujuan",
         monthly_budget: "Anggaran bulanan", housing_budget: "Batas sewa", commute_minutes: "Batas waktu perjalanan", transport_mode: "Moda transportasi",
-        destination: "Lokasi tujuan", education_level: "Jenjang pendidikan", study_field: "Bidang studi", departure_time: "Waktu berangkat", priorities: "Prioritas",
+        destination: "Lokasi tujuan", education_level: "Jenjang pendidikan", study_field: "Bidang studi", departure_time: "Waktu berangkat", priorities: "Prioritas", active_mode: "Moda aktif",
     };
     return labels[field] ?? field.replaceAll("_", " ");
 }

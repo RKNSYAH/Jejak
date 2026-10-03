@@ -7,6 +7,7 @@ Jejak is a relocation-planning project for people choosing where to study or wor
 - Explore a full-screen map with search, ranked area cards, selectable district boundaries, and a 3D-building toggle.
 - Switch between Ringkasan (summary), Pekerjaan (employment), Pendidikan (education), Hunian (housing), and Mobilitas (mobility).
 - Inspect regional facts and campus locations in a desktop sidebar or mobile sheet, including source, period, confidence, and sample-data labels where available.
+- Preview estimated reach areas around your destination in both onboarding paths, using disclosed mode/speed assumptions—no journey service required. Map/list labels refer to kecamatan center points, not guaranteed access. Optional network routing setup remains documented in [routing/README.md](routing/README.md).
 - Browse areas ranked by wage-to-rent ratio, with population as a secondary sort key.
 - Measure click-to-paint and response latency through anonymous alpha-study telemetry.
 

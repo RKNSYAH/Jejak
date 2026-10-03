@@ -17,6 +17,18 @@ const modelProposal = (
     decision_trace: {}, runtime_usage: null,
 });
 
+test("explicit walking subtype survives saved form and refinement without extending remote keys", () => {
+    const walking = buildFormRelocationProfile({ ...defaultAnswers, transport: "active" });
+    assert.equal(walking.soft_preferences.active_mode, "walk");
+    const draft = { ...walking, soft_preferences: { ...walking.soft_preferences, active_mode: "bicycle" } };
+    assert.equal(validateRelocationDraft(draft).soft_preferences.active_mode, "bicycle");
+    const input = buildNativeProfileRefinementInput(walking, draft, undefined, [], "session-test", "id");
+    assert.match(input.message, /Moda aktif yang ditetapkan: sepeda/);
+    assert.equal("active_mode" in input.answers, false);
+    const reconciled = reconcileProfileRefinement(walking, draft, modelProposal(walking.hard_constraints, walking.soft_preferences), false);
+    assert.equal(reconciled.soft_preferences.active_mode, "bicycle");
+});
+
 test("refinement keeps explicit form and slider edits over LF-05 suggestions", () => {
     const draft = structuredClone(confirmed);
     draft.hard_constraints.monthly_budget = { amount: 8_000_000, currency: "IDR", period: "month" };
