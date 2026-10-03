@@ -2,10 +2,9 @@ import { useState } from "react";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
 import { SENSITIVE_TEXT } from "@/app/engine/lib/lf05Validation";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
+import { transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import { MoneyField } from "./FormControls";
-
-const transportLabels: Record<string, string> = { transit: "Transport umum", motorcycle: "Motor", car: "Mobil", active: "Aktif · belum dibedakan", walk: "Jalan kaki", bicycle: "Sepeda · rute belum didukung" };
 
 // Review-step fields the user can correct in place; priorities keep their own controls.
 export const editableProfileFields = new Set([
@@ -76,7 +75,7 @@ export default function ProfileFieldEditor({ field, label, value, onSave, onCanc
                 {field === "goal" ? select(Object.entries(relocationGoalLabels))
                     : field === "target_occupations" ? select(onboardingTaxonomy.occupations.map((item) => [item.id, item.label]))
                     : field === "destination_cities" ? select((onboardingTaxonomy.areas ?? []).map((area) => [area.label, area.label]))
-                    : field === "transport_mode" ? select(Object.entries(transportLabels))
+                    : field === "transport_mode" ? select(Object.entries(transportModeLabels))
                     : <input id={id} type={field === "commute_minutes" ? "number" : "text"} inputMode={field === "commute_minutes" ? "numeric" : undefined}
                         min={field === "commute_minutes" ? 0 : undefined} max={field === "commute_minutes" ? 240 : undefined} value={draft}
                         onChange={(event) => setDraft(event.target.value)} className="input min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm" />}

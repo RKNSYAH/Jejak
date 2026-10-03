@@ -29,7 +29,7 @@ export default function CostEstimate({ preview, selectedDistrictId, onSelectDist
         </select>
         <dl className="mt-4 space-y-4 text-sm">
             <div>
-                <dt className="text-ink-muted">Median sewa / bulan</dt>
+                <dt className="text-ink-muted">Rata-rata sewa / bulan</dt>
                 <dd className="mt-1 font-semibold tabular-nums">{!selected ? "Pilih kecamatan" : selected.rent === null ? "Belum tersedia" : `Rp${formatRupiah(selected.rent)}`}</dd>
                 {rentSample && <SampleBadge />}
             </div>

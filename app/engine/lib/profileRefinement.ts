@@ -1,8 +1,7 @@
 import { onboardingTaxonomy } from "../extractUserProfile";
 import { SENSITIVE_TEXT, validateLF05Proposal, type LF05ProposedProfile } from "./lf05Validation";
 import { normalizeRelocationProfileInputs, RELOCATION_PROFILE_SCHEMA_VERSION, type PersistedRelocationProfile } from "./relocationProfile";
-import { getRelocationGoal } from "./relocationGoal";
-import { relocationGoalLabels } from "./relocationGoal";
+import { getRelocationGoal, relocationGoalLabels } from "./relocationGoal";
 import { isRecord } from "./zoneGeometry";
 import { getLF05ClarificationField, type LF05ClarificationAnswer } from "./lf05FollowUp";
 

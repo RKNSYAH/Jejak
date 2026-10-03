@@ -26,7 +26,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Code style
 
 - Match the surrounding file. The inspected controllers/routes use four-space indentation, mostly double-quoted strings and semicolons, named exported functions, straightforward object mapping, and early returns for validation/errors. Existing formatting is inconsistent; avoid reformatting unrelated legacy lines.
-- Keep route handlers focused on request parsing, validation, and HTTP status/JSON responses; delegate auth and data access to controllers. Follow `relocationProfileController.ts` with `/api/user/relocation-profile/route.ts`, and `zoneController.ts` with `/api/geometry/route.ts` as examples. Parse JSON bodies with `readJsonBody()` (`app/engine/lib/http.ts`) and map Langflow failures with `flowErrorResponse()` (`app/engine/lib/langflow.ts`). Geometry route loads a region row, then delegates stored/fallback boundary handling to `zoneBoundary.ts`.
+- Keep route handlers focused on request parsing, validation, and HTTP status/JSON responses; delegate auth and data access to controllers. Follow `relocationProfileController.ts` with `/api/user/relocation-profile/route.ts`, and `zoneController.ts` with `/api/zones/[zoneId]/intelligence/route.ts` as examples. Parse JSON bodies with `readJsonBody()` (`app/engine/lib/http.ts`) and map Langflow failures with `flowErrorResponse()` (`app/engine/lib/langflow.ts`). The intelligence route loads a region row, then delegates stored/fallback boundary handling to `zoneBoundary.ts`.
 
 ## Product guidance
 

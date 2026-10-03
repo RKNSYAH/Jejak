@@ -6,7 +6,7 @@ import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
 import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
 import { cellLayers, cellMetrics, formatFactValue, mapCategories, rentSharePercent } from "../app/components/map/mapMetrics";
 import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
-import { getMapCells, getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
+import { getMapCells, getZoneMapData, getZones } from "../app/engine/lib/zoneApi";
 import { BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS } from "../app/engine/lib/zoneRequestTimeouts";
 import mapStyle from "../public/jejak_light_openfreemap.json";
 import type { MapCell, ZoneDetailResult, ZoneGeometry } from "../app/engine/types";
@@ -330,16 +330,16 @@ test("browser API rejects malformed region facts", async (context) => {
     let payload: unknown = { is_sample: false, facts: [{ metric: "employed_people:kbli_j", value: 95000, unit: "count", source: "BPS",
         period_end: "2025-12-31", evidence_type: "observed", limitations: null, is_sample: false,
         dimension_key: "kbli_2020_code", dimension_value: "j" }], places: [sheetPlace] };
-    context.mock.method(globalThis, "fetch", async () => Response.json(payload));
+    context.mock.method(globalThis, "fetch", async () => Response.json({ details: payload, geometry: null, geometry_error: null }));
     const signal = new AbortController().signal;
-    const details = await getZoneIntelligence("pancoran", signal);
+    const { details } = await getZoneMapData("pancoran", signal);
     assert.equal(details.facts[0].value, 95000);
     assert.equal(details.facts[0].dimension_value, "j");
     assert.equal(details.places[0].osm_tags?.amenity, "university");
     payload = { is_sample: false, facts: [{ ...details.facts[0], dimension_value: null }], places: [sheetPlace] };
-    await assert.rejects(getZoneIntelligence("pancoran", signal), /Invalid region data/);
+    await assert.rejects(getZoneMapData("pancoran", signal), /Invalid region data/);
     payload = { is_sample: true, facts: [{ metric: "company_count", value: "bad" }], places: [] };
-    await assert.rejects(getZoneIntelligence("pancoran", signal), /Invalid region data/);
+    await assert.rejects(getZoneMapData("pancoran", signal), /Invalid region data/);
     context.mock.restoreAll();
 });
 
@@ -380,16 +380,14 @@ test("boundary requests have a longer deadline without slowing cancellation or o
     const geometry = normalizeGeometry(boundary, zone);
     context.mock.method(globalThis, "fetch", async (url: RequestInfo | URL) => {
         if (String(url).startsWith("https://")) return Response.json(boundary);
-        if (String(url).startsWith("/api/geometry")) return Response.json(geometry);
-        if (String(url).includes("include_geometry=1")) return Response.json({ details, geometry, geometry_error: null });
-        return Response.json(details);
+        if (String(url).startsWith("/api/zones?")) return Response.json({ is_sample: false, zones: [] });
+        return Response.json({ details, geometry, geometry_error: null });
     });
     const controller = new AbortController();
     await getZoneBoundary(providerRow("provider-deadline"));
-    await getZoneGeometry("pancoran", controller.signal);
     await getZoneMapData("pancoran", controller.signal);
-    await getZoneIntelligence("pancoran", controller.signal);
-    assert.deepEqual(deadlines, [BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS]);
+    await getZones(controller.signal);
+    assert.deepEqual(deadlines, [BOUNDARY_PROVIDER_TIMEOUT_MS, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS, ZONE_REQUEST_TIMEOUT_MS]);
     assert.ok(BOUNDARY_PROVIDER_TIMEOUT_MS > 20_000);
     assert.ok(ZONE_BOUNDARY_REQUEST_TIMEOUT_MS > BOUNDARY_PROVIDER_TIMEOUT_MS);
     context.mock.restoreAll();
@@ -397,7 +395,7 @@ test("boundary requests have a longer deadline without slowing cancellation or o
     context.mock.method(globalThis, "fetch", (_url: RequestInfo | URL, options: RequestInit) => new Promise((_resolve, reject) => {
         options.signal!.addEventListener("abort", () => reject(options.signal!.reason), { once: true });
     }));
-    const request = getZoneGeometry("pancoran", controller.signal);
+    const request = getZoneMapData("pancoran", controller.signal);
     controller.abort();
     await assert.rejects(request, (error: Error) => error.name === "AbortError");
 });
@@ -405,9 +403,8 @@ test("boundary requests have a longer deadline without slowing cancellation or o
 test("empty browser boundary responses cannot be cached as successful selections", async (context) => {
     const geometry = { type: "FeatureCollection", features: [] };
     const details = { is_sample: false, facts: [], places: [] };
-    context.mock.method(globalThis, "fetch", async (url: RequestInfo | URL) => Response.json(String(url).startsWith("/api/geometry") ? geometry : { details, geometry, geometry_error: null }));
+    context.mock.method(globalThis, "fetch", async () => Response.json({ details, geometry, geometry_error: null }));
     const signal = new AbortController().signal;
-    await assert.rejects(getZoneGeometry("pancoran", signal), /Batas kecamatan tidak ditemukan/);
     const combined = await getZoneMapData("pancoran", signal);
     assert.equal(combined.geometry, null);
     assert.match(combined.geometryError ?? "", /Batas kecamatan tidak ditemukan/);

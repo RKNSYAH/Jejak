@@ -6,15 +6,13 @@ import { evaluateLiveOnboarding, formPreviewPreferences } from "../app/engine/on
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
 import type { OnboardingArea } from "../app/engine/onboarding/types";
 
-test("local reach summary discloses assumptions without requiring routes", () => {
+test("local reach summary shows only the radius and district count", () => {
     const preferences = { ...formPreviewPreferences(initialFormAnswers), transport: "transit" as const,
         destinationPoint: [112.75, -7.25] as [number, number] };
     const preview = evaluateLiveOnboarding(preferences, 3, { cities: [], areas: [], destinations: [] });
     const html = renderToStaticMarkup(<CommuteSummary preview={preview} />);
     assert.match(html, /Perkiraan jangkauan 3,1–7,0 km/);
-    assert.match(html, /asumsi 8–18 km\/jam/);
-    assert.match(html, /bukan jangkauan jaringan/);
-    assert.match(html, /Layanan transit belum diperiksa/);
+    assert.doesNotMatch(html, /asumsi|Faktor jalan|bukan jangkauan jaringan|Layanan transit belum diperiksa/);
     assert.doesNotMatch(html, /TransJakarta|Estimasi rute belum tersedia|Menghitung rute/);
 });
 
@@ -36,5 +34,5 @@ test("reach count follows the same hidden-budget districts as map and list", () 
     const preview = evaluateLiveOnboarding(preferences, 3, { cities: [], areas: [area], destinations: [] });
     assert.equal(preview.districts[0].reachBand, "near");
     assert.equal(preview.districts[0].eligible, false);
-    assert.match(renderToStaticMarkup(<CommuteSummary preview={preview} />), /0 titik kecamatan/);
+    assert.match(renderToStaticMarkup(<CommuteSummary preview={preview} />), /0 kecamatan/);
 });

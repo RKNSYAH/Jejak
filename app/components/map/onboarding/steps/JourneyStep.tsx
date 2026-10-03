@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bike, Car, Footprints, MapPin, Search, TrainFront } from "lucide-react";
 import type { OnboardingCampus } from "@/app/engine/onboarding/types";
+import { transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { RadioChoices } from "../FormControls";
 import type { StepProps } from "./PurposeStep";
 
@@ -39,10 +40,10 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
             <p className="mt-2 text-xs text-ink-muted">Perkiraan jarak berdasarkan moda dan batas waktumu</p>
         </div>
         <RadioChoices name="transport" label="Moda utama" value={answers.transport} onChange={(transport) => onChange({ transport })} cards choices={[
-            { value: "transit", label: "Transport umum", icon: <TrainFront className="size-4" /> },
-            { value: "motorcycle", label: "Motor", icon: <Bike className="size-4" /> },
-            { value: "car", label: "Mobil", icon: <Car className="size-4" /> },
-            { value: "active", label: "Jalan kaki", icon: <Footprints className="size-4" /> },
+            { value: "transit", label: transportModeLabels.transit, icon: <TrainFront className="size-4" /> },
+            { value: "motorcycle", label: transportModeLabels.motorcycle, icon: <Bike className="size-4" /> },
+            { value: "car", label: transportModeLabels.car, icon: <Car className="size-4" /> },
+            { value: "active", label: transportModeLabels.walk, icon: <Footprints className="size-4" /> },
         ]} />
         <RadioChoices name="commuteMinutes" label="Batas waktu tempuh sekali jalan" value={answers.commuteMinutes} onChange={(commuteMinutes) => onChange({ commuteMinutes })}
             className="grid! grid-cols-4 rounded-xl border border-rule p-1 [&>label>span]:px-1 [&>label>span]:border-transparent" choices={[15, 30, 45, 60].map((value) => ({ value: value as 15 | 30 | 45 | 60, label: `${value} mnt` }))} />

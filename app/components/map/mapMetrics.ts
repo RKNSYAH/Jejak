@@ -27,7 +27,7 @@ export const mapCategories: Record<MapCategory, MapMetricConfig> = {
     summary: { label: "Kecamatan yang ditampilkan", panelLabel: "Ringkasan", popupLabel: "Sewa", metric: null, format: (value) => `${number(value)}%` },
     employment: { label: "Jumlah perusahaan", panelLabel: "Pekerjaan", popupLabel: "Perusahaan", metric: "company_count", format: number },
     education: { label: "Jumlah sekolah", panelLabel: "Pendidikan", popupLabel: "Sekolah", metric: "schools", format: number },
-    housing: { label: "Median sewa bulanan", panelLabel: "Hunian", popupLabel: "Median sewa bulanan", metric: "median_monthly_rent_idr", format: rupiah },
+    housing: { label: "Rata-rata sewa bulanan", panelLabel: "Hunian", popupLabel: "Rata-rata sewa bulanan", metric: "median_monthly_rent_idr", format: rupiah },
     mobility: { label: "Jumlah halte transportasi umum", panelLabel: "Mobilitas", popupLabel: "Halte transportasi umum", metric: "public_transport_stops", format: number },
 };
 
@@ -57,7 +57,7 @@ export const cellLayers: Partial<Record<MapCategory, CellLayer[]>> = {
         bounds: { low: "estimated_office_workers_low", high: "estimated_office_workers_high" },
     }],
     housing: [{
-        id: "rent", kind: "fill", label: "Median sewa bulanan", shortLabel: "Median sewa",
+        id: "rent", kind: "fill", label: "Rata-rata sewa bulanan", shortLabel: "Rata-rata sewa",
         metric: "median_monthly_rent_idr", unit: "per bulan", format: rupiah,
     }, {
         id: "listings", kind: "glow", label: "Iklan sewa", shortLabel: "Iklan",
@@ -77,7 +77,7 @@ export const metricLabels: Record<string, string> = {
     company_count: "Perusahaan",
     universities: "Universitas",
     schools: "Sekolah",
-    median_monthly_rent_idr: "Median sewa bulanan",
+    median_monthly_rent_idr: "Rata-rata sewa bulanan",
     housing_price_index: "Indeks harga hunian",
     public_transport_stops: "Halte transportasi umum",
     transit_access: "Akses transit",

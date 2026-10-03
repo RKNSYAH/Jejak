@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { estimatePlanningReach, planningReachBand, planningDistrictData, planningDistrictPoints, planningDistanceLabel, pointDistanceKm } from "../app/engine/onboarding/planningReach";
+import type { Polygon } from "geojson";
 import { getGeometryBounds } from "../app/engine/lib/zoneGeometry";
 import type { ZoneGeometry } from "../app/engine/types";
 import { evaluateLiveOnboarding, formPreviewPreferences, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
@@ -28,6 +29,16 @@ test("planning reach exposes assumptions and changes with transport and time", (
     assert.equal(transit.basis, "distance_speed_assumptions");
 });
 
+test("midday departure reaches farther than morning; walking is unaffected", () => {
+    const morning = estimatePlanningReach({ ...preferences, departure: "morning" }, [])!;
+    const midday = estimatePlanningReach({ ...preferences, departure: "midday" }, [])!;
+    assert.deepEqual(midday.speedKmh, [13, 25]);
+    assert.ok(midday.radiusKm.high > morning.radiusKm.high && midday.radiusKm.low > morning.radiusKm.low);
+    assert.deepEqual(estimatePlanningReach({ ...preferences, departure: "flexible" }, [])?.radiusKm, morning.radiusKm);
+    const walk = { ...preferences, transport: "active" as const };
+    assert.deepEqual(estimatePlanningReach({ ...walk, departure: "midday" }, [])?.radiusKm, estimatePlanningReach({ ...walk, departure: "morning" }, [])?.radiusKm);
+});
+
 test("geodesic polygons are closed and maintain radius in all three metros", () => {
     for (const destinationPoint of [[106.82, -6.24], [107.61, -6.91], [112.75, -7.25]] as [number, number][]) {
         const reach = estimatePlanningReach({ ...preferences, destinationPoint }, [])!;
@@ -50,6 +61,21 @@ test("district labels use only known center points, never the entire kecamatan",
     assert.equal(planningReachBand([106.7, -6.25], reach), "outside");
     assert.equal(planningReachBand(null, reach), "unknown");
     assert.equal(planningReachBand(preferences.destinationPoint, null), "unknown");
+});
+
+test("a district whose boundary touches the circle counts as edge even when its center is outside", () => {
+    const reach = estimatePlanningReach({ ...preferences, transport: "active", commuteMinutes: 15 }, [])!; // ~0.6–1.0 km
+    const [lon, lat] = preferences.destinationPoint;
+    const box = (west: number, east: number, size = 0.01): Polygon => ({ type: "Polygon", coordinates: [[
+        [lon + west, lat - size], [lon + east, lat - size], [lon + east, lat + size], [lon + west, lat + size], [lon + west, lat - size]]] });
+    const farCenter: [number, number] = [lon + 0.05, lat];
+    assert.equal(planningReachBand(farCenter, reach), "outside");
+    assert.equal(planningReachBand(farCenter, reach, [box(0.007, 0.03)]), "edge"); // west edge ~0.8 km away
+    assert.equal(planningReachBand(farCenter, reach, [box(0.02, 0.03)]), "outside"); // ~2.2 km away
+    assert.equal(planningReachBand(farCenter, reach, [box(-0.1, 0.1, 0.1)]), "edge"); // destination inside, no edge near
+    assert.equal(planningReachBand(null, reach, [box(0.007, 0.03)]), "edge");
+    assert.equal(planningReachBand(null, reach, [box(0.02, 0.03)]), "unknown");
+    assert.equal(planningReachBand(preferences.destinationPoint, reach, [box(0.02, 0.03)]), "near");
 });
 
 test("missing destination, mode or time does not invent reach; endpoint allowance is bounded", () => {

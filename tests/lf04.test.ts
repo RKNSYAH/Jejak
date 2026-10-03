@@ -7,7 +7,7 @@ import { completed, countFetches, postJson, withWorkflowEnvironment } from "./he
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
 const request = {
-    language: "en",
+    language: "id",
     fit_components: { job_access: 0.82, housing_cost: { score: 0.55 }, commute: 0.74 },
     accepted_snapshot: {
         zone_id: "pancoran",
@@ -103,7 +103,7 @@ test("LF-04 controller sends the stored profile as confirmed and returns the val
             priority_weights: profile.priority_weights,
         });
         assert.deepEqual(input.accepted_snapshot, request.accepted_snapshot);
-        assert.equal(input.language, "en");
+        assert.equal(input.language, "id");
         assert.equal(sentPayload?.session_id, input.run_id);
     } finally {
         restoreEnvironment();

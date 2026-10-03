@@ -47,7 +47,7 @@ test("short mobile map clears controls when discovery opens", async ({ page }) =
     await expect(page.getByRole("button", { name: /Bangunan 3D/ })).toBeVisible();
 });
 
-test("desktop stacks lenses under the header at the same width, tools at bottom left", async ({ page }, testInfo) => {
+test("desktop stacks lenses under the header at the same width, tools at bottom right", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop");
     await stubZones(page);
     await page.setViewportSize({ width: 1440, height: 800 });
@@ -62,6 +62,8 @@ test("desktop stacks lenses under the header at the same width, tools at bottom 
     expect(Math.abs(categories.x - header.x)).toBeLessThan(1);
     expect(Math.abs(categories.width - header.width)).toBeLessThan(1);
     expect(categories.y).toBeGreaterThan(header.y + header.height - 1);
-    expect(tools.x).toBeLessThan(64);
-    expect(tools.y + tools.height).toBeGreaterThan(720);
+    const zoom = (await page.locator('[data-hci-region="zoom-controls"]').boundingBox())!;
+    expect(tools.x).toBeGreaterThan(1440 - 80);
+    expect(Math.abs(zoom.x - tools.x)).toBeLessThan(1);
+    expect(zoom.y + zoom.height).toBeGreaterThan(720);
 });

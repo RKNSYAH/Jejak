@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { beginHciResponse } from "@/app/engine/lib/hciTelemetry";
-import { getZoneGeometry, getZoneIntelligence, getZoneMapData, getZones } from "@/app/engine/lib/zoneApi";
+import { getZoneMapData, getZones } from "@/app/engine/lib/zoneApi";
 import type { Zone, ZoneDetailResult, ZoneGeometry, ZoneListResponse } from "@/app/engine/types";
 import { getMetroArea, isMetroCity, type MetroAreaId } from "@/app/engine/lib/metroArea";
 
@@ -38,30 +38,23 @@ export function useZoneIntelligence(enabled: boolean, areaId: MetroAreaId | null
     const [recommendationsLoading, setRecommendationsLoading] = useState(false);
     const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
 
+    // A cached half is reused; anything missing comes from one bundled map request.
     async function loadZone(zoneId: string, signal: AbortSignal, retry = false) {
         const cachedGeometry = retry ? undefined : geometryCache.current[zoneId];
         const cachedDetails = retry ? undefined : detailsCache.current[zoneId];
-        if (!cachedGeometry && !cachedDetails) {
-            try {
-                const result = await getZoneMapData(zoneId, signal);
-                return {
-                    geometry: result.geometry ? { status: "fulfilled" as const, value: result.geometry } :
-                        { status: "rejected" as const, reason: new Error(result.geometryError ?? "Batas kecamatan tidak tersedia.") },
-                    details: { status: "fulfilled" as const, value: result.details },
-                };
-            } catch (error) {
-                return {
-                    geometry: { status: "rejected" as const, reason: error },
-                    details: { status: "rejected" as const, reason: error },
-                };
-            }
+        const ok = <T,>(value: T) => ({ status: "fulfilled" as const, value });
+        const failed = (reason: unknown) => ({ status: "rejected" as const, reason });
+        if (cachedGeometry && cachedDetails) return { geometry: ok(cachedGeometry), details: ok(cachedDetails) };
+        try {
+            const result = await getZoneMapData(zoneId, signal);
+            return {
+                geometry: cachedGeometry ? ok(cachedGeometry) : result.geometry ? ok(result.geometry)
+                    : failed(new Error(result.geometryError ?? "Batas kecamatan tidak tersedia.")),
+                details: ok(cachedDetails ?? result.details),
+            };
+        } catch (error) {
+            return { geometry: cachedGeometry ? ok(cachedGeometry) : failed(error), details: cachedDetails ? ok(cachedDetails) : failed(error) };
         }
-
-        const [geometry, details] = await Promise.allSettled([
-            cachedGeometry ? Promise.resolve(cachedGeometry) : getZoneGeometry(zoneId, signal),
-            cachedDetails ? Promise.resolve(cachedDetails) : getZoneIntelligence(zoneId, signal),
-        ] as const);
-        return { geometry, details };
     }
 
     useEffect(() => {

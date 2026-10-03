@@ -7,7 +7,7 @@ import { SENSITIVE_TEXT } from "@/app/engine/lib/lf05Validation";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import { buildLF05FollowUpMessage, resolveLF05FollowUpDetails, validateClarificationAnswers, validateFollowUpDetails } from "@/app/engine/lib/lf05FollowUp";
 import { isRelocationGoal } from "@/app/engine/lib/relocationGoal";
-import { buildNativeProfileRefinementInput, validateRelocationDraft } from "@/app/engine/lib/profileRefinement";
+import { validateRelocationDraft } from "@/app/engine/lib/profileRefinement";
 
 const MAX_MESSAGE_LENGTH = 4000;
 
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     if (
         !isRecord(body) || Object.keys(body).some((key) => !["message", "language", "clarification_answers", "goal", "details"].includes(key)) ||
         typeof body.message !== "string" || body.message.trim().length === 0 || body.message.length > MAX_MESSAGE_LENGTH ||
-        (body.language !== "id" && body.language !== "en") || (body.goal !== undefined && !isRelocationGoal(body.goal))
+        body.language !== "id" || (body.goal !== undefined && !isRelocationGoal(body.goal))
     ) {
         return Response.json({ error: "Cerita tidak valid." }, { status: 400 });
     }
@@ -93,12 +93,6 @@ async function handleRefinement(body: Record<string, unknown>): Promise<Response
         return Response.json({ error: "Profil berubah sejak terakhir dimuat. Muat ulang sebelum menyunting.",
             ...(saved ? { profile: saved } : {}) }, { status: 409 });
     }
-    try {
-        buildNativeProfileRefinementInput(saved.profile, draft, body.message as string | undefined, answers, crypto.randomUUID(), "id");
-    } catch (error) {
-        const sensitive = error instanceof Error && error.message === "SENSITIVE_ONBOARDING_INPUT";
-        return Response.json({ error: sensitive ? "Hapus data pribadi sensitif sebelum melanjutkan." : "Permintaan penyuntingan profil terlalu panjang atau tidak valid." }, { status: 400 });
-    }
     if (!isLangflowConfigured()) {
         const [error, status] = refinementErrors.config;
         return Response.json({ error }, { status });
@@ -107,6 +101,10 @@ async function handleRefinement(body: Record<string, unknown>): Promise<Response
     try {
         return Response.json({ profile: await refineRelocationProfile(draft, saved.profile, body.message as string | undefined, answers, "id") });
     } catch (error) {
+        if (error instanceof Error && (error.message === "INVALID_PROFILE_REFINEMENT" || error.message === "SENSITIVE_ONBOARDING_INPUT")) {
+            const sensitive = error.message === "SENSITIVE_ONBOARDING_INPUT";
+            return Response.json({ error: sensitive ? "Hapus data pribadi sensitif sebelum melanjutkan." : "Permintaan penyuntingan profil terlalu panjang atau tidak valid." }, { status: 400 });
+        }
         return flowErrorResponse(refinementErrors, error);
     }
 }

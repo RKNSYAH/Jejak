@@ -12,7 +12,7 @@ const categoryHints: Record<MapCategory, string> = {
     summary: "Urutan memakai bukti yang tersedia",
     employment: "Peluang kerja belum tersedia untuk semua kecamatan",
     education: "Lokasi kampus dari basis data",
-    housing: "Median sewa yang tercatat",
+    housing: "Rata-rata sewa yang tercatat",
     mobility: "Perkiraan jangkauan sekitar tujuan · km",
 };
 
@@ -70,7 +70,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
                 {step === 3 && <p className="mt-1 text-sm"><strong>Moda {transportLabel ?? (session ? session.answers.transport : "belum dipilih")}</strong></p>}
                 {step === 4 && <p role="status" className="mt-1 text-sm leading-snug"><strong className="font-sans text-xl tabular-nums">{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong>{hasBudgetCriteria ? " kecamatan sesuai data dan estimasi." : " kecamatan dirangking · anggaran belum ditentukan."}</p>}
                 {(step === 2 || step === 4) && <p className="mt-1 text-xs leading-snug text-ink-muted">
-                    {step === 2 ? hasDestination ? "Urutan: sewa, biaya, jarak ke tujuan" : "Median sewa · estimasi biaya kota"
+                    {step === 2 ? hasDestination ? "Urutan: sewa, biaya, jarak ke tujuan" : "Rata-rata sewa · estimasi biaya kota"
                         : completed ? categoryHints[category ?? "summary"] : "Skor memakai dimensi dengan data"}
                 </p>}
                 {(step === 2 || step === 4) && <div className="mt-2 hidden grid-cols-1 gap-x-3 gap-y-1 border-t border-rule pt-2 text-xs md:grid @min-[22rem]:grid-cols-2">

@@ -4,9 +4,9 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronLeft, Eye, EyeOff } from "lucide-react";
-import { loginUser, loginWithGoogle, registerUser, requestPasswordReset, updatePassword } from "../engine/controller/userController";
+import { loginWithGoogle, requestPasswordReset } from "../engine/controller/userController";
 import { signupDestination } from "../engine/lib/authDestination";
-import { setRememberPreference } from "../engine/lib/client";
+import { createClient, setRememberPreference } from "../engine/lib/client";
 import BrandLogo from "../components/BrandLogo";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
@@ -66,7 +66,7 @@ export default function LoginForm({
     try {
       if (isLogin) {
         setRememberPreference(remember);
-        const { error } = await loginUser(email, password);
+        const { error } = await createClient().auth.signInWithPassword({ email, password });
         if (error) throw error;
         router.replace(destination);
         router.refresh();
@@ -74,7 +74,7 @@ export default function LoginForm({
         setRememberPreference(true);
         const callback = new URL("/auth/callback", window.location.origin);
         callback.searchParams.set("next", signupDestination(destination));
-        const { data, error } = await registerUser(email, password, "", callback.toString());
+        const { data, error } = await createClient().auth.signUp({ email, password, options: { emailRedirectTo: callback.toString() } });
         if (error) throw error;
         if (data.session) {
           router.replace(signupDestination(destination));
@@ -87,7 +87,7 @@ export default function LoginForm({
         if (error) throw error;
         setMessage("Jika email terdaftar, tautan untuk mengatur ulang kata sandi akan dikirim.");
       } else {
-        const { error } = await updatePassword(password);
+        const { error } = await createClient().auth.updateUser({ password });
         if (error) throw error;
         router.replace("/map?passwordUpdated=1");
         router.refresh();

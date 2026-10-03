@@ -39,42 +39,11 @@ export type FormSession = {
     step: FormStep;
     answers: FormAnswers;
 };
-export type DemoDistrict = {
-    id: string;
-    name: string;
-    center: [number, number];
-    rent: Record<Exclude<Housing, "unsure">, number>;
-    otherCosts: number;
-    career: number;
-    education: number;
-    environment: number;
-    commute: Record<string, number>;
-    extras: Extra[];
-    is_sample: true;
-};
 export type DemoDestination = {
     id: string;
     name: string;
     center: [number, number];
     kind: "office" | "campus";
-};
-export type DistrictRecommendation = {
-    district: DemoDistrict;
-    rent: number;
-    monthlyCost: number;
-    commuteMinutes: number | null;
-    eligible: boolean;
-    exclusions: string[];
-    reasons: string[];
-    score: number;
-    rank: number | null;
-};
-export type OnboardingPreview = {
-    available: boolean;
-    districts: DistrictRecommendation[];
-    ranked: DistrictRecommendation[];
-    affordableCount: number;
-    eligibleCount: number;
 };
 
 export type OnboardingCity = {

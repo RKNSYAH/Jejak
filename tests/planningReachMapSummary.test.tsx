@@ -15,24 +15,23 @@ const preview = evaluateLiveOnboarding(preferences, 4, { cities: [], areas: [are
 const props = { reach: preview.planningReach!, districts: preview.districts, destinationName: "Kantor", loading: false,
     error: null, geometryMissing: false, geometryError: null, districtsAvailable: true, onShowReach: () => {}, onRetry: () => {} };
 
-test("regular map summarizes radius, center-point coverage, missing locations and assumptions", () => {
+test("regular map summarizes radius, center-point coverage and missing locations without fine print", () => {
     const html = renderToStaticMarkup(<PlanningReachSummary {...props} />);
     assert.match(html, /5,1–10,2 km/);
-    assert.match(html, /1 titik kecamatan dalam kisaran · 1 lokasi belum tersedia/);
+    assert.match(html, /1 kecamatan dalam kisaran · 1 lokasi belum tersedia/);
     assert.match(html, /Lihat jangkauan/);
-    assert.match(html, /bukan seluruh wilayah/);
-    assert.match(html, /bukan jangkauan jaringan/);
+    assert.doesNotMatch(html, /bukan seluruh wilayah|bukan jangkauan jaringan|Layanan transit belum diperiksa|Asumsi/);
 });
 
 test("unavailable district data is never reported as zero coverage", () => {
     const html = renderToStaticMarkup(<PlanningReachSummary {...props} districts={[]} districtsAvailable={false} />);
     assert.match(html, /Titik kecamatan belum tersedia/);
-    assert.doesNotMatch(html, /0 titik kecamatan dalam kisaran/);
+    assert.doesNotMatch(html, /0 kecamatan dalam kisaran/);
 });
 
 test("missing boundaries preserve distance and list counts and offer a retry", () => {
     const html = renderToStaticMarkup(<PlanningReachSummary {...props} geometryMissing geometryError="Batas belum tersedia" />);
-    assert.match(html, /1 titik kecamatan dalam kisaran/);
+    assert.match(html, /1 kecamatan dalam kisaran/);
     assert.match(html, /Sebagian batas belum tersedia/);
     assert.match(html, /Coba data kecamatan lagi/);
     assert.match(html, /5,1–10,2 km/);
@@ -41,12 +40,6 @@ test("missing boundaries preserve distance and list counts and offer a retry", (
 test("sample district evidence stays visibly marked on the regular map", () => {
     const districts = [{ ...preview.districts[0], district: { ...area, is_sample: true } }];
     assert.match(renderToStaticMarkup(<PlanningReachSummary {...props} districts={districts} />), /Data contoh/);
-});
-
-test("thematic lenses describe reach outlines instead of claiming metric fills are coverage", () => {
-    const html = renderToStaticMarkup(<PlanningReachSummary {...props} filled={false} />);
-    assert.match(html, /Garis kecamatan: posisi titik pusat/);
-    assert.doesNotMatch(html, /Warna kecamatan:/);
 });
 
 test("save feedback lives inside the reach summary without a floating banner obscuring distance", () => {

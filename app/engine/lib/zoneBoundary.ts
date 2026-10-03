@@ -38,16 +38,7 @@ export async function getZoneBoundary(row: RegionDetailRow): Promise<ZoneGeometr
 
     const request = (async () => {
         const geometry = cached?.geometry ?? await fetchProviderBoundary(zone);
-
-        let persisted = false;
-        if (isAdminConfigured()) {
-            try {
-                await insertZoneBoundary(row, geometry);
-                persisted = true;
-            } catch (error) {
-                console.error("Failed to store zone boundary:", error);
-            }
-        }
+        const persisted = await tryPersistBoundary(row, geometry);
         if (!boundaries.has(key) && (boundaries.size >= maxCachedBoundaries)) {
             const oldest = boundaries.keys().next().value;
             if (oldest !== undefined) boundaries.delete(oldest);
@@ -85,15 +76,7 @@ export async function getCityZoneBoundaries(rows: RegionDetailRow[]): Promise<{ 
                 try {
                     const geometry = normalizeGeometry(response, toZone(row));
                     features.push(...geometry.features);
-                    let persisted = false;
-                    if (isAdminConfigured()) {
-                        try {
-                            await insertZoneBoundary(row, geometry);
-                            persisted = true;
-                        } catch (error) {
-                            console.error("Failed to store zone boundary:", error);
-                        }
-                    }
+                    const persisted = await tryPersistBoundary(row, geometry);
                     const key = JSON.stringify([row.region_code, row.region_name, row.parent_code, row.parent_name]);
                     boundaries.set(key, { geometry, expiresAt: Date.now() + cacheLifetimeMs, persisted });
                 } catch {
@@ -106,6 +89,17 @@ export async function getCityZoneBoundaries(rows: RegionDetailRow[]): Promise<{ 
     }
 
     return { geometry: { type: "FeatureCollection", features }, missingZones: unresolved };
+}
+
+async function tryPersistBoundary(row: RegionDetailRow, geometry: ZoneGeometry): Promise<boolean> {
+    if (!isAdminConfigured()) return false;
+    try {
+        await insertZoneBoundary(row, geometry);
+        return true;
+    } catch (error) {
+        console.error("Failed to store zone boundary:", error);
+        return false;
+    }
 }
 
 async function insertZoneBoundary(row: RegionDetailRow, geometry: ZoneGeometry): Promise<void> {

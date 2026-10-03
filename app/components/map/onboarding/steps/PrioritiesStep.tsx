@@ -1,6 +1,5 @@
 import { Check } from "lucide-react";
-import { defaultWeights } from "@/app/engine/onboarding/demoData";
-import { priorityKeys, redistributeWeights } from "@/app/engine/onboarding/preview";
+import { priorityKeys, redistributeWeights, suggestWeights } from "@/app/engine/onboarding/preview";
 import type { StepProps } from "./PurposeStep";
 
 export default function PrioritiesStep({ answers, onChange }: StepProps) {
@@ -20,7 +19,7 @@ export default function PrioritiesStep({ answers, onChange }: StepProps) {
             </div>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-2"><Check aria-hidden="true" className="size-4 text-primary" />Total 100%</span>
-                <button type="button" onClick={() => onChange({ weights: { ...defaultWeights } })} className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline">Pakai saran untuk profilmu</button>
+                <button type="button" onClick={() => onChange({ weights: suggestWeights(answers) })} className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline">Pakai saran untuk profilmu</button>
             </div>
             <p id="weight-help" className="text-xs leading-relaxed text-ink-muted">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
         </div>

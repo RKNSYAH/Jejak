@@ -169,11 +169,13 @@ export function buildSnapshot(input: {
 
     // The snapshot refreshes and expires with its earliest evidence, never before it is generated.
     const generatedAt = input.now.toISOString();
-    const earliest = (values: (string | null)[]) => values.filter((value): value is string => !!value)
-        .reduce((min, value) => Date.parse(value) < Date.parse(min) ? value : min, "9999-12-31T00:00:00.000Z");
-    const later = (value: string) => Date.parse(value) > input.now.getTime() ? new Date(value).toISOString() : generatedAt;
-    const expiresAt = later(earliest(rows.map((row) => row.expires_at)));
-    const refreshAfter = later(earliest(rows.map((row) => row.refresh_after)));
+    const nowMs = input.now.getTime();
+    const pickEarliest = (values: (string | null)[]) =>
+        values.filter((value): value is string => !!value)
+            .reduce((min, value) => Date.parse(value) < Date.parse(min) ? value : min, "9999-12-31T00:00:00.000Z");
+    const floorToNow = (iso: string) => Date.parse(iso) > nowMs ? new Date(iso).toISOString() : generatedAt;
+    const expiresAt = floorToNow(pickEarliest(rows.map((row) => row.expires_at)));
+    const refreshAfter = floorToNow(pickEarliest(rows.map((row) => row.refresh_after)));
 
     return {
         snapshot,

@@ -18,14 +18,7 @@ export default function CommuteSummary({ preview, loading = false, error = null,
     if (reach && !commute) {
         const inReach = visiblePreviewDistricts(preview).filter((item) => item.reachBand === "near" || item.reachBand === "edge").length;
         return <div data-hci-region="onboarding-reach-estimate" className={`text-xs text-ink-muted ${compact ? "leading-normal" : "mt-2 space-y-1 leading-relaxed"}`}>
-            <p role="status">Perkiraan jangkauan {planningRadiusLabel(reach)} · {inReach} titik kecamatan</p>
-            {!compact && <>
-                <p><span className="badge badge-outline badge-xs">Perkiraan</span> {reach.minutes} mnt · asumsi {reach.speedKmh[0]}–{reach.speedKmh[1]} km/jam</p>
-                <p>Faktor jalan {reach.detourFactor.toLocaleString("id-ID")}×{reach.allowanceMinutes > 0 ? ` · ${transit ? "jalan dan tunggu" : "persiapan dan parkir"} ${reach.allowanceMinutes} mnt` : ""}</p>
-                <p>Lingkaran: kisaran jarak · bukan jangkauan jaringan</p>
-                <p>Warna kecamatan: titik pusat · bukan seluruh wilayah</p>
-                {transit && <p>Layanan transit belum diperiksa</p>}
-            </>}
+            <p role="status">Perkiraan jangkauan {planningRadiusLabel(reach)} · {inReach} kecamatan</p>
         </div>;
     }
     return <div data-hci-region="onboarding-commute-evidence" aria-busy={loading} className={`space-y-1 text-xs text-ink-muted ${compact ? "leading-normal" : "mt-2 leading-relaxed"}`}>
