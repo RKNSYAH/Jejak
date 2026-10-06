@@ -105,6 +105,12 @@ export type LiveDistrictRecommendation = {
 
 export type LivePreviewPreferences = {
     goal: RelocationGoal;
+    occupation?: string | null;
+    targetOccupations?: string[];
+    sectors?: string[];
+    studyField?: string | null;
+    educationLevel?: string | null;
+    careerStage?: string | null;
     cityId: string | null;
     monthlyBudget: number | null;
     maximumRent: number | null;

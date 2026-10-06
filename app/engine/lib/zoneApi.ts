@@ -13,6 +13,15 @@ export function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === "string";
 }
 
+export function isFactMetadata(fact: Record<string, unknown>): boolean {
+    return (fact.retrieved_at === undefined || isNullableString(fact.retrieved_at)) &&
+        (fact.freshness === undefined || fact.freshness === "fresh" || fact.freshness === "stale") &&
+        (fact.geographic_level === undefined || fact.geographic_level === "zone") &&
+        (fact.sample_size === undefined || (Number.isInteger(fact.sample_size) && Number(fact.sample_size) >= 0)) &&
+        (fact.sector_ids === undefined || (Array.isArray(fact.sector_ids) && fact.sector_ids.every((sector) =>
+            typeof sector === "string" && /^[a-z0-9]+(_[a-z0-9]+)*$/.test(sector))));
+}
+
 export async function getJson(url: string, signal: AbortSignal, timeoutMs = ZONE_REQUEST_TIMEOUT_MS): Promise<unknown> {
     const timeout = AbortSignal.timeout(timeoutMs);
     let res: Response;
@@ -110,7 +119,7 @@ function parseDetails(data: unknown): ZoneDetailResult {
             (fact.dimension_value === undefined || fact.dimension_value === null || typeof fact.dimension_value === "string") &&
             ((fact.dimension_key == null && fact.dimension_value == null) ||
                 (typeof fact.dimension_key === "string" && typeof fact.dimension_value === "string")) &&
-            (fact.approximate === undefined || typeof fact.approximate === "boolean")) ||
+            (fact.approximate === undefined || typeof fact.approximate === "boolean") && isFactMetadata(fact)) ||
         !data.places.every((place) => isRecord(place) && typeof place.id === "number" &&
             typeof place.name === "string" && typeof place.category === "string" &&
             typeof place.latitude === "number" && Number.isFinite(place.latitude) && Math.abs(place.latitude) <= 90 &&

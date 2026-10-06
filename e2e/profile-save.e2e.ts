@@ -29,7 +29,7 @@ test("saving confirmed onboarding replaces the incomplete cache and hides the re
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah ke Jakarta untuk bekerja.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await page.getByRole("button", { name: "Simpan dan selesaikan" }).click();
+    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await expect(banner).toHaveCount(0);
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).profile, cacheKey)).toEqual(profile);

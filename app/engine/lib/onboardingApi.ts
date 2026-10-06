@@ -1,4 +1,4 @@
-import { evidenceTypes, getJson, isNullableString } from "./zoneApi";
+import { evidenceTypes, getJson, isFactMetadata, isNullableString } from "./zoneApi";
 import { isCentroid, isRecord } from "./zoneGeometry";
 import { getMetroCityIds } from "./metroArea";
 import type { RegionFact } from "../types";
@@ -16,7 +16,7 @@ function isFact(value: unknown): value is RegionFact {
         evidenceTypes.includes(String(value.evidence_type)) && isNullableString(value.limitations) && typeof value.is_sample === "boolean" &&
         (value.source_url === undefined || isNullableString(value.source_url)) &&
         (value.dimension_key === undefined || value.dimension_key === null || value.dimension_key === "housing_type" || value.dimension_key === "kbli_2020_code") &&
-        (value.dimension_value === undefined || isNullableString(value.dimension_value));
+        (value.dimension_value === undefined || isNullableString(value.dimension_value)) && isFactMetadata(value);
 }
 
 function isCampus(value: unknown): value is OnboardingCampus {

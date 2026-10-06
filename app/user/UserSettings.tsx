@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { logoutUser } from "../engine/controller/userController";
 import type { AccountSummary } from "../engine/controller/userServerController";
+import { FORM_DRAFT_KEY, STORY_DRAFT_KEY } from "../engine/onboarding/types";
+import { useUserProfileStore } from "../stores/userStores";
 
 export type SettingsTab = "profile" | "account" | "plan" | "privacy";
 
@@ -26,6 +29,38 @@ function SettingsRow({ label, value, unavailable = false }: { label: string; val
     </div>;
 }
 
+function ConfirmDelete({ label, title, confirmLabel, onConfirm }: { label: string; title: string; confirmLabel: string; onConfirm: () => Promise<string | undefined> }) {
+    const dialog = useRef<HTMLDialogElement>(null);
+    const cancel = useRef<HTMLButtonElement>(null);
+    const [pending, setPending] = useState(false);
+    const [error, setError] = useState("");
+
+    async function confirm() {
+        setPending(true);
+        setError("");
+        const failure = await onConfirm();
+        if (failure) {
+            setError(failure);
+            setPending(false);
+        }
+    }
+
+    return <>
+        <button type="button" onClick={() => { dialog.current?.showModal(); cancel.current?.focus(); }} className="btn btn-outline btn-neutral min-h-11 rounded-xl">{label}</button>
+        <dialog ref={dialog} className="modal" aria-label={title} onClose={() => setError("")}>
+            <div className="modal-box max-w-md bg-base-100 text-ink">
+                <h2 className="font-sans text-xl font-bold">{title}</h2>
+                {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+                <form method="dialog" className="modal-action">
+                    <button type="button" onClick={() => void confirm()} disabled={pending} className="btn btn-ghost min-h-11 rounded-xl text-error">{confirmLabel}</button>
+                    <button ref={cancel} className="btn btn-primary min-h-11 rounded-xl">Batal</button>
+                </form>
+            </div>
+            <form method="dialog" className="modal-backdrop"><button aria-label="Tutup">Tutup</button></form>
+        </dialog>
+    </>;
+}
+
 export default function UserSettings({ email, account, hasSavedProfile, hasUnsavedChanges, activeTab, onNavigate, onReturnToProfile, onCreateProfile, children }: {
     email: string | null;
     account: AccountSummary | null;
@@ -37,6 +72,23 @@ export default function UserSettings({ email, account, hasSavedProfile, hasUnsav
     onCreateProfile: (event: { preventDefault: () => void }) => void;
     children: ReactNode;
 }) {
+    async function deleteProfile() {
+        const response = await fetch("/api/user/relocation-profile", { method: "DELETE" }).catch(() => null);
+        if (!response?.ok) return "Profil belum terhapus. Coba lagi.";
+        useUserProfileStore.getState().resetProfile();
+        window.location.reload();
+    }
+
+    async function deleteAccount() {
+        const response = await fetch("/api/user", { method: "DELETE" }).catch(() => null);
+        if (!response?.ok) return "Akun belum terhapus. Coba lagi.";
+        useUserProfileStore.getState().resetProfile();
+        sessionStorage.removeItem(STORY_DRAFT_KEY);
+        sessionStorage.removeItem(FORM_DRAFT_KEY);
+        await logoutUser().catch(() => undefined);
+        window.location.replace("/");
+    }
+
     useEffect(() => {
         if (activeTab === "account") {
             document.getElementById("account-title")?.focus({ preventScroll: true });
@@ -87,10 +139,10 @@ export default function UserSettings({ email, account, hasSavedProfile, hasUnsav
                     <button type="button" disabled className="btn btn-outline min-h-11 rounded-xl"><Download aria-hidden="true" className="size-4" />Unduh dataku</button>
                     <span className="text-xs text-ink-muted">Belum tersedia</span>
                 </div>
-                <details className="mt-5 border-t border-rule pt-3">
-                    <summary className="link link-primary min-h-11 cursor-pointer py-2 text-sm font-semibold focus-visible:outline-primary">Hapus akun</summary>
-                    <p className="pb-2 text-sm text-ink-muted">Penghapusan akun mandiri belum tersedia. Data akunmu tidak akan dihapus dari sini.</p>
-                </details>
+                <div className="mt-5 flex flex-wrap gap-3 border-t border-rule pt-4">
+                    {hasSavedProfile && <ConfirmDelete label="Hapus profil" title="Hapus profil relokasimu?" confirmLabel="Hapus profil relokasi" onConfirm={deleteProfile} />}
+                    <ConfirmDelete label="Hapus akun" title="Hapus akunmu permanen?" confirmLabel="Hapus akun permanen" onConfirm={deleteAccount} />
+                </div>
             </SettingsSection>
         </div>
     </div>;

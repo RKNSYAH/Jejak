@@ -1,6 +1,7 @@
 import { createClient } from "@/app/engine/lib/server";
 import { cellLayers, cellMetrics } from "@/app/components/map/mapMetrics";
 import { isRegionCode } from "../lib/zoneGeometry";
+import { withCachedEvidence } from "./cachedEvidenceController";
 import type { MapCategory, MapCell, MapCellsResponse, RegionFact, RegionPlace, Zone, ZoneDetailResult, ZoneListResponse } from "../types";
 
 export const supportedSector = "software_and_it_services";
@@ -52,13 +53,20 @@ export async function getZones(cityId: string | null): Promise<ZoneListResponse>
         p_include_sample: includeSample,
     });
     if (error) throw error;
-    const zones = (data as RankedRegionRow[]).map((row) => ({
-        ...toZone(row), is_sample: row.is_sample,
-        average_monthly_wage_idr: numeric(row.average_monthly_wage_idr),
-        median_monthly_rent_idr: numeric(row.median_monthly_rent_idr),
-        population: numeric(row.population),
-        wage_to_rent_ratio: numeric(row.wage_to_rent_ratio),
-    }));
+    const rows = await withCachedEvidence((data as RankedRegionRow[]).map((row) => ({ ...row, facts: [] as RegionFact[] })), supportedSector);
+    const zones = rows.map((row) => {
+        const cachedRent = row.facts.find((fact) => fact.metric === "median_monthly_rent_idr")?.value;
+        const rent = cachedRent ?? numeric(row.median_monthly_rent_idr);
+        const wage = numeric(row.average_monthly_wage_idr);
+        return {
+            ...toZone(row), is_sample: row.is_sample,
+            average_monthly_wage_idr: wage,
+            median_monthly_rent_idr: rent,
+            population: numeric(row.population),
+            wage_to_rent_ratio: cachedRent !== undefined && wage !== null && rent !== null && rent > 0
+                ? Math.round(wage / rent * 100) / 100 : numeric(row.wage_to_rent_ratio),
+        };
+    });
     return { is_sample: zones.some((zone) => zone.is_sample), zones };
 }
 
@@ -70,7 +78,8 @@ export async function getZoneRow(zoneId: string, includeGeometry = true): Promis
         p_include_geometry: includeGeometry,
     });
     if (error) throw error;
-    return (data as RegionDetailRow[])[0] ?? null;
+    const rows = await withCachedEvidence(data as RegionDetailRow[], supportedSector);
+    return rows[0] ?? null;
 }
 
 export function validateCellQuery(params: URLSearchParams): { zoneId: string; category: MapCategory } {

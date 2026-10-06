@@ -27,6 +27,12 @@ export async function getSavedRelocationProfile(userId: string): Promise<StoredR
     return isStoredRelocationProfile(stored) ? stored : null;
 }
 
+export async function deleteRelocationProfile(userId: string): Promise<void> {
+    const { error } = await createAdminClient().from("relocation_profiles")
+        .delete().eq("user_id", userId).eq("profile_name", RELOCATION_PROFILE_NAME);
+    if (error) throw error;
+}
+
 export async function saveConfirmedRelocationProfile(
     userId: string,
     profile: PersistedRelocationProfile,

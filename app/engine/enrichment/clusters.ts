@@ -42,7 +42,7 @@ export function toEvidenceClusters(rows: ClusterRow[], typeOrder: string[]): Evi
 // Evidence located in a district is the evidence for its regular facts, not a
 // separate metric: companies with an observed office there become its
 // company_count. Without located offices the stored fact stays as it is.
-export function mergeLocatedEvidence(facts: RegionFact[], cluster: EvidenceCluster | undefined): RegionFact[] {
+export function mergeLocatedEvidence(facts: RegionFact[], cluster: EvidenceCluster | undefined, sectorId?: string): RegionFact[] {
     const offices = cluster?.counts.office_presence;
     if (!cluster || !offices || offices.organizations <= 0) return facts;
     const companies: RegionFact = {
@@ -52,12 +52,15 @@ export function mergeLocatedEvidence(facts: RegionFact[], cluster: EvidenceClust
         source: "Company websites and job boards monitored by Jejak",
         source_url: null,
         period_start: null,
-        period_end: cluster.latest_retrieved_at?.slice(0, 10) ?? null,
+        period_end: null,
+        retrieved_at: cluster.latest_retrieved_at,
+        geographic_level: "zone",
         confidence: null,
         evidence_type: "observed",
         limitations: "Approximate: software and IT companies with an office found in this district on monitored sources, not every company here.",
         is_sample: false,
         approximate: true,
+        ...(sectorId ? { sector_ids: [sectorId] } : {}),
     };
     return [...facts.filter((fact) => fact.metric !== "company_count"), companies];
 }

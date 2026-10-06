@@ -18,48 +18,50 @@ test("explicit demo entry also works for an account with a confirmed profile", a
     await expect(page.getByRole("heading", { name: "Apa yang membawamu pindah?" })).toBeVisible();
 });
 
-test("preview card stays compact across steps and keeps the district disclosure usable", async ({ page }, testInfo) => {
+test("info bar is a single compact pill across steps", async ({ page }, testInfo) => {
     await startForm(page);
     const preview = page.locator('[data-hci-region="onboarding-preview"]');
-    const mobile = testInfo.project.name === "mobile";
     await expect(preview).toContainText("Jabodetabek");
 
     for (let step = 1; step <= 4; step++) {
         if (step > 1) await page.getByRole("button", { name: "Lanjut", exact: true }).click();
         await expect(page.locator(".onboarding-form-panel")).toContainText(`Langkah ${step} dari 4`);
+        if (step === 2) await expect(preview).toContainText(/\d+\/\d+ kecamatan dalam batas sewa/);
         const bounds = await preview.boundingBox();
         expect(bounds).not.toBeNull();
-        expect(bounds!.height).toBeLessThanOrEqual(mobile ? 90 : step === 1 ? 76 : 180);
+        expect(bounds!.height).toBeLessThanOrEqual(72);
         expect(bounds!.y).toBeGreaterThanOrEqual(0);
-        expect(await preview.evaluate((card) => {
-            const outer = card.getBoundingClientRect();
-            return Array.from(card.querySelectorAll("p, button, span")).every((element) => {
-                const inner = element.getBoundingClientRect();
-                return inner.width === 0 || inner.height === 0 || (inner.left >= outer.left && inner.right <= outer.right + 1
-                    && inner.top >= outer.top && inner.bottom <= outer.bottom + 1);
-            });
-        })).toBe(true);
-
-        if (!mobile) {
-            const toggle = preview.getByRole("button", { name: "Lihat daftar kecamatan", exact: true });
-            const toggleBounds = await toggle.boundingBox();
-            expect(toggleBounds!.height).toBeGreaterThanOrEqual(44);
-            expect(toggleBounds!.y).toBeLessThan(bounds!.y + 24);
-            if (step === 2 || step === 4) {
-                const matchingKey = await preview.getByText(step === 2 ? "Sewa dan biaya sesuai" : "Sesuai data dan estimasi", { exact: true }).boundingBox();
-                const otherKey = await preview.getByText("Data kurang / di luar batas", { exact: true }).boundingBox();
-                expect(Math.abs(matchingKey!.y - otherKey!.y)).toBeLessThanOrEqual(1);
-            }
-            await toggle.focus();
-            await toggle.press("Enter");
-            const close = preview.getByRole("button", { name: "Tutup daftar kecamatan", exact: true });
-            await expect(close).toHaveAttribute("aria-expanded", "true");
-            await expect(preview.getByRole("list", { name: "Kecamatan dalam pratinjau" })).toBeVisible();
-            await close.press("Enter");
-            await expect(toggle).toHaveAttribute("aria-expanded", "false");
-        }
+        // The district list lives in the form, not the bar.
+        await expect(preview.getByRole("button")).toHaveCount(0);
         await page.screenshot({ path: testInfo.outputPath(`compact-preview-step-${step}.png`) });
     }
+});
+
+test("mobile form sheet shrinks by tap or drag so the map shows, and the info bar follows", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile");
+    await startForm(page);
+    const panel = page.locator(".onboarding-form-panel");
+    const preview = page.locator('[data-hci-region="onboarding-preview"]');
+    const handle = page.getByRole("button", { name: "Perkecil formulir untuk melihat peta" });
+    const fullHeight = (await panel.boundingBox())!.height;
+
+    await handle.click();
+    await expect(page.getByRole("button", { name: "Buka formulir" })).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(fullHeight / 2);
+    await expect(page.getByRole("button", { name: "Lanjut", exact: true })).toBeHidden();
+    const peekPreview = (await preview.boundingBox())!;
+    const peekPanel = (await panel.boundingBox())!;
+    expect(peekPreview.y + peekPreview.height).toBeLessThanOrEqual(peekPanel.y);
+
+    const box = (await page.getByRole("button", { name: "Buka formulir" }).boundingBox())!;
+    const x = box.x + box.width / 2;
+    await page.mouse.move(x, box.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(x, box.y - 300, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByRole("button", { name: "Perkecil formulir untuk melihat peta" })).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThan(fullHeight - 4);
+    await expect(page.getByRole("button", { name: "Lanjut", exact: true })).toBeVisible();
 });
 
 test("form uses database-shaped evidence, saves a map-picked destination, and keeps map/list selection aligned", async ({ page }, testInfo) => {
@@ -75,20 +77,19 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Berapa batas yang realistis?" })).toBeVisible();
     const preview = page.locator('[data-hci-region="onboarding-preview"]');
-    await expect(preview).toContainText("1 kecamatan memenuhi batas");
+    await expect(preview).toContainText(/1\/\d+ kecamatan dalam batas sewa/);
     await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
     const districtList = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     await expect(districtList).toContainText("Kecamatan A");
-    // Step 2 already ranks: the list numbers districts, and the card names the best ones (desktop only).
+    // Step 2 already ranks: the list numbers districts.
     await expect(districtList).toContainText("1. Kecamatan A");
-    if (!mobile) await expect(preview.getByRole("list", { name: "Peringkat teratas" })).toContainText("1 Kecamatan A");
     const districtA = districtList.getByRole("button", { name: /Kecamatan A/ });
     await districtA.click();
     await expect(districtA).toHaveAttribute("aria-pressed", "true");
     await page.getByLabel("Batas sewa per bulan", { exact: true }).fill("1.000.000");
-    await expect(preview).toContainText("0 kecamatan memenuhi batas");
+    await expect(preview).toContainText(/0\/\d+ kecamatan dalam batas sewa/);
     await page.getByLabel("Batas sewa per bulan", { exact: true }).fill("2.500.000");
-    await expect(preview).toContainText("1 kecamatan memenuhi batas");
+    await expect(preview).toContainText(/1\/\d+ kecamatan dalam batas sewa/);
     await page.screenshot({ path: testInfo.outputPath("step-2.png") });
 
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
@@ -305,7 +306,7 @@ test("city changes update live data and invalid budgets block navigation", async
     await expect(page.getByText("Batas sewa tidak boleh melebihi anggaran hidup.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Berapa batas yang realistis?" })).toBeVisible();
     await page.getByLabel("Batas sewa per bulan", { exact: true }).fill("1.000.000");
-    await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText("0 kecamatan memenuhi batas");
+    await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText(/0\/\d+ kecamatan dalam batas sewa/);
     const districtList = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     if (!await districtList.isVisible()) await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
     await expect(districtList).toContainText("Sewa di atas batasmu");

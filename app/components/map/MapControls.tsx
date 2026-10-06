@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MapPin, RotateCcw, Search, SlidersVertical, X } from "lucide-react";
 import type { MapCategory, Zone } from "@/app/engine/types";
 import type { AccountSummary } from "@/app/engine/controller/userServerController";
 import { mapCategories } from "./mapMetrics";
@@ -169,25 +169,34 @@ export default function MapControls(props: MapControlsProps) {
             </HeaderCluster>
                 {/* Beside the search bar when the controls row has room (32rem header + gap + banner); otherwise centered below. */}
                 {props.showProfileReminder && <aside aria-label="Pengingat profil" data-hci-region="profile-completion-banner"
-                    className="alert pointer-events-auto absolute left-1/2 top-full mt-2 grid w-[min(30rem,100%)] -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] gap-x-1 gap-y-0 rounded-xl border-neutral bg-neutral p-2 text-neutral-content shadow-overlay md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center @min-[52rem]:top-0 @min-[52rem]:left-[calc(32rem+0.75rem)] @min-[52rem]:mt-0 @min-[52rem]:min-h-15 @min-[52rem]:py-1.5 @min-[52rem]:w-[min(34rem,calc(100%-32.75rem))] @min-[52rem]:translate-x-0">
-                    <p className="min-w-0 font-body text-xs font-semibold">Lengkapi profilmu untuk melihat rekomendasi.</p>
-                    <button type="button" onClick={props.onCompleteProfile}
-                        className="btn btn-sm btn-ghost col-start-1 row-start-2 min-h-11 justify-self-start px-2 text-xs text-neutral-content underline underline-offset-4 hover:bg-neutral hover:text-accent border-none hover:shadow-none focus-visible:outline-neutral-content md:col-start-2 md:row-start-1">
-                        Lengkapi profil
-                    </button>
-                    <button type="button" onClick={props.onDismissProfileReminder} aria-label="Tutup pengingat profil"
-                        className="btn btn-square btn-ghost col-start-2 row-start-1 size-11 self-start text-neutral-content hover:bg-neutral focus-visible:outline-neutral-content md:col-start-3">
-                        <X aria-hidden="true" className="size-4" />
-                    </button>
+                    className="alert pointer-events-auto absolute left-0 top-full mt-2 w-max max-w-full grid-cols-1 max-md:flex rounded-xl border-rule bg-base-100 py-0 pr-0 pl-3 text-left text-base-content shadow-overlay md:@container/profile-reminder md:left-1/2 md:min-h-18 md:w-[min(34rem,100%)] md:-translate-x-1/2 md:p-3 @min-[52rem]:top-0 @min-[52rem]:left-[calc(32rem+0.75rem)] @min-[52rem]:mt-0 @min-[52rem]:w-[min(34rem,calc(100%-32.75rem))] @min-[52rem]:translate-x-0">
+                    <div className="flex items-center gap-1 md:grid md:w-full md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-3 md:gap-y-2 @min-[30rem]/profile-reminder:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                        <span className="hidden size-8 items-center justify-center rounded-lg bg-primary-tint text-primary md:flex">
+                            <SlidersVertical aria-hidden="true" className="size-4" />
+                        </span>
+                        <div className="min-w-0 font-body text-xs leading-4">
+                            <p className="font-semibold max-md:sr-only">Area belum diurutkan untukmu</p>
+                            <p aria-hidden="true" className="whitespace-nowrap text-ink-muted md:hidden">Belum diurutkan ·</p>
+                            <p className="mt-0.5 hidden text-ink-muted md:block">Ceritakan rencanamu agar Jejak menandai area yang sesuai batas dan prioritasmu.</p>
+                        </div>
+                        <button type="button" onClick={props.onCompleteProfile}
+                            className="btn btn-sm btn-primary col-start-2 row-start-2 min-h-11 min-w-11 justify-self-start rounded-xl px-1 text-xs font-semibold shadow-none max-md:border-0 max-md:bg-transparent max-md:text-primary md:px-3 @min-[30rem]/profile-reminder:col-start-3 @min-[30rem]/profile-reminder:row-start-1">
+                            Lengkapi<span className="max-md:sr-only"> profil</span>
+                        </button>
+                        <button type="button" onClick={props.onDismissProfileReminder} aria-label="Tutup pengingat profil"
+                            className="btn btn-square btn-ghost col-start-3 row-start-1 size-11 text-base-content focus-visible:-outline-offset-2 @min-[30rem]/profile-reminder:col-start-4">
+                            <X aria-hidden="true" className="size-4" />
+                        </button>
+                    </div>
                 </aside>}
-            <div data-hci-region="categories" className="pointer-events-auto col-span-2 row-start-2 flex w-full min-w-0 items-center gap-1 rounded-2xl border border-rule bg-base-100 p-1 shadow-overlay md:p-1.5" role="group" aria-label="Kategori peta">
+            <div data-hci-region="categories" className="pointer-events-auto col-span-2 row-start-2 flex w-full min-w-0 items-center gap-2 md:gap-1 md:rounded-2xl md:border md:border-rule md:bg-base-100 md:p-1.5 md:shadow-overlay" role="group" aria-label="Kategori peta">
                 <div className="relative flex min-w-0 flex-1 items-center">
                     {scrollButton(scrollButtons[0])}
                     <div id="map-category-scroll" ref={categoriesRef} className="map-category-scroll min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
-                        <div ref={categoryContentRef} className="flex w-max flex-nowrap gap-1">
+                        <div ref={categoryContentRef} className="flex w-max flex-nowrap gap-2 md:gap-1">
                         {categories.map((id) => <button key={id} onClick={() => props.onCategoryChange(id)} type="button"
                             aria-pressed={props.category === id} title={mapCategories[id].panelLabel}
-                            className={`btn btn-sm min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 text-sm font-semibold focus-visible:-outline-offset-2 md:h-9 md:min-h-9 ${props.category === id ? "btn-primary" : "btn-ghost text-ink"}`}>
+                            className={`btn btn-sm min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 text-sm font-semibold focus-visible:-outline-offset-2 md:h-9 md:min-h-9 ${props.category === id ? "btn-primary" : "btn-ghost text-ink max-md:border-rule max-md:bg-base-100"}`}>
                             {mapCategories[id].panelLabel}
                         </button>)}
                         </div>
@@ -195,7 +204,7 @@ export default function MapControls(props: MapControlsProps) {
                     {scrollButton(scrollButtons[1])}
                 </div>
                 {props.hasActiveRegionLayers && <button type="button" onClick={() => { closeSearch(); props.onReset(); }} aria-label="Reset semua lapisan peta" title="Reset"
-                    className="btn btn-square btn-ghost size-11 shrink-0 rounded-xl text-ink focus-visible:-outline-offset-2 md:size-9">
+                    className="btn btn-square btn-ghost size-11 shrink-0 rounded-xl text-ink focus-visible:-outline-offset-2 max-md:border-rule max-md:bg-base-100 md:size-9">
                     <RotateCcw aria-hidden="true" className="size-4" />
                 </button>}
             </div>

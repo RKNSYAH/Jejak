@@ -21,25 +21,34 @@ test("incomplete profile banner dismisses until refresh and reuses the cached re
     await page.goto("/map");
     const banner = page.getByRole("complementary", { name: "Pengingat profil" });
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText("Lengkapi profilmu untuk melihat rekomendasi.");
+    await expect(banner).toContainText("Area belum diurutkan untukmu");
+    await expect(banner).toContainText("Ceritakan rencanamu agar Jejak menandai area yang sesuai batas dan prioritasmu.");
+    const completeProfile = banner.getByRole("button", { name: "Lengkapi profil", exact: true });
+    if (testInfo.project.name === "desktop") await expect(completeProfile).toHaveCSS("background-color", "rgb(0, 106, 216)");
+    else await expect(completeProfile).toHaveCSS("color", "rgb(0, 106, 216)");
+    for (const button of [completeProfile, banner.getByRole("button", { name: "Tutup pengingat profil" })]) {
+        const target = (await button.boundingBox())!;
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+    }
     const colors = await banner.evaluate((element) => {
         const style = getComputedStyle(element);
         return { background: style.backgroundColor, text: style.color };
     });
-    expect(colors).toEqual({ background: "rgb(33, 41, 124)", text: "rgb(255, 249, 249)" });
+    expect(colors).toEqual({ background: "rgb(255, 249, 249)", text: "rgb(33, 41, 124)" });
     const box = (await banner.boundingBox())!;
     if (testInfo.project.name === "desktop") {
         // Wide maps fit the banner beside the search bar, level with it and clear of the account cluster.
         const header = (await page.locator('[data-hci-region="map-header"]').boundingBox())!;
         const cluster = (await page.locator('[data-hci-region="account-cluster"]').boundingBox())!;
-        expect(Math.abs(box.y - header.y)).toBeLessThan(1);
-        expect(Math.abs(box.height - header.height)).toBeLessThan(1);
-        expect(box.x).toBeGreaterThanOrEqual(header.x + header.width + 8);
+        expect(Math.abs(box.y - header.y)).toBeLessThan(1);        expect(box.x).toBeGreaterThanOrEqual(header.x + header.width + 8);
         expect(box.x + box.width).toBeLessThanOrEqual(cluster.x);
     } else {
         const controls = (await page.locator('[data-hci-region="controls"]').boundingBox())!;
         expect(box.y).toBeGreaterThanOrEqual(controls.y + controls.height);
-        expect(Math.abs(box.x + box.width / 2 - (controls.x + controls.width / 2))).toBeLessThan(2);
+        expect(Math.abs(box.x - controls.x)).toBeLessThan(1);
+        await page.screenshot({ path: testInfo.outputPath("mobile-map.png") });
+        expect(box.height).toBeLessThanOrEqual(48);
     }
     await banner.getByRole("button", { name: "Tutup pengingat profil" }).click();
     await expect(banner).toHaveCount(0);

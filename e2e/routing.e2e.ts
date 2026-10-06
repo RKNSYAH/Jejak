@@ -66,8 +66,8 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         const routeCalls = await openReachForm(page, region);
         const panel = page.locator(".onboarding-form-panel");
         await expect(panel).toContainText("Perkiraan jangkauan 5,1–10,2 km · 2 kecamatan");
-        await page.locator('[data-hci-region="onboarding-preview"]').getByRole("button", { name: "Lihat daftar kecamatan", exact: true }).click();
-        const list = page.locator('[data-hci-region="onboarding-preview"]').getByRole("list", { name: "Kecamatan dalam pratinjau" });
+        await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
+        const list = panel.getByRole("list", { name: "Kecamatan dalam pratinjau" });
         await expect(list).toContainText("Titik kecamatan dalam perkiraan jangkauan");
         await page.getByRole("radio", { name: "Motor", exact: true }).check();
         await expect(panel).toContainText("Perkiraan jangkauan 7,7–15,4 km");

@@ -13,6 +13,7 @@ import PrioritiesStep from "./steps/PrioritiesStep";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
 import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
 import CommuteSummary from "./CommuteSummary";
+import { useSheetDrag } from "./useSheetDrag";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 
 const steps = ["Tujuan", "Batas", "Perjalanan", "Prioritas"];
@@ -31,6 +32,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     commuteLoading?: boolean; commuteError?: string | null; onRetryCommute?: () => void;
 }) {
     const dialogRef = useRef<HTMLDialogElement>(null);
+    const { collapsed, handleProps } = useSheetDrag(dialogRef);
     const titleRef = useRef<HTMLHeadingElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -79,10 +81,13 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     }
 
     return <dialog ref={dialogRef} aria-labelledby="form-onboarding-title"
-        data-hci-region={`onboarding-form-step-${session.step}`} className="onboarding-form-panel absolute inset-x-0 bottom-0 z-200 m-0 flex h-[74dvh] max-h-[74dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-rule bg-base-100 p-0 font-body text-ink shadow-overlay md:inset-y-4 md:left-auto md:right-4 md:h-auto md:max-h-none md:w-[min(35rem,43vw)] md:rounded-2xl"
+        data-hci-region={`onboarding-form-step-${session.step}`} className="onboarding-form-panel absolute inset-x-0 bottom-0 z-200 m-0 flex h-[var(--sheet-h,74dvh)] max-h-[74dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-rule bg-base-100 p-0 font-body text-ink shadow-overlay max-md:transition-[height] max-md:duration-200 max-md:ease-out md:inset-y-4 md:left-auto md:right-4 md:h-auto md:max-h-none md:w-[min(35rem,43vw)] md:rounded-2xl"
         onKeyDown={(event) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement && event.target.type === "search")) { event.preventDefault(); if (!isSaving) onDismiss(); } }}>
-        <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-ink/20 md:hidden" />
-        <header className="flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-4 md:px-6 md:pt-5">
+        <button type="button" {...handleProps} aria-expanded={!collapsed} aria-label={collapsed ? "Buka formulir" : "Perkecil formulir untuk melihat peta"}
+            className="flex h-11 w-full shrink-0 cursor-ns-resize touch-none items-center justify-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary md:hidden">
+            <span aria-hidden="true" className="h-1 w-9 rounded-full bg-ink/20" />
+        </button>
+        <header className="flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-1 md:px-6 md:pt-5">
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs font-semibold">
                 <span aria-live="polite">Langkah {session.step} dari 4 · {steps[session.step - 1]}</span>
                 <ol aria-label="Progres formulir" className="flex w-28 gap-1">
@@ -91,7 +96,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
             </div>
             <button type="button" disabled={isSaving} onClick={onDismiss} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-ink">Lewati <X aria-hidden="true" className="hidden size-3.5 md:block" /></button>
         </header>
-        <form noValidate aria-busy={isSaving} className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); void next(); }}>
+        <form noValidate aria-busy={isSaving} className={`flex min-h-0 flex-1 flex-col ${collapsed ? "invisible" : ""}`} onSubmit={(event) => { event.preventDefault(); void next(); }}>
             <div ref={contentRef} className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-7 pt-3 md:px-6 md:pt-4">
                 {session.step === 1 && <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Akun siap · isi formulir</p>}
                 <h1 id="form-onboarding-title" ref={titleRef} tabIndex={-1} className="font-sans text-2xl font-bold leading-[1.15] tracking-tight outline-none md:text-[1.75rem]">{titles[session.step - 1]}</h1>

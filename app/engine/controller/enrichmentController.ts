@@ -8,8 +8,8 @@ import { runEnrichment, type ClaimedRun, type EnrichmentDb, type EnrichmentJob, 
 import { evidenceScope, scopeEvidenceTypes, snapshotScope, type EnrichmentScope, type EvidenceType } from "../enrichment/scopes";
 import type { StoredEvidence } from "../enrichment/snapshot";
 import type { Coverage, EnrichmentRunSummary, EvidenceClustersResponse, EvidenceSnapshotData, ZoneEvidenceResponse } from "../types";
-import { mergeLocatedEvidence, toEvidenceClusters, type ClusterRow } from "../enrichment/clusters";
-import { getZoneRow, includeSample, supportedSector, toZone, type RegionDetailRow } from "./zoneController";
+import { toEvidenceClusters, type ClusterRow } from "../enrichment/clusters";
+import { getZoneRow, includeSample, supportedSector, toZone } from "./zoneController";
 
 type EnrichmentErrorCode = "UNKNOWN_ZONE" | "BOUNDARY_REQUIRED";
 
@@ -312,17 +312,4 @@ export async function getEvidenceClusters(cityId: string, scope: EnrichmentScope
     });
     if (error) throw error;
     return { city_id: cityId, scope, clusters: toEvidenceClusters(data as ClusterRow[], types) };
-}
-
-// The district's facts with its located evidence merged in (see mergeLocatedEvidence).
-// Best-effort: never throws, so region data still loads when evidence can't.
-export async function withLocatedEvidence(row: RegionDetailRow): Promise<RegionDetailRow> {
-    if (!isAdminConfigured()) return row;
-    const zone = toZone(row);
-    try {
-        const { clusters } = await getEvidenceClusters(zone.city_id, "career");
-        return { ...row, facts: mergeLocatedEvidence(row.facts, clusters.find((cluster) => cluster.zone_id === zone.zone_id)) };
-    } catch {
-        return row;
-    }
 }

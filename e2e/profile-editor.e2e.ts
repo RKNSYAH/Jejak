@@ -112,8 +112,17 @@ test("account settings show real data, section navigation, and unavailable actio
     const firstNavItem = await page.getByRole("button", { name: "Profil relokasi", exact: true }).boundingBox();
     if (page.viewportSize()!.width >= 768) expect(Math.abs(firstNavItem!.y - firstSection!.y)).toBeLessThan(12);
     else expect(firstNavItem!.y).toBeLessThan(firstSection!.y);
-    await settings.getByText("Hapus akun", { exact: true }).click();
-    await expect(settings.getByText("Penghapusan akun mandiri belum tersedia. Data akunmu tidak akan dihapus dari sini.", { exact: true })).toBeVisible();
+    await settings.getByRole("button", { name: "Hapus profil", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Hapus profil relokasimu?" });
+    const cancel = dialog.getByRole("button", { name: "Batal", exact: true });
+    const confirm = dialog.getByRole("button", { name: "Hapus profil relokasi", exact: true });
+    await expect(cancel).toBeFocused();
+    await expect(cancel).toHaveClass(/btn-primary/);
+    await expect(confirm).toHaveClass(/btn-ghost/);
+    expect((await confirm.boundingBox())!.x).toBeLessThan((await cancel.boundingBox())!.x);
+    await cancel.click();
+    await expect(dialog).toBeHidden();
+    expect(await latestProfile(page)).not.toBeNull();
     await expect(settings.getByRole("link", { name: /Privasi/ })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("account-settings.png"), fullPage: true });
     await page.getByRole("button", { name: "Paket dan tagihan", exact: true }).click();
@@ -124,6 +133,36 @@ test("account settings show real data, section navigation, and unavailable actio
     await expect(settings.getByText("Tersimpan", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Profil relokasi", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Jejakmu bisa berubah", exact: true })).toBeVisible();
+});
+
+test("deleting the relocation profile removes every saved revision and its cache", async ({ page }) => {
+    await openEditor(page);
+    await seedProfile(page);
+    await page.getByRole("button", { name: "Akun", exact: true }).click();
+    const settings = page.locator('[data-hci-region="user-settings"]');
+    await settings.getByRole("button", { name: "Hapus profil", exact: true }).click();
+    const deleting = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "DELETE");
+    await page.getByRole("dialog").getByRole("button", { name: "Hapus profil relokasi", exact: true }).click();
+    expect((await deleting).status()).toBe(204);
+    await expect(page.getByRole("heading", { name: "Belum ada profil relokasi", exact: true })).toBeVisible();
+    expect(await latestProfile(page)).toBeNull();
+    expect(await page.evaluate((key) => localStorage.getItem(key), cacheKey)).toBeNull();
+});
+
+test("deleting the account removes its data and signs out", async ({ page }) => {
+    await openEditor(page);
+    await page.getByRole("button", { name: "Akun", exact: true }).click();
+    const settings = page.locator('[data-hci-region="user-settings"]');
+    await settings.getByRole("button", { name: "Hapus akun", exact: true }).click();
+    const deleting = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user" && response.request().method() === "DELETE");
+    await page.getByRole("dialog").getByRole("button", { name: "Hapus akun permanen", exact: true }).click();
+    expect((await deleting).status()).toBe(204);
+    await page.waitForURL((url) => url.pathname === "/");
+    expect(await page.evaluate((key) => localStorage.getItem(key), cacheKey)).toBeNull();
+    expect((await page.request.get("/api/user/relocation-profile")).status()).toBe(401);
+    const rows = await page.request.get(`http://127.0.0.1:3101/rest/v1/relocation_profiles?user_id=eq.${userId}`,
+        { headers: { Authorization: "Bearer e2e-local-service-role" } });
+    expect(await rows.json()).toEqual([]);
 });
 
 test("user settings fit narrow phones and tablet widths without page overflow", async ({ page }) => {

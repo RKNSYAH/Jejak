@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { POST } from "../app/api/user/relocation-profile/route";
+import { DELETE, POST } from "../app/api/user/relocation-profile/route";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { buildFormRelocationProfile, buildPersistedRelocationProfile, normalizeRelocationProfileInputs } from "../app/engine/lib/relocationProfile";
 import { defaultAnswers } from "../app/engine/onboarding/demoData";
-import { saveConfirmedRelocationProfile } from "../app/engine/controller/relocationProfileController";
+import { deleteRelocationProfile, saveConfirmedRelocationProfile } from "../app/engine/controller/relocationProfileController";
 import { postJson } from "./helpers";
 
 const proposal = {
@@ -143,6 +143,34 @@ test("profile saving reads the owned confirmed database row before reporting suc
     assert.equal(calls.length, 2);
     verificationRow = null;
     await assert.rejects(saveConfirmedRelocationProfile(userId, input), /Saved profile could not be verified/);
+  } finally {
+    if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = previousKey;
+  }
+});
+
+test("profile deletion requires sign-in and removes only the owner's primary profile rows", async (context) => {
+  assert.equal((await DELETE()).status, 401);
+  const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "http://localhost:54321";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
+  const userId = "11111111-1111-4111-8111-111111111111";
+  let status = 204;
+  const calls: { url: URL; method?: string }[] = [];
+  context.mock.method(globalThis, "fetch", async (request: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: new URL(String(request)), method: init?.method });
+    return status === 204 ? new Response(null, { status }) : Response.json({ message: "boom" }, { status });
+  });
+  try {
+    await deleteRelocationProfile(userId);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "DELETE");
+    assert.match(calls[0].url.pathname, /\/rest\/v1\/relocation_profiles$/);
+    assert.equal(calls[0].url.searchParams.get("user_id"), `eq.${userId}`);
+    assert.equal(calls[0].url.searchParams.get("profile_name"), "eq.primary");
+    status = 500;
+    await assert.rejects(deleteRelocationProfile(userId));
   } finally {
     if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = previousUrl;
     if (previousKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = previousKey;

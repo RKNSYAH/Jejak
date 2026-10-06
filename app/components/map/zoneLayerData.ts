@@ -69,11 +69,10 @@ export function createCellFillData(
     };
 }
 
-export type FactSummary = { sources: string[]; periods: string[]; isSample: boolean };
+export type FactSummary = { periods: string[]; isSample: boolean };
 
-export function summarizeFacts(facts: { source: string; period_end: string | null; is_sample: boolean }[]): FactSummary {
+export function summarizeFacts(facts: { period_end: string | null; is_sample: boolean }[]): FactSummary {
     return {
-        sources: [...new Set(facts.map((fact) => fact.source))],
         periods: [...new Set(facts.map((fact) => fact.period_end ?? "periode tidak tersedia"))],
         isSample: facts.some((fact) => fact.is_sample),
     };

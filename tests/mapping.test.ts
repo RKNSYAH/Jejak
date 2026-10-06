@@ -265,7 +265,7 @@ test("cell glow weights are relative to the busiest cell and rent fills hexagons
     assert.deepEqual(summarizeCells(cells, workers), {
         cells: 3, withValue: 2, min: 1500, max: 6000, total: 7500,
         maxBounds: { low: 4200, high: 8400 }, totalBounds: { low: 5250, high: 10500 },
-        sources: ["SAMPLE"], periods: ["periode tidak tersedia"], isSample: true,
+        periods: ["periode tidak tersedia"], isSample: true,
     });
     const fill = createCellFillData(cells, "median_monthly_rent_idr");
     assert.deepEqual(fill.features.map((f) => f.properties.value), [null, null, null]);

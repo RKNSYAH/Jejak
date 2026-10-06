@@ -17,7 +17,7 @@ test("signed-in landing page links its main CTA to the map without a login promp
     await expect(main.getByText("Sudah punya akun?", { exact: false })).toHaveCount(0);
 });
 
-publicTest("landing page has a semantic heading, three highlights, and an empty decorative image slot", async ({ page }) => {
+publicTest("landing page has a semantic heading, three highlights, and a decorative hero image behind the header", async ({ page }, testInfo) => {
     await page.goto("/");
 
     const main = page.getByRole("main");
@@ -29,12 +29,13 @@ publicTest("landing page has a semantic heading, three highlights, and an empty 
 
     const imageSlot = page.locator('[data-hci-region="landing-image"]');
     await expect(imageSlot).toHaveAttribute("aria-hidden", "true");
-    await expect(imageSlot.locator("img, svg")).toHaveCount(0);
-    expect((await imageSlot.textContent())?.trim()).toBe("");
-    const bounds = await imageSlot.boundingBox();
-    expect(bounds).not.toBeNull();
-    expect(bounds!.width).toBeGreaterThan(0);
-    expect(bounds!.height).toBeGreaterThan(0);
+    await expect(imageSlot.locator("img")).toHaveAttribute("alt", "");
+    const bounds = (await imageSlot.boundingBox())!;
+    const header = (await page.getByRole("banner").boundingBox())!;
+    expect(bounds.y).toBeLessThanOrEqual(header.y);
+    if (testInfo.project.name === "desktop") {
+        await expect(page.getByRole("banner").getByRole("link", { name: "Mulai Jejakmu" })).toHaveClass(/btn-primary/);
+    }
 });
 
 publicTest("landing layout reflows without horizontal overflow from mobile to desktop", async ({ page }, testInfo) => {
@@ -42,24 +43,19 @@ publicTest("landing layout reflows without horizontal overflow from mobile to de
     await page.goto("/");
 
     const main = page.getByRole("main");
-    const text = page.locator('[data-hci-region="landing-hero"] .hero-content > div').first();
-    const imageSlot = page.locator('[data-hci-region="landing-image"]');
+    const hero = page.locator('[data-hci-region="landing-hero"]');
+    const highlights = page.locator('[data-hci-region="landing-highlights"] ul');
     for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         await expect(main.getByRole("heading", { level: 1 })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 
-        const textBounds = await text.boundingBox();
-        const imageBounds = await imageSlot.boundingBox();
-        expect(textBounds).not.toBeNull();
-        expect(imageBounds).not.toBeNull();
-        if (width < 768) {
-            expect(imageBounds!.y).toBeGreaterThanOrEqual(textBounds!.y + textBounds!.height - 1);
-        } else {
-            expect(imageBounds!.x).toBeGreaterThanOrEqual(textBounds!.x + textBounds!.width - 1);
-            expect(imageBounds!.y).toBeLessThan(textBounds!.y + textBounds!.height);
-        }
+        const heroBounds = (await hero.boundingBox())!;
+        const cardBounds = (await highlights.boundingBox())!;
+        expect(cardBounds.y).toBeLessThan(heroBounds.y + heroBounds.height);
+        expect(cardBounds.y + cardBounds.height).toBeGreaterThan(heroBounds.y + heroBounds.height);
     }
+    await page.screenshot({ path: testInfo.outputPath("landing.png") });
 });
 
 publicTest("main landing CTA is at least 48px tall and receives visible keyboard focus", async ({ page }, testInfo) => {

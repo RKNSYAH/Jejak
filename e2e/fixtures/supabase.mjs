@@ -157,9 +157,27 @@ createServer(async (request, response) => {
             return send(200, rows);
         } catch (error) { return send(400, { message: error.message }); }
     }
+    if (url.pathname === `/auth/v1/admin/users/${user.id}` && request.method === "DELETE") {
+        if (!isService) return send(403, { message: "Service role required" });
+        await database.query("delete from auth.users where id = $1", [user.id]);
+        // Single shared fixture user: recreate it so later tests can still save profiles.
+        await database.query("insert into auth.users (id) values ($1)", [user.id]);
+        return send(200, user);
+    }
+    const filter = (key) => url.searchParams.get(key)?.replace(/^eq\./, "") ?? null;
+    if (url.pathname === "/rest/v1/relocation_profiles" && request.method === "DELETE") {
+        if (!isService) return send(403, { message: "Service role required" });
+        try {
+            await database.transaction(async (tx) => {
+                await tx.exec("set local role service_role");
+                await tx.query("delete from public.relocation_profiles where user_id = $1::uuid and profile_name = $2",
+                    [filter("user_id"), filter("profile_name")]);
+            });
+            return send(204);
+        } catch (error) { return send(400, { message: error.message }); }
+    }
     if (url.pathname === "/rest/v1/relocation_profiles" && request.method === "GET") {
         try {
-            const filter = (key) => url.searchParams.get(key)?.replace(/^eq\./, "") ?? null;
             const rows = await database.transaction(async (tx) => {
                 await tx.exec(isService ? "set local role service_role" : "set local role authenticated");
                 await tx.query("select set_config('request.jwt.claim.sub', $1, true)", [user.id]);

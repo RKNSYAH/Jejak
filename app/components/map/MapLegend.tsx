@@ -1,5 +1,5 @@
 import type { MapCategory, ZoneDetailResult } from "@/app/engine/types";
-import { List } from "lucide-react";
+import { Layers } from "lucide-react";
 import { type CellLayer, type EducationMetric, educationMetrics, getMapMetricConfig } from "./mapMetrics";
 import { type CellSummary, summarizeFacts } from "./zoneLayerData";
 import { GLOW_RAMP, type MetricRange } from "./zoneLayers";
@@ -9,8 +9,8 @@ function describe(values: string[], fallback: string, multiple: string): string 
     return values.length === 1 ? values[0] : multiple;
 }
 
-function provenance(sources: string[], periods: string[]): string {
-    return `${describe(sources, "Sumber tidak tersedia", "Beberapa sumber")} · ${describe(periods, "Periode tidak tersedia", "Beberapa periode")}`;
+function periodLabel(periods: string[]): string {
+    return describe(periods, "Periode tidak tersedia", "Beberapa periode");
 }
 
 function RangeKey({ range, format, scope = "di kecamatan yang ditampilkan" }: {
@@ -29,7 +29,7 @@ function CellKey({ layer, summary, zoneName }: { layer: CellLayer; summary: Cell
     const span = (bounds: { low: number; high: number } | null, value: number) =>
         bounds ? `${layer.format(bounds.low)}–${layer.format(bounds.high)}` : layer.format(value);
     return <>
-        <p className="mt-1 text-xs text-ink-muted">Sel H3 (~0,1 km²) · {provenance(summary.sources, summary.periods)}</p>
+        <p className="mt-1 text-xs text-ink-muted">Sel H3 (~0,1 km²) · {periodLabel(summary.periods)}</p>
         {layer.kind === "glow" ? <>
             <div className="mt-2 h-3 rounded-field" style={{ background: `linear-gradient(to right, ${GLOW_RAMP.join(", ")})` }} aria-hidden="true" />
             <div className="mt-1 flex flex-col gap-1 text-xs"><span>Lebih sedikit</span><span>Lebih banyak, relatif di {zoneName}</span></div>
@@ -82,13 +82,13 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
     const config = getMapMetricConfig(category, educationMetric);
     const missingCount = visibleZoneIds.filter((id) => !detailsByZone[id]?.facts.some((fact) =>
         fact.metric === config.metric && fact.evidence_type !== "unavailable")).length;
-    const { sources, periods, isSample } = summarizeFacts(visibleZoneIds.flatMap((id) =>
+    const { periods, isSample } = summarizeFacts(visibleZoneIds.flatMap((id) =>
         detailsByZone[id]?.facts.filter((fact) => fact.metric === config.metric && fact.evidence_type !== "unavailable") ?? []));
 
     return (
         <div data-hci-region="legend" className="flex w-11 flex-col items-center gap-2 font-body">
             <button type="button" aria-label="Legenda" title="Legenda" className="btn btn-square btn-outline btn-neutral size-11 min-h-11 min-w-11 bg-base-100 p-0 [anchor-name:--map-legend] hover:bg-neutral" popoverTarget="map-legend">
-                <List aria-hidden="true" className="size-4" />
+                <Layers aria-hidden="true" className="size-4" />
             </button>
             {cellSummary?.isSample && <span role="status" aria-label="Heatmap contoh" title="Heatmap contoh" className="badge badge-neutral size-11 rounded-field px-0 text-center text-[10px] leading-3 whitespace-normal">
                 <span aria-hidden="true">Data<br />contoh</span>
@@ -114,7 +114,7 @@ export default function MapLegend({ category, range, detailsByZone, visibleZoneI
                     </div>
                 </fieldset>}
                 {category === "summary" ? <SummaryKey /> : <>
-                    <p className="mt-1 text-xs text-ink-muted">Warna kecamatan · {provenance(sources, periods)}</p>
+                    <p className="mt-1 text-xs text-ink-muted">Warna kecamatan · {periodLabel(periods)}</p>
                     {range ? <RangeKey range={range} format={config.format} /> : <p className="mt-3">Belum ada nilai kecamatan yang ditampilkan.</p>}
                     {category === "education" && <>
                         <p className="mt-2 text-xs text-ink-muted">{visibleZoneIds.length - missingCount} dari {visibleZoneIds.length} kecamatan memiliki data.</p>
