@@ -1,4 +1,5 @@
 import "server-only";
+import { createAdminClient } from "../lib/admin";
 import { createClient } from "../lib/server";
 
 export async function getAuthenticatedClaims() {
@@ -15,7 +16,12 @@ export async function getAuthenticatedUserId() {
         : null;
 }
 
-export type AccountSummary = { name: string; planName: string | null };
+export async function deleteAccount(userId: string): Promise<void> {
+    const { error } = await createAdminClient().auth.admin.deleteUser(userId);
+    if (error) throw error;
+}
+
+export type AccountSummary ={ name: string; planName: string | null };
 
 function displayName(value: unknown): string | null {
     if (typeof value !== "string" || !value.trim()) return null;
@@ -26,7 +32,6 @@ function displayName(value: unknown): string | null {
         .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase("id-ID"));
 }
 
-// Signup name (email username as fallback) and current plan; no subscription row means the free tier.
 export async function getAccountSummary(): Promise<AccountSummary | null> {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.getClaims();

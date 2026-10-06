@@ -40,6 +40,61 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
         {preview.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
     </>;
 
+    // Form setup shows one pill; the form itself carries the district list and cost detail.
+    if (session && !completed) {
+        const total = preview.districts.length;
+        const message = dataLoading ? "Memuat data kecamatan…"
+            : dataError ?? (!preview.available ? preview.city ? "Data kecamatan untuk kota ini belum tersedia."
+                : "Pilih salah satu kota yang didukung untuk melihat kecamatan dan bukti yang tersedia." : null);
+        const retry = dataError ? onRetryData : geometryError && preview.available ? onRetry : null;
+        const summary = step === 1 ? <><strong>{total}</strong> kecamatan di {areaName}</>
+            : step === 2 ? <><strong className="tabular-nums">{preview.affordableCount}/{total}</strong> kecamatan dalam batas sewa</>
+            : step === 3 ? <>Moda {transportLabel ?? "belum dipilih"}</>
+            : hasBudgetCriteria ? <><strong className="tabular-nums">{preview.eligibleCount}/{total}</strong> kecamatan sesuai data dan estimasi</>
+            : <><strong>{preview.ranked.length}</strong> kecamatan dirangking</>;
+
+        return <div data-hci-region="onboarding-preview" role="status" className="absolute bottom-[calc(var(--onboarding-sheet-height,74dvh)+0.75rem)] left-3 z-100 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-2 rounded-[1.25rem] border border-rule bg-panel-surface px-4 py-2 font-body text-sm text-ink shadow-overlay md:bottom-4 md:left-5 md:max-w-[25rem]">
+            <span className={dataError ? "text-error" : undefined}>{message ?? summary}</span>
+            {!message && preview.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
+            {!message && geometryLoading && <span className="text-xs text-ink-muted">Memuat batas kecamatan…</span>}
+            {!message && geometryError && <span className="text-xs text-ink-muted">{geometryError}</span>}
+            {retry && <button type="button" onClick={retry} className="btn btn-ghost -my-1 min-h-11 shrink-0 px-1 text-xs text-primary underline">Coba lagi</button>}
+        </div>;
+    }
+
+    if (proposal && step === 4 && !completed) {
+        return <section data-hci-region="onboarding-preview" aria-label="Urutan kecamatan saat ini"
+            className="absolute left-3 top-3 z-100 w-[min(25rem,calc(100%-1.5rem))] rounded-xl border border-rule bg-panel-surface px-3 py-2 font-body text-ink shadow-overlay md:bottom-4 md:left-4 md:top-auto md:w-[min(20rem,calc(100%-29rem))] md:p-3">
+            <div className="flex items-center justify-between gap-2">
+                <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Urutan teratas saat ini</h2>
+                {badge}
+            </div>
+            {dataLoading ? <p role="status" className="mt-2 text-xs">Memuat data kecamatan…</p>
+                : dataError ? <p role="alert" className="text-xs text-error">{dataError}<button type="button" onClick={onRetryData} className="btn btn-ghost min-h-11 px-1 text-xs underline">Coba lagi</button></p>
+                : !preview.available ? <p role="status" className="mt-2 text-xs">{preview.city ? "Data kecamatan belum tersedia." : "Pilih kota tujuan untuk melihat kecamatan."}</p>
+                : top.length ? <ol aria-label="Peringkat teratas" data-hci-region="onboarding-top-ranking" className="mt-1 flex gap-3 overflow-x-auto text-xs md:block md:divide-y md:divide-rule">
+                    {top.map((item) => <li key={item.district.zone_id} className="shrink-0">
+                        <button type="button" aria-pressed={selectedDistrictId === item.district.zone_id} onClick={() => onSelectDistrict(item.district.zone_id)}
+                            className="btn btn-ghost min-h-11 w-full justify-start gap-2 rounded-lg px-0.5 text-xs md:px-1">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary font-semibold text-primary-content">{item.rank}</span>
+                            <span className="min-w-0 truncate">{item.district.zone_name}</span>
+                            <span className="badge badge-outline badge-xs ml-auto hidden tabular-nums md:inline-flex">{item.score}</span>
+                        </button>
+                    </li>)}
+                </ol> : <p role="status" className="mt-2 text-xs">Belum ada urutan dengan batas dan data ini.</p>}
+            <p className="mt-1 hidden text-xs text-ink-muted md:block">Skor memakai dimensi dengan data. Geser bobot untuk membandingkan.</p>
+            {geometryLoading && <p role="status" className="text-xs text-ink-muted">Memuat batas kecamatan…</p>}
+            {geometryError && <p className="text-xs text-ink-muted">{geometryError}<button type="button" onClick={onRetry} className="btn btn-ghost min-h-11 px-1 text-xs text-primary underline">Coba lagi</button></p>}
+            {preview.available && <details className="hidden border-t border-rule text-xs md:block" data-hci-region="onboarding-accessible-results">
+                <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan</summary>
+                <ul className="max-h-40 space-y-1 overflow-y-auto" aria-label="Kecamatan dalam pratinjau">
+                    {visiblePreviewDistricts(preview, true).map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={4}
+                        selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
+                </ul>
+            </details>}
+        </section>;
+    }
+
     return <section data-hci-region="onboarding-preview" aria-label="Pratinjau data wilayah" className={`@container absolute left-3 z-100 w-[min(25rem,calc(100%-1.5rem))] rounded-xl border border-rule bg-panel-surface p-3 font-body text-ink shadow-overlay md:left-5 md:rounded-2xl ${completed ? "bottom-[calc(var(--map-sheet-height,44px)+1rem)]" : "bottom-[calc(var(--onboarding-sheet-height,74dvh)+0.75rem)] md:bottom-4"}`}>
         <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">

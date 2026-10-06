@@ -514,7 +514,9 @@ test("located offices become the district's company count instead of a separate 
     assert.equal(companies?.value, 2);
     assert.equal(companies?.approximate, true);
     assert.equal(companies?.is_sample, false);
-    assert.equal(companies?.period_end, "2026-09-28");
+    assert.equal(companies?.period_end, null);
+    assert.equal(companies?.retrieved_at, "2026-09-28T08:09:44Z");
+    assert.equal(companies?.geographic_level, "zone");
     assert.equal(merged.find((fact) => fact.metric === "employment_rate")?.value, 0.7);
 
     // No located offices: the stored fact stays.

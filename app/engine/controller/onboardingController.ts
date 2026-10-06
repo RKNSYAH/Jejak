@@ -1,6 +1,8 @@
 import "server-only";
 import { createClient } from "@/app/engine/lib/server";
-import { includeSample, type RegionDetailRow } from "./zoneController";
+import { includeSample, supportedSector, type RegionDetailRow } from "./zoneController";
+import { withCachedEvidence } from "./cachedEvidenceController";
+import { createAdminClient, isAdminConfigured } from "../lib/admin";
 import { getMetroCityIds } from "../lib/metroArea";
 import type { OnboardingArea, OnboardingCity, OnboardingCampus } from "../onboarding/types";
 import type { RegionFact } from "../types";
@@ -86,7 +88,16 @@ export async function getOnboardingCityRows(cityId: string | null): Promise<Onbo
     const failed = results.find((result) => result.error);
     if (failed?.error) throw failed.error;
 
-    const rawAreas = results.flatMap((result) => (result.data ?? []) as RawArea[]);
+    const rawAreas = await withCachedEvidence(results.flatMap((result) => (result.data ?? []) as RawArea[]), supportedSector);
+    // KBLI-to-product mappings are data, not inferred from sector labels.
+    let sectorMappings: { kbli_2020_code: string; jejak_sector_id: string }[] = [];
+    if (isAdminConfigured()) {
+        try {
+            const { data, error } = await createAdminClient().from("sector_mapping").select("kbli_2020_code,jejak_sector_id");
+            if (error) throw error;
+            sectorMappings = data ?? [];
+        } catch { /* Missing mappings leave sector fit unsupported, not guessed. */ }
+    }
     const areas: OnboardingArea[] = rawAreas.map((row) => ({
         zone_id: row.region_code,
         zone_name: row.region_name,
@@ -94,7 +105,9 @@ export async function getOnboardingCityRows(cityId: string | null): Promise<Onbo
         city_name: row.parent_name,
         is_sample: row.is_sample,
         center: coordinates(row.center),
-        facts: Array.isArray(row.facts) ? row.facts : [],
+        facts: (Array.isArray(row.facts) ? row.facts : []).map((fact) => fact.dimension_key === "kbli_2020_code"
+            ? { ...fact, sector_ids: sectorMappings.filter((mapping) => mapping.kbli_2020_code === fact.dimension_value)
+                .map((mapping) => mapping.jejak_sector_id) } : fact),
         campuses: (Array.isArray(row.campuses) ? row.campuses : []).map((place) => ({
             id: `${row.region_code}:${place.id}`,
             name: place.name,

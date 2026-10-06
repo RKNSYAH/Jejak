@@ -29,8 +29,8 @@ const geometry: ZoneGeometry = {
         geometry: { type: "Polygon", coordinates: [[[106, -6], [107, -6], [107, -5], [106, -6]]] } })),
 };
 
-function panel(data: ZoneDetailResult | null, loading = false): string {
-    return renderToStaticMarkup(<ZoneIntelligencePanel zoneName="Kecamatan uji" category="education" details={data}
+function panel(data: ZoneDetailResult | null, loading = false, category: "education" | "employment" = "education"): string {
+    return renderToStaticMarkup(<ZoneIntelligencePanel zoneName="Kecamatan uji" category={category} details={data}
         loading={loading} error={null} isSample={data?.is_sample ?? false} geometryMissing={false}
         onRetry={() => {}} onClose={() => {}} mobileOpen={false} />);
 }
@@ -74,18 +74,27 @@ test("education panel always shows both cards, retaining zero separately from mi
     }
 });
 
-test("education cards retain source, period, sample state, and limitations", () => {
+test("education cards avoid source text dumps while retaining a source link and period", () => {
     const html = panel({ is_sample: true, places: [], facts: [count("schools", 51, {
-        is_sample: true, limitations: "Cakupan terbatas", evidence_type: "estimated",
+        source: "Kota Jakarta Selatan Dalam Angka 2026, Tables 4.1.3, 4.1.5; Workbook 06_institutions + 07_campuses",
+        is_sample: true, limitations: "Cakupan terbatas dengan metodologi panjang", evidence_type: "estimated",
     })] });
     assert.match(html, /Data contoh/);
     assert.match(html, /2025-12-31/);
     assert.match(html, /href="https:\/\/example.test\/pendidikan"/);
-    assert.match(html, /Direktori pendidikan/);
-    assert.match(html, /Cakupan terbatas/);
+    assert.match(html, />Sumber<\/a>/);
+    assert.doesNotMatch(html, /Kota Jakarta Selatan Dalam Angka|metodologi panjang/);
     const loading = panel(null, true);
     assert.match(loading, /Memuat…/);
     assert.doesNotMatch(loading, /Belum tersedia/);
+});
+
+test("other lens cards use the same concise source link", () => {
+    const html = panel({ is_sample: false, places: [], facts: [count("company_count", 4, {
+        source: "Long company registry source description",
+    })] }, false, "employment");
+    assert.match(html, />Sumber<\/a>/);
+    assert.doesNotMatch(html, /Long company registry source description/);
 });
 
 test("campus points do not turn incomplete university counts into invented totals", () => {
@@ -116,7 +125,7 @@ test("education legend uses the selected measure for its heading, source, scale,
     assert.match(html, /checked="" value="universities"/);
     assert.match(html, /3 dari 6 kecamatan memiliki data/);
     assert.match(html, /Tanpa warna: data belum tersedia/);
-    assert.match(html, /Direktori universitas/);
+    assert.doesNotMatch(html, /Direktori universitas/);
     assert.match(html, /2024-12-31/);
     assert.match(html, /Data contoh/);
     assert.doesNotMatch(html, /Survei sekolah|2025-12-31/);

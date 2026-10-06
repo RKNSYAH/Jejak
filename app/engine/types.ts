@@ -43,6 +43,13 @@ export type RegionFact = {
     dimension_value?: string | null;
     // Counted from monitored web sources: show as "sekitar N", never as an exact total.
     approximate?: boolean;
+    // Cache provenance is retrieval time, never a fabricated observation period.
+    retrieved_at?: string | null;
+    freshness?: "fresh" | "stale";
+    geographic_level?: "zone";
+    sample_size?: number;
+    // Confirmed sector scope or the database's KBLI mapping; not an occupation match.
+    sector_ids?: string[];
 };
 
 export type RegionPlace = {

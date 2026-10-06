@@ -118,8 +118,23 @@
 }
 
 /* Non-modal onboarding sheet: keeps the map available for destination picking. */
-.onboarding-form-panel:not([open]) {
+.onboarding-form-panel:not([open]),
+dialog.onboarding-story-panel:not([open]) {
   display: none;
+}
+
+/* Keep a 44px slider hit area without stretching daisyUI's shadow-based fill. */
+.story-priority-range {
+  --range-fill: 0;
+  --range-thumb: var(--color-primary);
+}
+
+.story-priority-range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--color-primary) var(--range-value), var(--color-rule) var(--range-value));
+}
+
+.story-priority-range::-moz-range-track {
+  background: linear-gradient(to right, var(--color-primary) var(--range-value), var(--color-rule) var(--range-value));
 }
 
 .onboarding-hatch-swatch {

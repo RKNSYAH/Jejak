@@ -63,12 +63,9 @@ function PanelContent({ zoneName, details, category, loading, error, isSample, g
               <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
               <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{fact ? formatFactValue(fact) : loading ? "Memuat…" : "Belum tersedia"}</dd>
               {fact && <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>}
-              {fact && category === "education" && <>
-                <dd className="mt-1 text-xs text-ink-muted">{fact.source_url
-                  ? <a className="link link-hover" href={fact.source_url} target="_blank" rel="noreferrer">{fact.source}</a>
-                  : fact.source}</dd>
-                {fact.limitations && <dd className="mt-1 text-xs text-ink-muted">{fact.limitations}</dd>}
-              </>}
+              {fact?.source_url && <dd className="mt-1 text-xs text-ink-muted">
+                <a className="link link-hover" href={fact.source_url} target="_blank" rel="noreferrer">Sumber</a>
+              </dd>}
             </div>
           ))}
         </dl>}

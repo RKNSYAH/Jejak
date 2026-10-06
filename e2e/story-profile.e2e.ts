@@ -48,7 +48,8 @@ test("unknown-budget story discards guessed car and requires an unselected trans
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     const processed = (await (await followUpResponse).json()).profile;
     expect(processed.soft_preferences.transport_mode).toBe("motorcycle");
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
+    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
     await expect(page.getByRole("dialog").locator("section").filter({ has: page.getByRole("heading", { name: "Moda transportasi", exact: true }) })).toContainText("Motor");
 });
 
@@ -86,10 +87,10 @@ for (const [length, story] of [
         expect(sent).toContain("Moda transportasi apa yang kamu pilih?\nJawaban: transit");
         expect(sent).toContain("Tujuan pindah\nJawaban: Kerja dan kuliah");
         expect(proposed.hard_constraints.goal).toBe("both");
-        await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
         await expect(page.getByRole("dialog")).toContainText("Kerja dan kuliah");
         const saving = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
-        await page.getByRole("button", { name: "Simpan dan selesaikan" }).click();
+        await page.getByRole("button", { name: "Selesai, buka peta" }).click();
         const saveResponse = await saving;
         expect(saveResponse.status()).toBe(201);
         const saved = (await saveResponse.json()).profile;
@@ -113,7 +114,8 @@ test("inferred story goal is highlighted and failed saving keeps the review for 
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah untuk bekerja. Rp6 juta, kantor di Kuningan, naik transportasi umum.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    const save = page.getByRole("button", { name: "Simpan dan selesaikan" });
+    const save = page.getByRole("button", { name: "Selesai, buka peta" });
+    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
     await expect(page.getByRole("dialog").locator("section").filter({ has: page.getByRole("heading", { name: "Tujuan", exact: true }) })).toContainText("disimpulkan");
     await expect(save).toBeEnabled();
     let attempts = 0;
@@ -155,7 +157,7 @@ test("map-picked story answer survives refresh and saves exact chosen coordinate
     const proposed = (await (await analysis).json()).profile;
     expect(proposed.decision_trace.received_message).toContain("Lokasi kantor dipilih di peta:");
     expect(proposed.soft_preferences.destination).toEqual({ name: "Dipilih di peta", precision: "point", ...point });
-    await page.getByRole("button", { name: "Simpan dan selesaikan" }).click();
+    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
     const backend = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
     expect(backend.profile.soft_preferences.destination).toEqual(proposed.soft_preferences.destination);
@@ -220,12 +222,14 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     expect(proposed.decision_trace.received_message).toContain(`${commuteQuestion}\nJawaban: 45 menit`);
     expect(proposed.hard_constraints.commute_minutes).toBe(45);
     const review = page.getByRole("dialog");
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
+    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
     await expect(review).not.toContainText("Pertanyaan lanjutan");
     for (const [label, value] of [["Waktu tempuh", "45 menit"], ["Anggaran bulanan", "Rp5.000.000"], ["Batas sewa", "Rp2.000.000"], ["Lokasi tujuan", "Jakarta Selatan"], ["Moda transportasi", "Transport umum"]]) {
         await expect(review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) })).toContainText(value);
     }
-    expect(await review.locator("[data-priority-swatch]").evaluateAll((swatches) => swatches.map((swatch) => getComputedStyle(swatch).backgroundColor))).toEqual(colors);
+    await expect(review.getByRole("slider")).toHaveCount(4);
+    expect(await review.getByRole("slider").evaluateAll((sliders) => sliders.reduce((sum, slider) => sum + Number((slider as HTMLInputElement).value), 0))).toBe(100);
     // Only Kecamatan A (Rp4,5 jt) fits Rp5 jt / Rp2 jt; Kecamatan B's Rp3 jt rent must not stretch the range.
     const cost = review.locator('[data-hci-region="story-cost-estimate"]');
     await expect(cost).toContainText("Perkiraan biaya bulanan · Jabodetabek");
@@ -233,9 +237,9 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await expect(cost).not.toContainText("Data contoh");
     // "Ubah" edits in place instead of sending the user back to an earlier step.
     const card = (label: string) => review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) });
-    const save = page.getByRole("button", { name: "Simpan dan selesaikan" });
+    const save = page.getByRole("button", { name: "Selesai, buka peta" });
     await card("Batas sewa").getByRole("button", { name: "Ubah Batas sewa" }).click();
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     await expect(save).toBeDisabled();
     await card("Batas sewa").getByRole("textbox", { name: "Batas sewa" }).fill("3.000.000");
     await card("Batas sewa").getByRole("button", { name: "Simpan", exact: true }).click();
@@ -253,8 +257,15 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await card("Waktu tempuh").getByRole("button", { name: "Batal", exact: true }).click();
     await expect(card("Waktu tempuh")).toContainText("45 menit");
     await expect(save).toBeEnabled();
-    await review.locator("section").filter({ has: page.getByRole("heading", { name: "Prioritas", exact: true }) })
-        .screenshot({ path: test.info().outputPath("priority-palette.png") });
+    await page.getByRole("button", { name: "Kembali", exact: true }).click();
+    await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
+    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
+    await expect(card("Batas sewa")).toContainText("Rp3.000.000 / bulan");
+    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 / bulan");
+    await expect(card("Waktu tempuh")).toContainText("45 menit");
+    await review.locator('[data-hci-region="story-review-priorities"]')
+        .screenshot({ path: test.info().outputPath("story-priorities.png") });
+    await review.getByRole("button", { name: "Benar", exact: true }).click();
     await expect(review.getByRole("button", { name: "Benar", exact: true })).toHaveCount(0);
     await save.click();
     await expect(review).toBeHidden();
@@ -278,10 +289,10 @@ test("no follow-up questions opens review directly after an explicit goal choice
     await expect(page.getByRole("region", { name: "Pertanyaan lanjutan" })).toContainText("Tidak ada pertanyaan lanjutan");
     await page.getByRole("radio", { name: "Kerja dan kuliah", exact: true }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     expect(analyses).toBe(1);
     await expect(page.getByRole("dialog")).not.toContainText("Pertanyaan lanjutan");
-    await page.getByRole("button", { name: "Simpan dan selesaikan" }).click();
+    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
     expect((await (await page.request.get("/api/user/relocation-profile")).json()).profile.profile.hard_constraints.goal).toBe("both");
 });
@@ -313,7 +324,7 @@ test("failed follow-up processing keeps step two and retries LF-05 with unchange
     await expect(page.getByRole("dialog")).toBeHidden();
     await expect(page.getByRole("textbox", { name: commuteQuestion })).toHaveValue("45");
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     expect(analyses).toBe(3);
 });
 
@@ -342,6 +353,6 @@ test("new unanswered questions stay on step two before a fresh review", async ({
     await expect(stepTwo.locator('[data-hci-region="onboarding-profile-preview"]')).toContainText("45 menit");
     await page.getByRole("textbox", { name: newQuestion }).fill("Hybrid");
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await expect(page.getByRole("heading", { name: "Apakah sudah sesuai?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     expect(analyses).toBe(3);
 });

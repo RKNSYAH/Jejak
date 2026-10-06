@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, CheckSquare, Mic, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckSquare, MapPin, Mic, X } from "lucide-react";
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
 import { validateLF05Proposal, type LF05ProposedProfile } from "../../engine/lib/lf05Validation";
 import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
 import { formatRupiah, transportModeLabels } from "../../engine/onboarding/demoData";
-import { STORY_DRAFT_KEY, type FormSession } from "../../engine/onboarding/types";
+import { STORY_DRAFT_KEY, type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
 import { applyLF05ExplicitDetails, applyLF05FieldEdit, getLF05ClarificationField, getLF05TargetCity, groundLF05Transport, parseLF05CommuteAnswer, type LF05ClarificationAnswer, type LF05FollowUpDetails } from "../../engine/lib/lf05FollowUp";
@@ -17,8 +17,14 @@ import { getLF05TransportQuestion, parseLF05TransportAnswer } from "../../engine
 import { RadioChoices } from "./onboarding/FormControls";
 import type { MonthlyCostRange } from "../../engine/onboarding/livePreview";
 import ProfileFieldEditor, { editableProfileFields } from "./onboarding/ProfileFieldEditor";
+import StoryReviewPanel from "./onboarding/StoryReviewPanel";
+import { priorityKeys } from "../../engine/onboarding/preview";
+import { storyPriorityWeights, updateStoryPriority } from "../../engine/onboarding/storyPriorities";
+import DistrictListItem from "./onboarding/DistrictListItem";
+import { visiblePreviewDistricts } from "../../engine/onboarding/visibleDistricts";
 
 const MAX_STORY_LENGTH = 1000;
+const compactMoney = new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 });
 
 const placeholderStory = "Saya berencana pindah untuk bekerja di bidang teknologi. Saya mencari kos dengan batas sewa dan anggaran bulanan tertentu. Saya lebih nyaman naik transportasi umum dan ingin memahami pilihan kecamatan yang sesuai.";
 
@@ -37,12 +43,13 @@ type Draft = {
   explicitGoal?: RelocationGoal | null;
   analyzedInput?: string | null;
   mapPoint?: MapPoint | null;
+  prioritySuggestion?: { weights: Record<string, number>; inferred: boolean } | null;
 };
 
 export type MapPoint = { longitude: number; latitude: number };
 
 type RelocationOnboardingProps = {
-  // The map previews step 2's unsaved proposal, so the parent owns both values.
+  // The map previews the unsaved proposal in steps 2 and 3.
   step: StoryStep;
   onStepChange: (step: StoryStep) => void;
   proposal: LF05ProposedProfile | null;
@@ -56,6 +63,10 @@ type RelocationOnboardingProps = {
   selectedOffice: OfficeChoice;
   onOfficeChange: (office: OfficeChoice) => void;
   onMapPickingChange: (picking: boolean) => void;
+  mapPicking?: boolean;
+  preview?: LiveOnboardingPreview | null;
+  selectedDistrictId?: string | null;
+  onSelectDistrict?: (id: string) => void;
   onOnboardingActiveChange: (active: boolean) => void;
   formSession: FormSession | null;
   formReady: boolean;
@@ -117,6 +128,12 @@ function formatProfileValue(field: string, value: unknown): string {
   return "Belum ada";
 }
 
+function formatProfileChip(field: string, value: unknown) {
+  if (field === "housing_budget" && isRecord(value) && typeof value.amount === "number") return `Sewa ≤ Rp${compactMoney.format(value.amount)}`;
+  if (field === "commute_minutes" && typeof value === "number") return `≤ ${value} mnt`;
+  return formatProfileValue(field, value);
+}
+
 type ProfileDisplayRow = {
   key: string;
   field: string;
@@ -162,7 +179,7 @@ function priorityColor(key: string) {
 
 function PriorityWeights({ weights }: { weights: Record<string, number> }) {
   if (!Object.keys(weights).length) return <span>Belum ditentukan</span>;
-  const entries = ["career", "housing", "commute", "education", "cost_of_living"].map((key) => [key, weights[key] ?? 0] as const);
+  const entries = ["career", "housing", "commute", "education", "cost_of_living", ...(weights.environment ? ["environment"] : [])].map((key) => [key, weights[key] ?? 0] as const);
   const accessibleSummary = entries.map(([key, weight]) => formatWeight(key, weight)).join(", ");
 
   return (
@@ -218,6 +235,10 @@ export default function RelocationOnboarding({
   selectedOffice,
   onOfficeChange,
   onMapPickingChange,
+  mapPicking = false,
+  preview = null,
+  selectedDistrictId = null,
+  onSelectDistrict,
   onOnboardingActiveChange,
   formSession,
   formReady,
@@ -229,6 +250,7 @@ export default function RelocationOnboarding({
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const ignoreCloseRef = useRef(false);
+  const reviewSummaryRef = useRef<HTMLDetailsElement>(null);
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -241,8 +263,11 @@ export default function RelocationOnboarding({
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [prioritySuggestion, setPrioritySuggestion] = useState<Draft["prioritySuggestion"]>(null);
   const extractedProfile = extractUserProfile(story);
   const profileRows = proposal ? getProfileRows(proposal) : [];
+  const summaryRows = profileRows.filter((row) => ["goal", "destination_cities", "housing_budget", "commute_minutes"].includes(row.field))
+    .map((row) => ({ ...row, compactValue: row.missing ? `${row.label} belum diisi` : formatProfileChip(row.field, proposal?.hard_constraints[row.field] ?? proposal?.soft_preferences[row.field]) }));
   const clarificationQuestions = proposal?.clarification_questions ?? [];
   const officeQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "destination");
   const officeQuestion = clarificationQuestions[officeQuestionIndex];
@@ -251,7 +276,15 @@ export default function RelocationOnboarding({
   const profileGoal = proposal ? getRelocationGoal(proposal) : null;
   const currentInput = followUpInputKey(clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint);
   const followUpDirty = proposal !== null && analyzedInput !== currentInput;
-  const canConfirmProfile = !!proposal && profileGoal !== null && !followUpDirty;
+  const canConfirmProfile = !!proposal && profileGoal !== null && clarificationQuestions.length === 0 && (step === 3 || !followUpDirty);
+  const reviewWeights = storyPriorityWeights(proposal?.priority_weights ?? {});
+  const prioritiesInferred = proposal?.inferred_fields.includes("priorities") ?? false;
+  const opportunityLabel = profileGoal === "study" ? "Pendidikan" : profileGoal === "both" ? "Karier & pendidikan" : "Karier";
+  const reviewPriorityLabels = { opportunity: opportunityLabel, affordability: "Keterjangkauan", mobility: "Mobilitas", environment: "Lingkungan" };
+  const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Data belum tersedia" };
+  const destination = proposal?.hard_constraints.destination ?? proposal?.soft_preferences.destination;
+  const hasSpecificDestination = isRecord(destination) && destination.precision !== "city";
+  const destinationLabel = profileGoal === "study" ? "Kampus" : profileGoal === "both" ? "Tujuan" : "Kantor";
 
   function answerClarification(question: string, answer: string) {
     setClarificationAnswers((current) => ({ ...current, [question]: answer }));
@@ -296,6 +329,7 @@ export default function RelocationOnboarding({
         setClarificationAnswers(draft.clarificationAnswers ?? {});
         setExplicitGoal(draft.explicitGoal ?? null);
         setAnalyzedInput(draft.analyzedInput ?? null);
+        setPrioritySuggestion(draft.prioritySuggestion ?? null);
       } else if (requested && !alreadyOnboarded && formSession?.status !== "active" && formSession?.status !== "completed") {
         setStep(1);
       }
@@ -330,12 +364,12 @@ export default function RelocationOnboarding({
       return;
     }
 
-    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint };
+    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, prioritySuggestion };
     try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
-  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport]);
+  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport, prioritySuggestion]);
 
   useEffect(() => {
-    const shouldShowDialog = (step === 1 || step === 3) && formSession?.status !== "active";
+    const shouldShowDialog = step === 1 && formSession?.status !== "active";
     const dialog = dialogRef.current;
 
     onMapPickingChange(step === 2 && officeQuestionIndex >= 0 && selectedOffice === "Dipilih di peta" && !isSubmitting);
@@ -384,12 +418,26 @@ export default function RelocationOnboarding({
     if (!proposal) return;
     try {
       setProposal(validateLF05Proposal(applyLF05FieldEdit(proposal, field, value), onboardingTaxonomy));
+      if (field === "destination") {
+        onOfficeChange("Belum tahu");
+        onMapPointChange(null);
+        setAnalyzedInput(followUpInputKey(clarificationAnswers, explicitGoal, transport, "Belum tahu", null));
+      }
       setEditingField(null);
       setEditError(null);
       setSaveError(null);
     } catch {
       setEditError("Nilai ini belum bisa disimpan. Coba nilai lain.");
     }
+  }
+
+  function changePriority(key: Priority, value: number) {
+    if (!proposal || !profileGoal || isSaving) return;
+    setProposal(validateLF05Proposal({ ...proposal,
+      priority_weights: updateStoryPriority(proposal.priority_weights, profileGoal, key, value),
+      inferred_fields: proposal.inferred_fields.filter((field) => field !== "priorities"),
+    }, onboardingTaxonomy));
+    setSaveError(null);
   }
 
   function getFollowUpRequest(): { answers: LF05ClarificationAnswer[]; details: LF05FollowUpDetails } {
@@ -453,6 +501,7 @@ export default function RelocationOnboarding({
 
       const nextProposal = validateLF05Proposal(result.profile, onboardingTaxonomy);
       setProposal(nextProposal);
+      setPrioritySuggestion({ weights: nextProposal.priority_weights, inferred: nextProposal.inferred_fields.includes("priorities") });
       setAnalyzedInput(fresh ? followUpInputKey({}, null, null, "Belum tahu", null) : currentInput);
       return nextProposal;
     } catch (error) {
@@ -475,6 +524,7 @@ export default function RelocationOnboarding({
     setExplicitGoal(null);
     setAnalyzedInput(null);
     setTransport(null);
+    setPrioritySuggestion(null);
     onOfficeChange("Belum tahu");
     onMapPointChange(null);
   }
@@ -500,7 +550,7 @@ export default function RelocationOnboarding({
       }
       // Question presence, not a dirty flag, determines whether Next calls LF-05.
       const result = !proposal || clarificationQuestions.length ? await requestProfile(followUp)
-        : validateLF05Proposal(applyLF05ExplicitDetails(proposal, explicitGoal ?? undefined, followUp.details), onboardingTaxonomy);
+        : followUpDirty ? validateLF05Proposal(applyLF05ExplicitDetails(proposal, explicitGoal ?? undefined, followUp.details), onboardingTaxonomy) : proposal;
       if (!result) return;
       if (result.clarification_questions.length) {
         setRequestError("Ada pertanyaan baru. Lengkapi dulu sebelum meninjau.");
@@ -511,6 +561,7 @@ export default function RelocationOnboarding({
         return;
       }
       setProposal(result);
+      if (!prioritySuggestion) setPrioritySuggestion({ weights: result.priority_weights, inferred: result.inferred_fields.includes("priorities") });
       setAnalyzedInput(currentInput);
       setStep(3);
     } catch (error) {
@@ -519,7 +570,7 @@ export default function RelocationOnboarding({
   }
 
   async function saveProfile() {
-    if (!proposal || !canConfirmProfile || isSaving) return;
+    if (!proposal || !canConfirmProfile || isSaving || editingField !== null || mapPicking) return;
 
     setIsSaving(true);
     setSaveError(null);
@@ -706,8 +757,8 @@ export default function RelocationOnboarding({
 
       <dialog
         ref={dialogRef}
-        aria-labelledby={step === 3 ? "onboarding-step-three-title" : "onboarding-step-one-title"}
-        data-hci-region={step === 3 ? "relocation-onboarding-step-3" : "relocation-onboarding-step-1"}
+        aria-labelledby="onboarding-step-one-title"
+        data-hci-region="relocation-onboarding-step-1"
         className="modal modal-middle onboarding-dialog"
         onClose={handleDialogClose}
         onCancel={(event) => { if (isSubmitting || isSaving) event.preventDefault(); }}
@@ -785,71 +836,107 @@ export default function RelocationOnboarding({
           </form>
         )}
 
-        {step === 3 && (
-          <fieldset disabled={isSaving} aria-busy={isSaving} className="modal-box min-w-0 max-h-[calc(100dvh-1.5rem)] w-[min(45rem,calc(100vw-1.5rem))] max-w-none overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-4 text-ink shadow-overlay md:p-6">
-            <StepHeader step={3} onSkip={dismiss} disabled={isSaving} />
-
-            <h1 id="onboarding-step-three-title" className="mt-4 font-sans text-2xl font-bold leading-tight text-ink md:text-[1.75rem]">
-              Apakah sudah sesuai?
-            </h1>
-            <p className="mt-1 text-sm leading-relaxed text-ink-muted">Periksa ringkasan rencana pindahmu. Bagian yang disorot disimpulkan dari ceritamu.</p>
-
-            {(costRange || costLoading) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-4 rounded-xl border border-rule px-3 py-2.5">
-              <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan{costCityName ? ` · ${costCityName}` : ""}</h2>
-              <p className="mt-0.5 font-sans text-xl font-bold tabular-nums text-ink">
-                {!costRange ? "Menghitung…" : costRange.high === null ? `mulai Rp${formatRupiah(costRange.low)} / bulan`
-                  : costRange.low === costRange.high ? `sekitar Rp${formatRupiah(costRange.low)} / bulan`
-                  : `Rp${formatRupiah(costRange.low)} – Rp${formatRupiah(costRange.high)} / bulan`}
-              </p>
-              {costRange && <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                {costRange.high === null ? "Belum ada kecamatan yang masuk anggaranmu" : "Sewa + biaya hidup di kecamatan yang masuk anggaranmu"}
-                {costRange.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
-              </p>}
-            </section>}
-
-
-            <div className="mt-3 grid gap-x-5 gap-y-3 sm:grid-cols-2">
-              {profileRows.map((row) => (
-                <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing}
-                  editing={editingField === row.field}
-                  onEdit={editableProfileFields.has(row.field) ? () => { setEditError(null); setEditingField(row.field); } : undefined}>
-                  {editingField === row.field && proposal ? <ProfileFieldEditor field={row.field} label={row.label}
-                    value={proposal.hard_constraints[row.field] ?? proposal.soft_preferences[row.field]}
-                    onSave={(value) => saveFieldEdit(row.field, value)} onCancel={() => setEditingField(null)} />
-                    : row.priorityWeights ? <PriorityWeights weights={row.priorityWeights} /> : row.value}
-                </ReviewSummary>
-              ))}
-            </div>
-            {editError && <p role="alert" className="mt-2 text-sm font-semibold text-error">{editError}</p>}
-
-            <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-3">
-              <button type="button" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
-                <ArrowLeft aria-hidden="true" className="size-4" /> Kembali
-              </button>
-              <button type="button" disabled={!canConfirmProfile || isSaving || editingField !== null} onClick={() => void saveProfile()} className="btn btn-primary min-h-11 rounded-xl px-4">
-                {isSaving ? "Menyimpan profil…" : "Simpan dan selesaikan"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
-              </button>
-            </footer>
-            {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
-            {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
-          </fieldset>
-        )}
       </dialog>
+      {step === 3 && <StoryReviewPanel saving={isSaving} onDismiss={dismiss} onSubmit={() => void saveProfile()}
+        header={<StepHeader step={3} onSkip={dismiss} disabled={isSaving} compact className="px-5 pb-2 pt-1 md:pt-4" />}
+        footer={<>
+          <button type="button" disabled={isSaving} aria-label="Kembali" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-12 rounded-xl px-3">
+            <ArrowLeft aria-hidden="true" className="size-4" /><span className="hidden md:inline">Kembali</span>
+          </button>
+          <button type="submit" disabled={!canConfirmProfile || isSaving || editingField !== null || mapPicking} className="btn btn-primary min-h-12 min-w-0 flex-1 rounded-xl px-3 md:flex-none">
+            {isSaving ? "Menyimpan profil…" : "Selesai, buka peta"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
+          </button>
+        </>}>
+        <section aria-label="Profil dari ceritamu" data-hci-region="story-review-profile" className="mt-4 rounded-xl border border-ink/25 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="hidden text-xs font-semibold md:block">Profil dari ceritamu</h2>
+            <p className="min-w-0 text-xs md:hidden">{summaryRows.filter((row) => row.field !== "destination_cities").map((row) => row.compactValue).join(" · ")}</p>
+            <button type="button" onClick={() => {
+              const details = reviewSummaryRef.current;
+              if (!details) return;
+              details.open = true;
+              details.querySelector("summary")?.focus();
+            }} aria-label="Ubah profil" className="btn btn-ghost min-h-11 px-1 text-xs text-primary underline">Ubah</button>
+          </div>
+          <div className="hidden flex-wrap gap-1.5 text-xs md:flex">
+            {summaryRows.map((row) => <span key={row.field} className={`badge h-auto min-h-6 whitespace-normal py-1 ${row.missing ? "badge-outline" : "badge-neutral"}`}>{row.compactValue}</span>)}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-rule pt-1 text-xs">
+            <p className="min-w-0 text-ink-muted">{destinationLabel} <strong className="text-ink">{hasSpecificDestination ? formatProfileValue("destination", destination) : "belum dipilih"}</strong></p>
+            <button type="button" aria-pressed={mapPicking} onClick={() => onMapPickingChange(!mapPicking)} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-primary underline">
+              <MapPin aria-hidden="true" className="size-3.5" />{mapPicking ? "Batal pilih" : "Pilih di peta"}
+            </button>
+          </div>
+          {mapPicking && <p role="status" className="pb-1 text-xs text-primary">Klik lokasi tujuanmu di peta.</p>}
+        </section>
+        {proposal && <section aria-label="Prioritas" data-hci-region="story-review-priorities" className="mt-3">
+          <div className="flex min-h-11 items-center justify-between gap-2 text-xs">
+            <p className="flex flex-wrap items-center gap-1.5">{prioritiesInferred ? <><span className="badge badge-outline badge-xs">Disimpulkan</span>Bobot dari ceritamu</> : "Bobot pilihanmu"}</p>
+            {prioritiesInferred && <button type="button" onClick={() => setProposal({ ...proposal, inferred_fields: proposal.inferred_fields.filter((field) => field !== "priorities") })} className="btn btn-outline btn-neutral min-h-11 gap-1 px-2 text-xs"><Check aria-hidden="true" className="size-3.5" />Benar</button>}
+          </div>
+          <div className="divide-y divide-rule">
+            {priorityKeys.map((key) => <div key={key} className="grid grid-cols-[minmax(0,1fr)_3rem] gap-x-3 py-2 md:@min-[23rem]:grid-cols-[7rem_minmax(0,1fr)_3rem] md:@min-[23rem]:items-center">
+              <div className="min-w-0"><label htmlFor={`story-weight-${key}`} className="text-sm font-semibold">{reviewPriorityLabels[key]}</label><p className={`mt-0.5 text-xs leading-snug text-ink-muted ${key === "environment" ? "" : "hidden md:block"}`}>{reviewPriorityHints[key]}</p></div>
+              <input id={`story-weight-${key}`} name={`story-weight-${key}`} type="range" min={0} max={100} step={1} value={reviewWeights[key]}
+                aria-valuetext={`${reviewWeights[key]} persen`} aria-describedby="story-weight-help" className="story-priority-range range range-primary range-xs col-span-2 min-h-11 w-full md:@min-[23rem]:col-span-1 md:@min-[23rem]:col-start-2 md:@min-[23rem]:row-start-1"
+                style={{ "--range-value": `${reviewWeights[key]}%` } as CSSProperties}
+                onChange={(event) => changePriority(key, Number(event.target.value))} />
+              <output htmlFor={`story-weight-${key}`} className="col-start-2 row-start-1 text-right font-sans text-lg font-bold tabular-nums md:@min-[23rem]:col-start-3">{reviewWeights[key]}%</output>
+            </div>)}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 border-t border-rule text-xs">
+            <span className="flex items-center gap-1.5"><Check aria-hidden="true" className="size-3.5 text-primary" />{Object.values(reviewWeights).some(Boolean) ? "Total 100%" : "Belum diatur"}</span>
+            <button type="button" disabled={!prioritySuggestion} onClick={() => {
+              if (!prioritySuggestion) return;
+              setProposal({ ...proposal, priority_weights: prioritySuggestion.weights,
+                inferred_fields: [...proposal.inferred_fields.filter((field) => field !== "priorities"), ...(prioritySuggestion.inferred ? ["priorities"] : [])] });
+              setSaveError(null);
+            }} className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline">Atur ulang dari ceritaku</button>
+          </div>
+          <p id="story-weight-help" className="sr-only">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
+        </section>}
+        <details ref={reviewSummaryRef} className="mt-2 border-t border-rule text-xs" data-hci-region="story-review-details">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Tinjau detail profil</summary>
+          <div className="grid gap-3">
+            {profileRows.filter((row) => !row.priorityWeights).map((row) => <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing}
+              editing={editingField === row.field} onEdit={editableProfileFields.has(row.field) ? () => { setEditError(null); setEditingField(row.field); } : undefined}>
+              {editingField === row.field && proposal ? <ProfileFieldEditor key={row.field} field={row.field} label={row.label}
+                value={proposal.hard_constraints[row.field] ?? proposal.soft_preferences[row.field]} onSave={(value) => saveFieldEdit(row.field, value)} onCancel={() => setEditingField(null)} /> : row.value}
+            </ReviewSummary>)}
+          </div>
+          {editError && <p role="alert" className="mt-2 text-sm font-semibold text-error">{editError}</p>}
+        </details>
+        {preview?.available && onSelectDistrict && <details className="mt-2 border-t border-rule text-xs md:hidden" data-hci-region="onboarding-accessible-results">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
+          <ul className="space-y-1" aria-label="Kecamatan dalam pratinjau">
+            {visiblePreviewDistricts(preview, true).map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={4}
+              selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
+          </ul>
+        </details>}
+        {(costRange || costLoading) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-3 border-t border-rule pt-3">
+          <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan{costCityName ? ` · ${costCityName}` : ""}</h2>
+          <p className="mt-0.5 font-sans text-lg font-bold tabular-nums">{!costRange ? "Menghitung…" : costRange.high === null ? `mulai Rp${formatRupiah(costRange.low)} / bulan`
+            : costRange.low === costRange.high ? `sekitar Rp${formatRupiah(costRange.low)} / bulan` : `Rp${formatRupiah(costRange.low)} – Rp${formatRupiah(costRange.high)} / bulan`}</p>
+          {costRange && <p className="mt-1 text-xs text-ink-muted">{costRange.high === null ? "Belum ada kecamatan yang masuk anggaranmu" : "Sewa + biaya hidup"}{costRange.is_sample && <span className="badge badge-neutral badge-xs ml-2">Data contoh</span>}</p>}
+        </section>}
+        {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
+        {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
+      </StoryReviewPanel>}
     </>
   );
 }
 
-function StepHeader({ step, onSkip, className = "", disabled = false }: { step: 1 | 2 | 3; onSkip: () => void; className?: string; disabled?: boolean }) {
+function StepHeader({ step, onSkip, className = "", disabled = false, compact = false }: { step: 1 | 2 | 3; onSkip: () => void; className?: string; disabled?: boolean; compact?: boolean }) {
   return (
     <header className={`flex shrink-0 flex-wrap items-center justify-between gap-3 text-xs font-semibold text-ink ${className}`}>
       <div className="flex items-center gap-3">
-        <span>Langkah {step} dari 3</span>
+        <span>{compact ? <><span className="hidden md:inline">Langkah </span>{step} dari 3</> : `Langkah ${step} dari 3`}</span>
         <span className="flex w-20 gap-1" aria-hidden="true">
           {[1, 2, 3].map((bar) => <span key={bar} className={`h-0.75 flex-1 rounded-full ${bar <= step ? "bg-primary" : "bg-base-300"}`} />)}
         </span>
       </div>
-      <button type="button" disabled={disabled} onClick={onSkip} className="btn btn-ghost btn-xs min-h-10 shrink-0 gap-1 px-1 text-ink">
-        Lewati untuk sekarang <X aria-hidden="true" className="size-3.5" />
+      <button type="button" disabled={disabled} onClick={onSkip} className="btn btn-ghost btn-xs min-h-11 shrink-0 gap-1 px-1 text-ink">
+        {compact ? "Lewati" : "Lewati untuk sekarang"} <X aria-hidden="true" className="size-3.5" />
       </button>
     </header>
   );

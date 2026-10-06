@@ -1,5 +1,6 @@
 import type { MapCategory, RegionFact } from "../types";
 import { getRelocationGoal } from "../lib/relocationGoal";
+import { onboardingTaxonomy } from "../extractUserProfile";
 import { isRecord } from "../lib/zoneGeometry";
 import type { PersistedRelocationProfile } from "../lib/relocationProfile";
 import type { CommuteResponse } from "../routing/types";
@@ -57,6 +58,14 @@ function withinBudget(value: number, limit: number): boolean {
 function amount(value: unknown): number | null {
     const raw = isRecord(value) ? value.amount : value;
     return typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+}
+
+function text(value: unknown): string | null {
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function strings(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && !!item.trim()).map((item) => item.trim()) : [];
 }
 
 function cityKey(value: string): string {
@@ -119,6 +128,12 @@ export function profilePreviewPreferences(profile: PersistedRelocationProfile, c
     const weights = profile.priority_weights;
     return {
         goal,
+        occupation: goal === "study" ? null : text(soft.occupation),
+        targetOccupations: goal === "study" ? [] : strings(soft.target_occupations),
+        sectors: goal === "study" ? [] : strings(soft.target_fields),
+        studyField: goal === "work" ? null : text(soft.study_field ?? hard.study_field),
+        educationLevel: goal === "work" ? null : text(soft.education_level ?? hard.education_level),
+        careerStage: goal === "study" ? null : text(soft.career_stage),
         cityId,
         monthlyBudget: amount(hard.monthly_budget),
         maximumRent: amount(hard.housing_budget),
@@ -150,12 +165,12 @@ function housingType(fact: RegionFact): string | null {
 
 function rentFacts(area: OnboardingArea, selected: Housing[]) {
     const requested = selected.includes("unsure") || selected.length === 0 ? housingTypes : selected;
-    return area.facts.filter((fact) => fact.metric.split(":")[0] === "median_monthly_rent_idr" &&
+    return area.facts.filter((fact) => fact.evidence_type !== "unavailable" && fact.metric.split(":")[0] === "median_monthly_rent_idr" &&
         requested.includes(housingType(fact) as Exclude<Housing, "unsure">));
 }
 
 function numericFact(area: OnboardingArea, metric: string): RegionFact | null {
-    return area.facts.find((fact) => fact.metric === metric) ?? null;
+    return area.facts.find((fact) => fact.metric === metric && fact.evidence_type !== "unavailable") ?? null;
 }
 
 export function isLiveRecommendationSample(item: Pick<LiveDistrictRecommendation, "district" | "rentFact">): boolean {
@@ -185,27 +200,31 @@ export function monthlyCostRange(preview: Pick<LiveOnboardingPreview, "districts
     };
 }
 
-function featureScore(area: OnboardingArea, goal: LivePreviewPreferences["goal"], dimension: "opportunity" | "mobility"): number | null {
-    if (dimension === "mobility") return area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null;
-    if (goal === "study") return area.campuses.length > 0 ? area.campuses.length : null;
-    const rawCompanyCount = numericFact(area, "company_count")?.value;
-    const companyCount = typeof rawCompanyCount === "number" && Number.isFinite(rawCompanyCount) && rawCompanyCount >= 0
-        ? rawCompanyCount : null;
-    if (goal === "both") {
-        const campuses = area.campuses.length;
-        return companyCount !== null && campuses ? (Math.log1p(companyCount) + Math.log1p(campuses)) / 2 :
-            companyCount !== null ? Math.log1p(companyCount) : campuses ? Math.log1p(campuses) : null;
-    }
-    return companyCount !== null ? Math.log1p(companyCount) : null;
+function meanSupported(values: Array<number | null>): number | null {
+    const supported = values.filter((value): value is number => value !== null);
+    return supported.length ? supported.reduce((sum, value) => sum + value, 0) / supported.length : null;
+}
+
+function careerSignal(area: OnboardingArea, answers: LivePreviewPreferences, metric: string): number | null {
+    const sectors = answers.sectors ?? [];
+    // No normalized occupation/stage dataset yet: generic companies cannot prove a match.
+    if (!sectors.length && (answers.occupation || answers.targetOccupations?.length || answers.careerStage)) return null;
+    const facts = area.facts.filter((fact) => fact.metric.split(":")[0] === metric && fact.evidence_type !== "unavailable" &&
+        Number.isFinite(fact.value) && fact.value >= 0 &&
+        (!sectors.length ? metric !== "employed_people" : fact.sector_ids?.some((sector) => sectors.includes(sector))));
+    if (!facts.length) return null;
+    // ponytail: use the strongest mapped KBLI signal, not a sum of overlapping industry groups.
+    // Add disjoint industry aggregation only when the source mapping supports it.
+    return Math.log1p(Math.max(...facts.map((fact) => fact.value)));
+}
+
+function educationSignal(area: OnboardingArea, answers: LivePreviewPreferences): number | null {
+    // Campus presence is not proof that a requested program/qualification is offered.
+    if (answers.studyField || answers.educationLevel) return null;
+    return area.campuses.length > 0 ? area.campuses.length : null;
 }
 
 function profileDimensionScore(area: OnboardingArea, dimension: keyof ProfilePriorityWeights, housing: Housing[] = ["unsure"]): number | null {
-    if (dimension === "career") {
-        const rawCompanyCount = numericFact(area, "company_count")?.value;
-        return typeof rawCompanyCount === "number" && Number.isFinite(rawCompanyCount) && rawCompanyCount >= 0
-            ? Math.log1p(rawCompanyCount) : null;
-    }
-    if (dimension === "education") return area.campuses.length > 0 ? area.campuses.length : null;
     if (dimension === "housing") {
         const rent = rentFacts(area, housing.filter((type): type is Exclude<Housing, "unsure"> => type !== "unsure"))
             .reduce<number | null>((lowest, fact) =>
@@ -234,8 +253,17 @@ function normalize(values: Array<number | null>, invert = false): Array<number |
 }
 
 export function formPreviewPreferences(answers: FormAnswers): LivePreviewPreferences {
+    const occupation = answers.goal === "study" ? null : text(answers.occupation);
+    const matchedOccupation = onboardingTaxonomy.occupations.find((item) => [item.label, ...item.aliases]
+        .some((alias) => alias.toLowerCase() === occupation?.toLowerCase()));
     return {
         goal: answers.goal, cityId: answers.city === "unsure" ? null : answers.city,
+        occupation, targetOccupations: matchedOccupation ? [matchedOccupation.id] : [],
+        sectors: answers.goal !== "study" && answers.sector ? [answers.sector] : [],
+        studyField: answers.goal === "work" ? null : text(answers.studyField),
+        educationLevel: answers.goal === "work" ? null : text(answers.education),
+        // The form no longer asks career stage; do not revive hidden legacy defaults.
+        careerStage: null,
         monthlyBudget: answers.monthlyBudget, maximumRent: answers.maximumRent, housing: answers.housing,
         destinationId: answers.destinationId, destinationName: answers.destinationName,
         destinationPoint: answers.destinationPoint, transport: answers.transport,
@@ -252,11 +280,22 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
     const commute = step >= 3 && input.commute?.mode === answers.transport &&
         JSON.stringify(input.commute.destination) === JSON.stringify(destination) ? input.commute : null;
     const byId = new Map(commute?.estimates.map((estimate) => [estimate.id, estimate]) ?? []);
+    // Normalize different measures separately: vacancies, companies and workers
+    // are complementary indicators, never interchangeable counts.
+    const rawCareerSignals = ["company_count", "opening_count", "employed_people"].map((metric) =>
+        input.areas.map((area) => careerSignal(area, answers, metric)));
+    const hasCareerEvidence = input.areas.map((_, index) => rawCareerSignals.some((signal) => signal[index] !== null));
+    // Compare career-evidenced districts on the same indicators. A missing
+    // vacancy count must not silently give the remaining indicators extra weight.
+    const careerSignals = rawCareerSignals.filter((signal) => signal.every((value, index) => !hasCareerEvidence[index] || value !== null))
+        .map((signal) => normalize(signal));
+    const career = input.areas.map((_, index) => meanSupported(careerSignals.map((signal) => signal[index])));
+    const education = normalize(input.areas.map((area) => educationSignal(area, answers)));
     const boundaries = new Map<string, ZoneGeometry["features"][number]["geometry"][]>();
     if (planningReach) for (const feature of input.geometry?.features ?? []) {
         boundaries.set(feature.properties.zone_id, [...boundaries.get(feature.properties.zone_id) ?? [], feature.geometry]);
     }
-    const raw = input.areas.map((area) => {
+    const raw = input.areas.map((area, index) => {
         const choices = rentFacts(area, selectedTypes.length ? selectedTypes : ["unsure"]);
         const rentFact = choices.length ? choices.reduce((lowest, current) => current.value < lowest.value ? current : lowest) : null;
         const rent = rentFact?.value ?? null;
@@ -264,6 +303,18 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const exclusions: string[] = [];
         const unknowns: string[] = [];
         const reasons: string[] = [];
+        if (answers.goal !== "study") {
+            if (answers.occupation || answers.targetOccupations?.length) unknowns.push("Kecocokan pekerjaan belum tersedia");
+            if (answers.careerStage) unknowns.push("Data tahap karier belum tersedia");
+            if (answers.sectors?.length) {
+                if (career[index] === null) unknowns.push(hasCareerEvidence[index] ? "Data sektor belum sebanding" : "Data sektor pilihanmu belum tersedia");
+                else reasons.push("Sinyal sektor pilihanmu tersedia · bukan kecocokan pekerjaan");
+            }
+        }
+        if (answers.goal !== "work") {
+            if (answers.studyField) unknowns.push("Data program studi pilihanmu belum tersedia");
+            if (answers.educationLevel) unknowns.push("Data jenjang pendidikan pilihanmu belum tersedia");
+        }
 
         if (step >= 2) {
             if (answers.maximumRent !== null) {
@@ -314,14 +365,15 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
             reachBand, beyondReach: commute === null && reachBand === "outside",
             eligible, exclusions, unknowns, reasons, score: null, rank: null,
             affordabilityRaw: answers.monthlyBudget !== null ? monthlyCost : rent,
-            opportunityRaw: featureScore(area, answers.goal, "opportunity"),
-            mobilityRaw: destination ? routeKnown && commuteMinutes !== null ? -commuteMinutes : null : featureScore(area, answers.goal, "mobility"),
+            mobilityRaw: destination ? routeKnown && commuteMinutes !== null ? -commuteMinutes : null :
+                area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null,
             affordable,
         };
     });
 
     const affordability = normalize(raw.map((item) => item.affordabilityRaw), true);
-    const opportunity = normalize(raw.map((item) => item.opportunityRaw));
+    const opportunity = input.areas.map((_, index) => answers.goal === "work" ? career[index] : answers.goal === "study" ? education[index] :
+        meanSupported([career[index], education[index]]));
     // Route times rank when any exist. Otherwise a chosen destination ranks by straight-line distance, so
     // far-away districts that only pass the rent limit don't read as good fits. Distance never excludes one.
     const useDistance = destination !== null && !raw.some((item) => item.mobilityRaw !== null);
@@ -330,8 +382,8 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
     const nearness = normalize(new Set(distances.filter((value) => value !== null)).size > 1 ? distances : distances.map(() => null));
     const mobility = useDistance ? nearness : normalize(raw.map((item) => item.mobilityRaw));
     const profileDimensions = answers.priorityWeights ? {
-        career: normalize(input.areas.map((area) => profileDimensionScore(area, "career"))),
-        education: normalize(input.areas.map((area) => profileDimensionScore(area, "education"))),
+        career,
+        education,
         housing: normalize(input.areas.map((area) => profileDimensionScore(area, "housing", answers.housing))),
         cost_of_living: normalize(input.areas.map((area) => profileDimensionScore(area, "cost_of_living"))),
         commute: useDistance ? nearness : normalize(raw.map((item) => item.commuteEstimate?.status === "ok" && commute?.provenance?.freshness !== "stale" &&

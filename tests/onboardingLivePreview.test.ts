@@ -140,6 +140,25 @@ test("story profile preview resolves a supported city without inventing missing 
     }, cities)?.cityId, null);
 });
 
+test("saved priority weights reorder districts without a destination", () => {
+    const withCompanies = areas.map((area, index) => ({ ...area, facts: [...area.facts, {
+        metric: "company_count", value: index === 0 ? 0 : 10, unit: "company", source: "Direktori perusahaan",
+        period_end: null, evidence_type: "derived" as const, limitations: null, is_sample: false,
+    }] }));
+    const topFor = (priority_weights: Record<string, number>) => {
+        const preferences = profilePreviewPreferences({
+            schema_version: "relocation-profile-v1",
+            hard_constraints: { goal: "work", destination_cities: [cities[0].city_name] },
+            soft_preferences: { goal: "work", housing_types: ["kos"] },
+            priority_weights, taxonomy_version: "test", contract_version: "lf05-v2",
+        }, cities)!;
+        return evaluateLiveOnboarding(preferences, 4, { cities, areas: withCompanies, destinations: [] }).ranked[0]?.district.zone_id;
+    };
+
+    assert.equal(topFor({ career: 1, housing: 0.2 }), "jakarta-selatan-b");
+    assert.equal(topFor({ career: 0.2, housing: 1 }), "jakarta-selatan-a");
+});
+
 test("districts up to 10% over the rent limit stay eligible", () => {
     const withRent = (value: number) => ({ ...areas[0], facts: [{ ...areas[0].facts[0], value }] }) satisfies OnboardingArea;
     const evaluate = (rent: number) => evaluateLiveOnboarding({

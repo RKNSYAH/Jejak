@@ -143,10 +143,35 @@ publication dates/confidence become `NULL`, with `evidence_type='estimated'`.
 Housing summaries stay `derived`, with unknown observation periods left `NULL`.
 The unclassified feature remains unsupported, without geometry or official codes.
 
-LF-01 is intended to take priority for comparable accepted current evidence; this
-import does not run LF-01 or make static retrieval dates imply freshness. Current
-`withLocatedEvidence()` merges company evidence only. A general housing/static
-override is **not yet wired**; this push does not claim otherwise.
+### Read-time enrichment precedence
+
+`withCachedEvidence()` reads accepted, non-sample, unexpired enrichment cache rows
+for map details, map catalogue rents, and onboarding previews. It overlays supported
+fields without changing stored static rows. Geography, population, city living costs,
+education data, and other unsupported fields continue to use their static sources.
+Cache failures or missing values retain the static fallback. These reads do not run LF-01.
+
+- Housing: calculate medians from actual district-local listings for each housing type.
+  A pooled rent range cannot supply a per-type median.
+- Career: retain boundary-based office binning for approximate company counts, and
+  include scoped opening counts. An observed salary range cannot replace an average wage.
+- Provenance: retain limitations, housing sample sizes, and geographic scope. Cache
+  retrieval times describe cache age; they do not fill missing observation periods.
+  Refresh-due housing/opening aggregates carry `freshness: stale` until expiry.
+
+Form preview and confirmed-profile ranking share `evaluateLiveOnboarding()`. Career
+fit normalizes scoped company counts, opening counts, and database-mapped KBLI worker
+counts separately, then averages indicators common to career-evidenced candidates.
+Disjoint evidence coverage leaves career fit unavailable. For overlapping KBLI mappings,
+the scorer uses the strongest available count rather than adding overlapping groups.
+Sector fit remains a broad industry signal, not proof of an occupation match.
+
+The scorer retains occupation, sector, study field, education level, and confirmed
+career stage. Current datasets cannot support occupation/stage or program/qualification
+matching; the result reports these criteria as unavailable and omits unsupported fit
+dimensions. Generic campus counts do not satisfy a selected program or qualification.
+The scorer keeps city wages out of district fit. These changes do not certify the
+207 flagged static baselines or supply their missing source material.
 
 ## Run preparation locally
 

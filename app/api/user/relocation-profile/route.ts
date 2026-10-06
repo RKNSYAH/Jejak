@@ -1,4 +1,4 @@
-import { getSavedRelocationProfile, saveConfirmedRelocationProfile } from "@/app/engine/controller/relocationProfileController";
+import { deleteRelocationProfile, getSavedRelocationProfile, saveConfirmedRelocationProfile } from "@/app/engine/controller/relocationProfileController";
 import { getAuthenticatedUserId } from "@/app/engine/controller/userServerController";
 import { readJsonBody } from "@/app/engine/lib/http";
 import { buildFormRelocationProfile, buildPersistedRelocationProfile } from "@/app/engine/lib/relocationProfile";
@@ -13,6 +13,19 @@ export async function GET() {
     } catch (error) {
         console.error("Unable to load relocation profile", error);
         return Response.json({ error: "Profil tersimpan belum dapat dimuat." }, { status: 503 });
+    }
+}
+
+export async function DELETE() {
+    const userId = await getAuthenticatedUserId().catch(() => null);
+    if (!userId) return Response.json({ error: "Masuk untuk menghapus profil." }, { status: 401 });
+
+    try {
+        await deleteRelocationProfile(userId);
+        return new Response(null, { status: 204 });
+    } catch (error) {
+        console.error("Unable to delete relocation profile", error);
+        return Response.json({ error: "Profil belum terhapus. Coba lagi." }, { status: 503 });
     }
 }
 
