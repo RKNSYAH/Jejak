@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "../app/api/lf03/route";
+import { POST } from "../app/api/evidence-conflict-review/route";
 import { reviewEvidenceConflict } from "../app/engine/controller/conflictReviewController";
-import { parseLF03Output, validateLF03Input } from "../app/engine/lib/lf03Validation";
+import { parseEvidenceConflictReviewOutput, validateEvidenceConflictReviewInput } from "../app/engine/lib/evidenceConflictReviewValidation";
 import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 
 const group = {
@@ -42,23 +42,23 @@ const recommendation = {
     runtime_usage: null,
 };
 
-test("LF-03 input validation requires one entity, one attribute, provenance, and a real conflict", () => {
-    assert.deepEqual(validateLF03Input(group), group);
-    assert.throws(() => validateLF03Input({ ...group, run_id: "mine" }), /INVALID_LF03_INPUT/);
-    assert.throws(() => validateLF03Input({ ...group, claims: [group.claims[0]] }), /INVALID_LF03_INPUT/);
-    assert.throws(() => validateLF03Input({ ...group, claims: [group.claims[0], { ...group.claims[1], entity_id: "org-002" }] }), /INVALID_LF03_INPUT/);
-    assert.throws(() => validateLF03Input({ ...group, claims: [group.claims[0], { ...group.claims[1], evidence_id: "evidence-001" }] }), /INVALID_LF03_INPUT/);
-    assert.throws(() => validateLF03Input({ ...group, claims: [group.claims[0], { ...group.claims[1], source: { url: "ftp://x", retrieved_at: "2026-09-16" } }] }), /INVALID_LF03_INPUT/);
-    assert.throws(() => validateLF03Input({ ...group, claims: [group.claims[0], { ...group.claims[1], value: group.claims[0].value }] }), /LF03_NO_CONFLICT/);
+test("evidence conflict review input validation requires one entity, one attribute, provenance, and a real conflict", () => {
+    assert.deepEqual(validateEvidenceConflictReviewInput(group), group);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, run_id: "mine" }), /INVALID_EVIDENCE_CONFLICT_REVIEW_INPUT/);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, claims: [group.claims[0]] }), /INVALID_EVIDENCE_CONFLICT_REVIEW_INPUT/);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, claims: [group.claims[0], { ...group.claims[1], entity_id: "org-002" }] }), /INVALID_EVIDENCE_CONFLICT_REVIEW_INPUT/);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, claims: [group.claims[0], { ...group.claims[1], evidence_id: "evidence-001" }] }), /INVALID_EVIDENCE_CONFLICT_REVIEW_INPUT/);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, claims: [group.claims[0], { ...group.claims[1], source: { url: "ftp://x", retrieved_at: "2026-09-16" } }] }), /INVALID_EVIDENCE_CONFLICT_REVIEW_INPUT/);
+    assert.throws(() => validateEvidenceConflictReviewInput({ ...group, claims: [group.claims[0], { ...group.claims[1], value: group.claims[0].value }] }), /EVIDENCE_CONFLICT_REVIEW_NO_CONFLICT/);
 });
 
-test("LF-03 output validation keeps references inside the sent group", () => {
-    const parsed = parseLF03Output(recommendation, group);
+test("evidence conflict review output validation keeps references inside the sent group", () => {
+    const parsed = parseEvidenceConflictReviewOutput(recommendation, group);
     assert.equal(parsed.preferred_evidence_id, "evidence-001");
     assert.equal("runtime_usage" in parsed, false);
 
     const unresolved = { ...recommendation, preferred_evidence_id: null, supporting_evidence_ids: [], conflicting_evidence_ids: ["evidence-001", "evidence-002"], reason_code: "unresolved" };
-    assert.equal(parseLF03Output(unresolved, group).reason_code, "unresolved");
+    assert.equal(parseEvidenceConflictReviewOutput(unresolved, group).reason_code, "unresolved");
 
     for (const invalid of [
         { ...recommendation, supporting_evidence_ids: ["evidence-001", "evidence-999"] },
@@ -69,11 +69,11 @@ test("LF-03 output validation keeps references inside the sent group", () => {
         { ...recommendation, writes_performed: true },
         { ...recommendation, requires_policy_decision: false },
     ]) {
-        assert.throws(() => parseLF03Output(invalid, group), /INVALID_LF03_OUTPUT/);
+        assert.throws(() => parseEvidenceConflictReviewOutput(invalid, group), /INVALID_EVIDENCE_CONFLICT_REVIEW_OUTPUT/);
     }
 });
 
-test("LF-03 controller sends the group with a server run ID and returns the validated recommendation", async (context) => {
+test("evidence conflict review controller sends the group with a server run ID and returns the validated recommendation", async (context) => {
     const restoreEnvironment = withWorkflowEnvironment();
     let sentPayload: Record<string, unknown> | undefined;
     context.mock.method(globalThis, "fetch", async (_input: string | URL | Request, init?: RequestInit) => {
@@ -82,7 +82,7 @@ test("LF-03 controller sends the group with a server run ID and returns the vali
     });
 
     try {
-        const result = await reviewEvidenceConflict(validateLF03Input(group));
+        const result = await reviewEvidenceConflict(validateEvidenceConflictReviewInput(group));
         assert.equal(result.reason_code, "source_priority");
         assert.equal(sentPayload?.flow_id, "d4b70d5c-0fd4-4b44-9bc0-79935a87718f");
 
@@ -95,10 +95,10 @@ test("LF-03 controller sends the group with a server run ID and returns the vali
     }
 });
 
-test("LF-03 route validates before authentication and never calls Langflow for anonymous users", async (context) => {
+test("evidence conflict review route validates before authentication and never calls Langflow for anonymous users", async (context) => {
     const restoreEnvironment = withWorkflowEnvironment();
     const fetches = countFetches(context);
-    const post = (body: string, type?: string) => POST(postJson("/api/lf03", body, type));
+    const post = (body: string, type?: string) => POST(postJson("/api/evidence-conflict-review", body, type));
 
     try {
         assert.equal((await post(JSON.stringify(group), "text/plain")).status, 415);

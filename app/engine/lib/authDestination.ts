@@ -6,8 +6,8 @@ export function authDestination(value: string | null | undefined): string {
     }
 
     try {
-        const url = new URL(value, "https://jejak.local");
-        if (url.origin !== "https://jejak.local" || !["/map", "/user"].includes(url.pathname)) {
+        const url = new URL(value, "https://jejak-id.app");
+        if (url.origin !== "https://jejak-id.app" || !["/map", "/user"].includes(url.pathname)) {
             return DEFAULT_DESTINATION;
         }
         return `${url.pathname}${url.search}${url.hash}`;
@@ -19,7 +19,7 @@ export function authDestination(value: string | null | undefined): string {
 export function signupDestination(value: string | null | undefined): string {
     const destination = authDestination(value);
     if (!destination.startsWith("/map")) return destination;
-    const url = new URL(destination, "https://jejak.local");
+    const url = new URL(destination, "https://jejak-id.app");
     url.searchParams.set("welcome", "1");
     return `${url.pathname}${url.search}${url.hash}`;
 }

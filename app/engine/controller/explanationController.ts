@@ -1,11 +1,10 @@
 import { LANGFLOW_FLOWS, runFlow } from "../lib/langflow";
-import { parseLF04Output, type LF04Explanation, type LF04Request } from "../lib/lf04Validation";
+import { LANGFLOW_CONTRACTS } from "../lib/langflowContracts";
+import { parseZoneFitExplanationOutput, type ZoneFitExplanation, type ZoneFitExplanationRequest } from "../lib/zoneFitExplanationValidation";
 import type { PersistedRelocationProfile } from "../lib/relocationProfile";
 
-// Explains one accepted zone snapshot against the user's saved, confirmed profile.
-// Only a stored confirmed profile reaches LF-04, so the server sets `confirmed`.
-// Throws LangflowError or INVALID_LF04_OUTPUT.
-export async function explainZoneFit(profile: PersistedRelocationProfile, request: LF04Request): Promise<LF04Explanation> {
+// Only a server-loaded confirmed profile may reach zone fit explanation.
+export async function explainZoneFit(profile: PersistedRelocationProfile, request: ZoneFitExplanationRequest): Promise<ZoneFitExplanation> {
     const runId = crypto.randomUUID();
     const input = {
         run_id: runId,
@@ -21,6 +20,6 @@ export async function explainZoneFit(profile: PersistedRelocationProfile, reques
         source_coverage: request.source_coverage,
         comparison_zone: request.comparison_zone ?? null,
     };
-    const result = await runFlow(LANGFLOW_FLOWS.lf04, input, { timeoutMs: 120_000, contract: "lf04-v2", sessionId: runId });
-    return parseLF04Output(result, request);
+    const result = await runFlow(LANGFLOW_FLOWS.zoneFitExplanation, input, { timeoutMs: 120_000, contract: LANGFLOW_CONTRACTS.zoneFitExplanation, sessionId: runId });
+    return parseZoneFitExplanationOutput(result, request);
 }

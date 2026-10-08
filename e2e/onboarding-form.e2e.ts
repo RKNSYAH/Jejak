@@ -4,7 +4,7 @@ import { stubZones } from "./fixtures/map";
 
 async function startForm(page: Page, savedProfile: Record<string, unknown> | null = null, beforeOpen?: () => Promise<void>) {
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.request().method() === "GET"
-        ? route.fulfill({ json: { profile: savedProfile } }) : route.fallback());
+        ? route.fulfill({ json: { user_id: "11111111-1111-4111-8111-111111111111", profile: savedProfile } }) : route.fallback());
     await stubZones(page);
     await beforeOpen?.();
     await page.goto("/map?onboarding=demo");
@@ -69,7 +69,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     const errors: string[] = [];
     const viewport = page.viewportSize();
     const mobile = (viewport?.width ?? 1280) < 768;
-    page.on("request", (request) => { if (/\/api\/(zones|geometry|heatmap|lf05)/.test(request.url())) liveCalls.push(request.url()); });
+    page.on("request", (request) => { if (/\/api\/(zones|geometry|heatmap|relocation-profile-interpretation)/.test(request.url())) liveCalls.push(request.url()); });
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error" && /layers\.onboarding|Source.*onboarding/.test(message.text())) errors.push(message.text()); });
     await startForm(page);
@@ -81,7 +81,6 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
     const districtList = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     await expect(districtList).toContainText("Kecamatan A");
-    // Step 2 already ranks: the list numbers districts.
     await expect(districtList).toContainText("1. Kecamatan A");
     const districtA = districtList.getByRole("button", { name: /Kecamatan A/ });
     await districtA.click();

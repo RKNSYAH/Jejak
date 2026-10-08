@@ -1,5 +1,5 @@
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
-import { distanceLabel, isLiveRecommendationSample } from "@/app/engine/onboarding/livePreview";
+import { distanceLabel, hasHousingStatistics, isLiveRecommendationSample } from "@/app/engine/onboarding/livePreview";
 import type { FormStep, LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
 import { commuteEstimateLabel } from "@/app/engine/routing/labels";
 import { planningReachLabel } from "@/app/engine/onboarding/planningReach";
@@ -7,6 +7,7 @@ import { planningReachLabel } from "@/app/engine/onboarding/planningReach";
 export default function DistrictListItem({ item, step, selected, onSelect }: {
     item: LiveDistrictRecommendation; step: FormStep; selected: boolean; onSelect: () => void;
 }) {
+    const housingAvailable = hasHousingStatistics(item);
     const rent = item.rent === null ? "Sewa belum tersedia" : `Rata-rata sewa Rp${formatRupiah(item.rent)}/bulan`;
     // A fitting district needs no status; only flag what is over the limit or unchecked.
     const status = [
@@ -14,10 +15,10 @@ export default function DistrictListItem({ item, step, selected, onSelect }: {
         ...item.unknowns,
     ].join("; ") || (item.eligible === true ? null : "Belum terverifikasi");
     return <li>
-        <button type="button" aria-pressed={selected} onClick={onSelect}
+        <button type="button" aria-pressed={selected} aria-disabled={!housingAvailable} onClick={housingAvailable ? onSelect : undefined}
             className="btn btn-ghost h-auto min-h-11 w-full flex-col items-start justify-center whitespace-normal rounded-lg px-2 py-2 text-left leading-relaxed">
         <span className="block font-semibold">{step >= 2 && item.rank ? `${item.rank}. ` : ""}{item.district.zone_name}</span>
-        {step >= 2 && <span className="block leading-relaxed text-ink-muted">
+        {(step >= 2 || !housingAvailable) && <span className="block leading-relaxed text-ink-muted">
             {rent}{status ? ` · ${status}` : ""}
             {isLiveRecommendationSample(item) ? " · Data contoh" : ""}
         </span>}

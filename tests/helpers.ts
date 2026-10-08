@@ -1,7 +1,5 @@
 import type { TestContext } from "node:test";
 
-// Shared by the route and Langflow tests. Not a *.test.ts file, so `bun test` does not collect it.
-
 export const completed = (output: unknown) => ({ object: "response", status: "completed", has_errors: false, ...output as object });
 
 export function withEnvironment(url: string | undefined, key: string | undefined) {

@@ -39,8 +39,8 @@ test("form and confirmed profile retain the same career/study criteria and score
 
 test("only mapped sector facts affect sector fit; unrelated generic company totals do not", () => {
     const areas = [
-        area("a", [fact("company_count", 10_000), fact("employed_people:kbli_j", 20, [sector])]),
-        area("b", [fact("company_count", 1), fact("employed_people:kbli_j", 100, [sector])]),
+        area("a", [fact("company_count", 10_000), fact("employed_people:kbli_j", 20, [sector]), { ...fact("median_monthly_rent_idr", 1_500_000), unit: "IDR" }]),
+        area("b", [fact("company_count", 1), fact("employed_people:kbli_j", 100, [sector]), { ...fact("median_monthly_rent_idr", 1_500_000), unit: "IDR" }]),
     ];
     assert.equal(evaluate(base, areas).ranked[0].district.zone_id, "b");
     const unsupported = evaluate({ ...base, sectors: ["telecommunications"] }, areas);

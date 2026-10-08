@@ -5,7 +5,8 @@ import { Download } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { logoutUser } from "../engine/controller/userController";
 import type { AccountSummary } from "../engine/controller/userServerController";
-import { FORM_DRAFT_KEY, STORY_DRAFT_KEY } from "../engine/onboarding/types";
+import { clearOnboardingDrafts } from "../engine/onboarding/draftStorage";
+import { accountFetch, ACCOUNT_CHANGED_MESSAGE, type AccountScope } from "../engine/lib/accountIdentity";
 import { useUserProfileStore } from "../stores/userStores";
 
 export type SettingsTab = "profile" | "account" | "plan" | "privacy";
@@ -61,7 +62,8 @@ function ConfirmDelete({ label, title, confirmLabel, onConfirm }: { label: strin
     </>;
 }
 
-export default function UserSettings({ email, account, hasSavedProfile, hasUnsavedChanges, activeTab, onNavigate, onReturnToProfile, onCreateProfile, children }: {
+export default function UserSettings({ identity, email, account, hasSavedProfile, hasUnsavedChanges, activeTab, onNavigate, onReturnToProfile, onCreateProfile, children }: {
+    identity: AccountScope;
     email: string | null;
     account: AccountSummary | null;
     hasSavedProfile: boolean | null;
@@ -73,18 +75,20 @@ export default function UserSettings({ email, account, hasSavedProfile, hasUnsav
     children: ReactNode;
 }) {
     async function deleteProfile() {
-        const response = await fetch("/api/user/relocation-profile", { method: "DELETE" }).catch(() => null);
+        const response = await accountFetch(identity, "/api/user/relocation-profile", { method: "DELETE" }).then(({ response }) => response, () => null);
+        if (identity.signal.aborted) return ACCOUNT_CHANGED_MESSAGE;
         if (!response?.ok) return "Profil belum terhapus. Coba lagi.";
-        useUserProfileStore.getState().resetProfile();
+        useUserProfileStore.getState().resetProfile(identity.userId);
         window.location.reload();
     }
 
     async function deleteAccount() {
-        const response = await fetch("/api/user", { method: "DELETE" }).catch(() => null);
+        const response = await accountFetch(identity, "/api/user", { method: "DELETE" }).then(({ response }) => response, () => null);
+        if (identity.signal.aborted) return ACCOUNT_CHANGED_MESSAGE;
         if (!response?.ok) return "Akun belum terhapus. Coba lagi.";
-        useUserProfileStore.getState().resetProfile();
-        sessionStorage.removeItem(STORY_DRAFT_KEY);
-        sessionStorage.removeItem(FORM_DRAFT_KEY);
+        // Own navigation after sign-out; the auth listener must not race this redirect.
+        identity.invalidate(false);
+        clearOnboardingDrafts(identity.userId);
         await logoutUser().catch(() => undefined);
         window.location.replace("/");
     }

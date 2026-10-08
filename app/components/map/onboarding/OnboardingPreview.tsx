@@ -34,7 +34,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
     // Setup keeps the card short: the best three by name, while the map badges the top TOP_RANK_COUNT.
     const top = preview.ranked.filter(isTopRanked).slice(0, Math.min(3, TOP_RANK_COUNT));
     const hasDestination = preview.districts.some((item) => item.distanceKm !== null);
-    // An unsaved LF-05 proposal and sample data are separate qualifiers.
+    // An unsaved interpreted profile and sample data are separate qualifiers.
     const badge = <>
         {proposal && <span className="badge badge-outline badge-xs border-ink-muted text-ink-muted">Usulan</span>}
         {preview.is_sample && <span className="badge badge-neutral badge-xs">Data contoh</span>}
@@ -106,7 +106,6 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
                     <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{step === 3 ? "Perjalanan" : areaName ?? "Pratinjau kecamatan"}</p>
                     {badge}
                 </div>
-                {/* Sits beside the toggle button, in the header's spare height, so the card stays compact. */}
                 {!completed && step >= 2 && top.length > 0 && <div data-hci-region="onboarding-top-ranking" className="mt-0.5 hidden items-baseline gap-2 text-sm leading-snug md:flex">
                     <span className="shrink-0 text-xs text-ink-muted">Teratas</span>
                     <ol aria-label="Peringkat teratas" className="min-w-0 truncate font-semibold">

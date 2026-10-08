@@ -1,9 +1,10 @@
 import { onboardingTaxonomy } from "../extractUserProfile";
-import { SENSITIVE_TEXT, validateLF05Proposal, type LF05ProposedProfile } from "./lf05Validation";
+import { LANGFLOW_CONTRACTS } from "./langflowContracts";
+import { SENSITIVE_TEXT, validateRelocationProfileProposal, type RelocationProfileProposal } from "./relocationProfileInterpretationValidation";
 import { normalizeRelocationProfileInputs, RELOCATION_PROFILE_SCHEMA_VERSION, type PersistedRelocationProfile } from "./relocationProfile";
 import { getRelocationGoal, relocationGoalLabels } from "./relocationGoal";
 import { isRecord } from "./zoneGeometry";
-import { getLF05ClarificationField, type LF05ClarificationAnswer } from "./lf05FollowUp";
+import { getProfileClarificationField, type ProfileClarificationAnswer } from "./relocationProfileInterpretationFollowUp";
 
 const BUCKETS = ["hard_constraints", "soft_preferences"] as const;
 const WEIGHTS = ["career", "housing", "commute", "education", "cost_of_living", "environment"] as const;
@@ -26,7 +27,7 @@ const PROFILE_KEYS = new Set([
 
 export function validateRelocationDraft(value: unknown, allowMissingWeights = false): PersistedRelocationProfile {
     if (!isRecord(value) || JSON.stringify(value).length > 60_000 || value.schema_version !== RELOCATION_PROFILE_SCHEMA_VERSION ||
-        value.taxonomy_version !== onboardingTaxonomy.version || value.contract_version !== "lf05-v2" ||
+        value.taxonomy_version !== onboardingTaxonomy.version || value.contract_version !== LANGFLOW_CONTRACTS.relocationProfileInterpretation ||
         Object.keys(value).some((key) => !["schema_version", "hard_constraints", "soft_preferences", "priority_weights", "taxonomy_version", "contract_version"].includes(key)) ||
         !isRecord(value.hard_constraints) || !isRecord(value.soft_preferences) || !isRecord(value.priority_weights)) {
         throw new Error("INVALID_PROFILE_DRAFT");
@@ -40,13 +41,13 @@ export function validateRelocationDraft(value: unknown, allowMissingWeights = fa
         weights.some(([key, weight]) => !WEIGHTS.includes(key as typeof WEIGHTS[number]) || typeof weight !== "number" || !Number.isFinite(weight) || weight < 0 || weight > 1) ||
         (weights.length > 0 && Math.abs(weights.reduce((sum, [, weight]) => sum + Number(weight), 0) - 1) > 0.000001)) throw new Error("INVALID_PROFILE_DRAFT");
 
-    let wrapped: LF05ProposedProfile;
+    let wrapped: RelocationProfileProposal;
     try {
-        wrapped = validateLF05Proposal({
+        wrapped = validateRelocationProfileProposal({
             hard_constraints: value.hard_constraints, soft_preferences: value.soft_preferences,
             priority_weights: value.priority_weights, inferred_fields: [], clarification_questions: [],
             requires_confirmation: true, confirmed: false, taxonomy_version: onboardingTaxonomy.version,
-            contract_version: "lf05-v2", writes_performed: false, decision_trace: {}, runtime_usage: null,
+            contract_version: LANGFLOW_CONTRACTS.relocationProfileInterpretation, writes_performed: false, decision_trace: {}, runtime_usage: null,
         }, onboardingTaxonomy);
     } catch {
         throw new Error("INVALID_PROFILE_DRAFT");
@@ -85,7 +86,7 @@ export function getProfileChanges(before: PersistedRelocationProfile, after: Per
     return [...new Set(changes)].sort();
 }
 
-export type NativeLF05RefinementInput = {
+export type NativeProfileRefinementInput = {
     mode: "refinement";
     language: "id";
     session_reference: string;
@@ -105,10 +106,10 @@ export function buildNativeProfileRefinementInput(
     confirmed: PersistedRelocationProfile,
     draft: PersistedRelocationProfile,
     message: string | undefined,
-    clarificationAnswers: LF05ClarificationAnswer[],
+    clarificationAnswers: ProfileClarificationAnswer[],
     sessionReference: string,
     language: "id",
-): NativeLF05RefinementInput {
+): NativeProfileRefinementInput {
     const explicitChanges = getProfileChanges(confirmed, draft);
     const currentProfile = projectRemoteProfile(confirmed);
     const answers: Record<string, unknown> = {};
@@ -141,7 +142,7 @@ export function buildNativeProfileRefinementInput(
     }
 
     const naturalMessage = message?.trim() ?? "";
-    // Keep the deployed LF-05 key allowlist unchanged; transmit the local subtype in prose.
+    // Keep the deployed profile interpretation key allowlist unchanged; transmit the local subtype in prose.
     const activeMode = draft.soft_preferences.active_mode;
     const activeContext = draft.soft_preferences.transport_mode === "active" && (activeMode === "walk" || activeMode === "bicycle")
         ? `Moda aktif yang ditetapkan: ${activeMode === "walk" ? "jalan kaki" : "sepeda"}. Jangan menggantinya dengan moda aktif lain.` : "";
@@ -157,7 +158,7 @@ export function buildNativeProfileRefinementInput(
         finalMessage = [instruction, activeContext, clarifiedLines.length ? `Jawaban klarifikasi:\n${clarifiedLines.join("\n")}` : ""].filter(Boolean).join("\n\n");
     }
 
-    const input: NativeLF05RefinementInput = {
+    const input: NativeProfileRefinementInput = {
         mode: "refinement", language, session_reference: sessionReference, privacy_screened: true,
         message: finalMessage, answers, current_profile: currentProfile,
         answering: [...answering].filter((field) => ANSWERING_FIELDS.has(field)), taxonomy: onboardingTaxonomy,
@@ -170,7 +171,7 @@ export function buildNativeProfileRefinementInput(
     return input;
 }
 
-function projectRemoteProfile(profile: PersistedRelocationProfile): NativeLF05RefinementInput["current_profile"] {
+function projectRemoteProfile(profile: PersistedRelocationProfile): NativeProfileRefinementInput["current_profile"] {
     const projectGroup = (source: Record<string, unknown>) => Object.fromEntries(Object.entries(source)
         .filter(([field, value]) => ANSWER_FIELDS.has(field) && hasMeaningfulValue(value)));
     return {
@@ -187,7 +188,7 @@ function getProfileValue(profile: PersistedRelocationProfile, field: string): un
     return profile.soft_preferences[field];
 }
 
-function getClarificationAnswerField(answer: LF05ClarificationAnswer): string | null {
+function getClarificationAnswerField(answer: ProfileClarificationAnswer): string | null {
     if (answer.field) return answer.field;
     const field = getRefinementQuestionField(answer.question);
     return field === "destination" ? "destination_cities" : field;
@@ -226,13 +227,13 @@ export function reconcileProfileRefinement(
     draftValue: PersistedRelocationProfile,
     modelValue: unknown,
     allowModelChanges: boolean,
-    answers: LF05ClarificationAnswer[] = [],
+    answers: ProfileClarificationAnswer[] = [],
     narrativeMessage = "",
-): LF05ProposedProfile {
+): RelocationProfileProposal {
     // Older confirmed stories can lack weights. A new draft must still provide valid, explicit weights.
     const confirmed = validateRelocationDraft(confirmedValue, true);
     const draft = validateRelocationDraft(draftValue);
-    const model = validateLF05Proposal(modelValue, onboardingTaxonomy);
+    const model = validateRelocationProfileProposal(modelValue, onboardingTaxonomy);
     const explicit = new Set(getProfileChanges(confirmed, draft));
     const hard = { ...draft.hard_constraints };
     const soft = { ...draft.soft_preferences };
@@ -288,7 +289,7 @@ export function reconcileProfileRefinement(
             (!isQuestionAlreadyAnswered(question, known) || isTopicRequested(question, narrativeMessage)) &&
             !answers.some(({ question: answerQuestion }) => answerQuestion.trim().toLocaleLowerCase() === question.trim().toLocaleLowerCase()))
         .slice(0, 20).map((question) => question.trim().slice(0, 1000)) : [];
-    return validateLF05Proposal({
+    return validateRelocationProfileProposal({
         ...model, hard_constraints: normalized.hard_constraints, soft_preferences: normalized.soft_preferences,
         priority_weights: normalized.priority_weights, inferred_fields: finalInferred,
         clarification_questions: questions, requires_confirmation: true, confirmed: false, writes_performed: false,
@@ -296,7 +297,7 @@ export function reconcileProfileRefinement(
 }
 
 function getRefinementQuestionField(question: string): string | null {
-    const field = getLF05ClarificationField(question);
+    const field = getProfileClarificationField(question);
     if (field) return field;
     if (/\bke mana.{0,30}\b(pindah|tinggal)\b/iu.test(question)) return "destination";
     if (/\b(sewa|rent|housing budget|anggaran tempat tinggal)\b/iu.test(question)) return "housing_budget";

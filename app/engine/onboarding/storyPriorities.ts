@@ -9,7 +9,7 @@ const groups: Record<Priority, string[]> = {
     environment: ["environment"],
 };
 
-// Four controls, six stored dimensions. Keep LF-05's split within each group.
+// Four controls, six stored dimensions. Keep profile interpretation's split within each group.
 export function storyPriorityWeights(weights: Record<string, number>): Weights {
     const raw = Object.fromEntries(priorityKeys.map((key) => [key,
         groups[key].reduce((sum, dimension) => sum + (weights[dimension] ?? 0), 0),

@@ -1,17 +1,17 @@
-export type LF05TransportMode = "transit" | "motorcycle" | "car" | "active";
+export type ProfileTransportMode = "transit" | "motorcycle" | "car" | "active";
 
-export function getLF05TransportQuestion(): string {
+export function getProfileTransportQuestion(): string {
     return "Moda transportasi apa yang kamu pilih?";
 }
 
-const modes: [LF05TransportMode, RegExp][] = [
+const modes: [ProfileTransportMode, RegExp][] = [
     ["transit", /\b(?:transit|transport(?:asi)? umum|angkutan umum|public transport(?:ation)?|mrt|lrt|krl|transjakarta|bus|angkot)\b/iu],
     ["motorcycle", /\b(?:motorcycle|motorbike|sepeda motor|motor)\b/iu],
     ["car", /\b(?:mobil|car)\b/iu],
     ["active", /\b(?:active|jalan kaki|sepeda(?!\s+motor\b)|bersepeda|walk(?:ing)?|cycl(?:e|ing)|bicycle|bike)\b/iu],
 ];
 
-export function parseLF05TransportAnswer(answer: string): LF05TransportMode | null {
+export function parseProfileTransportAnswer(answer: string): ProfileTransportMode | null {
     const value = answer.trim();
     return modes.find(([, pattern]) => {
         const match = value.match(pattern);
@@ -21,8 +21,8 @@ export function parseLF05TransportAnswer(answer: string): LF05TransportMode | nu
 
 // Require a stated choice/use, not vehicle ownership, job context, negation or alternatives.
 // Unrecognized phrasing stays unresolved: asking is safer than choosing for the user.
-export function extractLF05TransportMode(story: string): LF05TransportMode | null {
-    const choices = new Set<LF05TransportMode>();
+export function extractProfileTransportMode(story: string): ProfileTransportMode | null {
+    const choices = new Set<ProfileTransportMode>();
     for (const clause of story.split(/[.!?;\n]+|\b(?:tapi|tetapi|but)\b/iu)) {
         const mentions = modes.flatMap(([mode, pattern]) => {
             const match = clause.match(pattern);
@@ -34,7 +34,7 @@ export function extractLF05TransportMode(story: string): LF05TransportMode | nul
         const after = clause.slice((match.index ?? 0) + match[0].length).trimStart();
         if (/\b(?:tidak|tak|nggak|gak|ga|bukan|tanpa|belum|mungkin|not|never|without|maybe|avoid|don't|undecided)\b(?:\s+\S+){0,3}\s*$/iu.test(before) ||
             /^(?:belum tahu|belum pasti|tidak jadi|not sure|maybe)\b/iu.test(after)) continue;
-        const chosen = parseLF05TransportAnswer(clause) !== null ||
+        const chosen = parseProfileTransportAnswer(clause) !== null ||
             /\b(?:naik|pakai|menggunakan|gunakan|memilih|pilih|andalkan|commute by|travel by|go by|drive(?: a)?|ride(?: a)?|use|prefer)\s*$/iu.test(before) ||
             /\b(?:moda transportasi(?:ku|mu|nya)?|transport mode)\s*[:=]?\s*$/iu.test(before) ||
             /^(?:sebagai )?(?:pilihan utama|pilihan saya|untuk (?:perjalanan|ke kantor)|for (?:my commute|commuting))\b/iu.test(after);
@@ -44,10 +44,10 @@ export function extractLF05TransportMode(story: string): LF05TransportMode | nul
 }
 
 // Preserve only a grounded active subtype. Generic active and alternatives stay unresolved.
-export function extractLF05ActiveMode(story: string): "walk" | "bicycle" | null {
+export function extractProfileActiveMode(story: string): "walk" | "bicycle" | null {
     const chosen = new Set<"walk" | "bicycle">();
     for (const clause of story.split(/[.!?;\n]+|\b(?:tapi|tetapi|but)\b/iu)) {
-        if (extractLF05TransportMode(clause) !== "active") continue;
+        if (extractProfileTransportMode(clause) !== "active") continue;
         const walk = /\b(?:jalan kaki|walk(?:ing)?)\b/iu.test(clause);
         const bicycle = /\b(?:sepeda|bersepeda|cycl(?:e|ing)|bicycle|bike)\b/iu.test(clause);
         if (walk && bicycle) return null;

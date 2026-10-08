@@ -2,11 +2,11 @@ import { isRecord } from "./zoneGeometry";
 
 // Flow IDs from the Langflow project's manifest.json (Jejak Langflow v2).
 export const LANGFLOW_FLOWS = {
-    lf01: "e1106f6a-73b2-4e58-a229-fa543446e900",
-    lf02: "66c12da0-bc5b-4538-949a-9847d08d7aa3",
-    lf03: "d4b70d5c-0fd4-4b44-9bc0-79935a87718f",
-    lf04: "2314c8f6-931d-46fd-b54d-e634ede6f3d5",
-    lf05: "8feff2fc-81df-438d-8dae-c10563f1ab67",
+    zoneEvidenceDiscovery: "e1106f6a-73b2-4e58-a229-fa543446e900",
+    evidenceClassification: "66c12da0-bc5b-4538-949a-9847d08d7aa3",
+    evidenceConflictReview: "d4b70d5c-0fd4-4b44-9bc0-79935a87718f",
+    zoneFitExplanation: "2314c8f6-931d-46fd-b54d-e634ede6f3d5",
+    relocationProfileInterpretation: "ef72738c-b8c2-4b67-a992-eb811efdc7c5",
 } as const;
 
 const WORKFLOWS_PATH = "/api/v2/workflows";
@@ -29,6 +29,33 @@ export type FlowErrorMessages = Record<LangflowErrorCode, [message: string, stat
 export function flowErrorResponse(messages: FlowErrorMessages, error: unknown): Response {
     const [message, status] = messages[error instanceof LangflowError ? error.code : "invalid_output"];
     return Response.json({ error: message }, { status });
+}
+
+async function upstreamErrorMessage(response: Response, apiKey: string): Promise<string> {
+    let body: unknown;
+    try {
+        const text = (await response.text()).slice(0, 8_000);
+        try {
+            body = JSON.parse(text);
+        } catch {
+            body = text.startsWith("<") ? undefined : text;
+        }
+    } catch {
+        return response.statusText || "No error detail returned";
+    }
+
+    const record = isRecord(body) ? body : undefined;
+    const nested = record && isRecord(record.error) ? record.error.message : undefined;
+    const candidate = record?.detail ?? record?.message ?? nested ?? record?.error ?? body;
+    if (typeof candidate !== "string") return response.statusText || "No error detail returned";
+
+    const safeMessage = candidate.split(/\r?\n/, 1)[0]
+        .replaceAll(apiKey, "[redacted]")
+        .replace(/[\u0000-\u001f\u007f]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500);
+    return safeMessage || response.statusText || "No error detail returned";
 }
 
 type Environment = Record<string, string | undefined>;
@@ -66,7 +93,7 @@ export function isLangflowConfigured(env: Environment = process.env): boolean {
 function outputTexts(envelope: Record<string, unknown>): string[] {
     const texts: string[] = [];
     if (isRecord(envelope.output) && typeof envelope.output.text === "string") texts.push(envelope.output.text);
-    // Flows with several Chat Output nodes (LF-01, LF-02, LF-04) may report each one separately.
+    // Flows with several Chat Output nodes may report each one separately.
     if (Array.isArray(envelope.outputs)) {
         for (const item of envelope.outputs) {
             if (typeof item === "string") texts.push(item);
@@ -121,7 +148,11 @@ export async function runFlow(flowId: string, input: unknown, options: RunFlowOp
         if (error instanceof Error && error.name === "TimeoutError") throw new LangflowError("timeout", "Langflow took too long to respond");
         throw new LangflowError("unreachable", "Could not reach Langflow");
     }
-    if (!upstream.ok) throw new LangflowError("upstream", `Langflow returned HTTP ${upstream.status}`);
+    if (!upstream.ok) {
+        const detail = await upstreamErrorMessage(upstream, apiKey);
+        console.error("Langflow request failed", { flowId, status: upstream.status, detail });
+        throw new LangflowError("upstream", `Langflow returned HTTP ${upstream.status}`);
+    }
 
     let envelope: unknown;
     try {

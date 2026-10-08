@@ -3,24 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { logoutUser } from "../engine/controller/userController";
-import { useUserProfileStore } from "../stores/userStores";
-import { FORM_DRAFT_KEY, STORY_DRAFT_KEY } from "../engine/onboarding/types";
+import { clearOnboardingDrafts } from "../engine/onboarding/draftStorage";
+import type { AccountScope } from "../engine/lib/accountIdentity";
 
-export default function SignOutButton({ userId }: { userId: string }) {
+export default function SignOutButton({ identity }: { identity: AccountScope }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
     const [error, setError] = useState("");
-    const resetProfile = useUserProfileStore((state) => state.resetProfile);
 
     async function signOut() {
         if (pending) return;
         setPending(true);
         setError("");
         try {
+            identity.invalidate(false);
             await logoutUser();
-            resetProfile(userId);
-            sessionStorage.removeItem(STORY_DRAFT_KEY);
-            sessionStorage.removeItem(FORM_DRAFT_KEY);
+            clearOnboardingDrafts(identity.userId);
             router.replace("/login?status=signed-out");
             router.refresh();
         } catch {

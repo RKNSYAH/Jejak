@@ -5,7 +5,7 @@ import { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
 import { Check } from "lucide-react";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import type { FilterSpecification } from "maplibre-gl";
-import { isLiveRecommendationSample, isTopRanked, onboardingCategoryValue } from "@/app/engine/onboarding/livePreview";
+import { hasHousingStatistics, isLiveRecommendationSample, isTopRanked, onboardingCategoryValue } from "@/app/engine/onboarding/livePreview";
 import type { LiveOnboardingPreview, LivePreviewMapContext, OnboardingCampus } from "@/app/engine/onboarding/types";
 import type { MapCategory, ZoneGeometry } from "@/app/engine/types";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
@@ -159,7 +159,10 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
         </Source>}
         {/* Best-ranked last, so its badge draws over neighbouring labels. */}
         {[...visiblePreviewDistricts(preview, showFilled)].reverse().flatMap((item) => item.district.center ? [<Marker key={item.district.zone_id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
-            {completed ? <button type="button" aria-label={`${item.district.zone_name}${item.rank ? `, peringkat ${item.rank}` : item.eligible === false ? ", di luar batas" : ", belum terverifikasi"}`} onClick={(event) => { event.stopPropagation(); onSelectDistrict(item.district.zone_id); }} className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} rank={item.rank} /></button>
+            {completed ? <button type="button" aria-disabled={!hasHousingStatistics(item)}
+                aria-label={`${item.district.zone_name}${item.rank ? `, peringkat ${item.rank}` : item.eligible === false ? ", di luar batas" : ", belum terverifikasi"}${hasHousingStatistics(item) ? "" : ", sewa belum tersedia"}`}
+                onClick={(event) => { event.stopPropagation(); if (hasHousingStatistics(item)) onSelectDistrict(item.district.zone_id); }}
+                className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} rank={item.rank} /></button>
                 : <DistrictLabel item={item} rank={emphasizeTop && isTopRanked(item) ? item.rank : null} preliminary />}
         </Marker>] : [])}
         {(step === 1 || step === 3) && context.goal !== "work" && preview.destinations.map((item) => <DestinationMarker

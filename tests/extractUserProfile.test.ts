@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildLF05Input,
+  buildRelocationProfileInterpretationInput,
   extractUserProfile,
   onboardingTaxonomy,
-  type LF05Taxonomy,
+  type RelocationProfileTaxonomy,
 } from "../app/engine/extractUserProfile";
 
-const taxonomy: LF05Taxonomy = {
+const taxonomy: RelocationProfileTaxonomy = {
   version: "2026-09",
   sectors: [
     { id: "software_and_it_services", label: "Software and IT services", aliases: ["IT"] },
@@ -102,7 +102,7 @@ test("needs a specific area, keeps places outside the list, and finds the office
 });
 
 test("uses caller-supplied taxonomy entries beyond the bundled set", () => {
-  const customTaxonomy: LF05Taxonomy = {
+  const customTaxonomy: RelocationProfileTaxonomy = {
     version: "custom-2026-10",
     sectors: [{ id: "agriculture", label: "Agriculture", aliases: ["farming"] }],
     occupations: [{ id: "veterinarian", label: "Veterinarian", aliases: ["vet"] }],
@@ -113,8 +113,8 @@ test("uses caller-supplied taxonomy entries beyond the bundled set", () => {
   assert.deepEqual(profile.targetOccupations.map(({ id }) => id), ["veterinarian"]);
 });
 
-test("builds the exact LF-05 onboarding input shape", () => {
-  assert.deepEqual(buildLF05Input("mau kerja di IT", taxonomy, "onboarding-session-001"), {
+test("builds the exact relocation profile interpretation onboarding input shape", () => {
+  assert.deepEqual(buildRelocationProfileInterpretationInput("mau kerja di IT", taxonomy, "onboarding-session-001"), {
     mode: "onboarding",
     language: "id",
     session_reference: "onboarding-session-001",
@@ -122,7 +122,7 @@ test("builds the exact LF-05 onboarding input shape", () => {
     taxonomy,
     message: "mau kerja di IT",
   });
-  assert.deepEqual(buildLF05Input("I want to study", taxonomy, "onboarding-session-001", "en"), {
+  assert.deepEqual(buildRelocationProfileInterpretationInput("I want to study", taxonomy, "onboarding-session-001", "en"), {
     mode: "onboarding",
     language: "en",
     session_reference: "onboarding-session-001",

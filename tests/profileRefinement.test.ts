@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { buildFormRelocationProfile } from "../app/engine/lib/relocationProfile";
-import type { LF05ClarificationAnswer } from "../app/engine/lib/lf05FollowUp";
+import type { ProfileClarificationAnswer } from "../app/engine/lib/relocationProfileInterpretationFollowUp";
 import { buildNativeProfileRefinementInput, getProfileChanges, reconcileProfileRefinement, validateRelocationDraft } from "../app/engine/lib/profileRefinement";
 import { defaultAnswers } from "../app/engine/onboarding/demoData";
 
@@ -29,7 +29,7 @@ test("explicit walking subtype survives saved form and refinement without extend
     assert.equal(reconciled.soft_preferences.active_mode, "bicycle");
 });
 
-test("refinement keeps explicit form and slider edits over LF-05 suggestions", () => {
+test("refinement keeps explicit form and slider edits over profile interpretation suggestions", () => {
     const draft = structuredClone(confirmed);
     draft.hard_constraints.monthly_budget = { amount: 8_000_000, currency: "IDR", period: "month" };
     draft.priority_weights = { career: 0.4, housing: 0.1, commute: 0.1, education: 0.1, cost_of_living: 0.1, environment: 0.2 };
@@ -140,7 +140,7 @@ test("refinement retains unanswered relevant questions, drops known and answered
         "Berapa lama perjalanan yang kamu inginkan?",
         "Apa jenis pekerjaan yang kamu cari?",
     ];
-    const answers: LF05ClarificationAnswer[] = [{ question: "Berapa lama perjalanan yang kamu inginkan?", answer: "30 menit", field: "commute_minutes" }];
+    const answers: ProfileClarificationAnswer[] = [{ question: "Berapa lama perjalanan yang kamu inginkan?", answer: "30 menit", field: "commute_minutes" }];
     const result = reconcileProfileRefinement(confirmed, draft, modelProposal(
         draft.hard_constraints, draft.soft_preferences, draft.priority_weights, questions,
     ), true, answers);
@@ -152,7 +152,7 @@ test("native input uses refinement contract, confirmed projection, typed answers
     draft.hard_constraints.monthly_budget = { amount: 8_000_000, currency: "IDR", period: "month" };
     draft.soft_preferences.occupation = "Data analyst";
     draft.soft_preferences.housing_types = ["apartemen"];
-    const answers: LF05ClarificationAnswer[] = [{ question: "Berapa lama perjalanan?", answer: "35 menit", field: "commute_minutes" }];
+    const answers: ProfileClarificationAnswer[] = [{ question: "Berapa lama perjalanan?", answer: "35 menit", field: "commute_minutes" }];
     const input = buildNativeProfileRefinementInput(confirmed, draft, "Aku ingin cari opsi lebih hemat.", answers, "session-test", "id");
     assert.equal(input.mode, "refinement");
     assert.equal(input.message.startsWith("Aku ingin cari opsi lebih hemat."), true);

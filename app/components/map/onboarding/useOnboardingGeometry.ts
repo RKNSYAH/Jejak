@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getJson } from "@/app/engine/lib/zoneApi";
 import { isBoundary, isRecord } from "@/app/engine/lib/zoneGeometry";
+import { ZONE_BOUNDARY_REQUEST_TIMEOUT_MS } from "@/app/engine/lib/zoneRequestTimeouts";
 import type { ZoneGeometry } from "@/app/engine/types";
 
 type CityBoundaryResponse = { geometry: ZoneGeometry; missingZones: string[] };
@@ -39,7 +40,7 @@ export function useOnboardingGeometry(enabled: boolean, cityId: string | null, z
         const timer = window.setTimeout(() => {
             setRequest((current) => ({ key: requestKey, scope: scopeKey,
                 geometry: current.scope === scopeKey ? current.geometry : null, error: null, loading: true }));
-            void getJson(`/api/onboarding/geometry?city_id=${encodeURIComponent(cityId)}`, controller.signal)
+            void getJson(`/api/onboarding/geometry?city_id=${encodeURIComponent(cityId)}`, controller.signal, ZONE_BOUNDARY_REQUEST_TIMEOUT_MS)
                 .then((data) => parseCityBoundaries(data, expectedIds))
                 .then((result) => {
                     if (controller.signal.aborted) return;

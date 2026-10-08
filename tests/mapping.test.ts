@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeGeometry, getGeometryBounds } from "../app/engine/lib/zoneGeometry";
 import { toZone, toZoneDetails, validateCellQuery, validateZoneQuery } from "../app/engine/controller/zoneController";
-import { getZoneBoundary } from "../app/engine/lib/zoneBoundary";
+import { getCityZoneBoundaries, getZoneBoundary } from "../app/engine/lib/zoneBoundary";
 import { createCellFillData, createCellGlowData, createCompanyPointData, createZoneLayerData, summarizeCells } from "../app/components/map/zoneLayerData";
 import { cellLayers, cellMetrics, formatFactValue, mapCategories, rentSharePercent } from "../app/components/map/mapMetrics";
 import { CELL_GLOW_LAYER, getCellFillLayer, getMetricRange, getZoneFillLayer, ZONE_OUTLINE_LAYER } from "../app/components/map/zoneLayers";
@@ -129,6 +129,8 @@ test("provider lookups cache validated boundaries and bypass raw HTTP response c
         calls++;
         const query = new URL(url).searchParams;
         assert.equal(query.get("where"), "UPPER(WADMKC) LIKE 'P%A%N%C%O%R%A%N%' AND UPPER(WADMKK) LIKE '%JAKARTA SELATAN'");
+        assert.equal(query.has("geometryPrecision"), false);
+        assert.equal(query.has("maxAllowableOffset"), false);
         assert.equal(options.cache, "no-store");
         assert.equal("next" in options, false);
         return Response.json(boundary);
@@ -162,6 +164,56 @@ test("provider boundaries with Z values are stored as 2D", async (context) => {
     });
     await getZoneBoundary(providerRow("provider-3d"));
     assert.deepEqual(stored?.p_geometry.coordinates, [[[[106, -6], [107, -6], [107, -5], [106, -6]]]]);
+});
+
+test("onboarding boundary requests cap city concurrency and reuse cached districts", async (context) => {
+    const previous = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    context.after(() => {
+        if (previous.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = previous.url;
+        if (previous.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.key;
+    });
+
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    const rows = Array.from({ length: 6 }, (_, index) => ({
+        region_code: `provider-city-cache-${index}`, region_name: `District ${index}`,
+        parent_code: `provider-city-${index}`, parent_name: `Provider City ${index}`,
+        is_sample: false, geometry: null, places: [], facts: [],
+    }));
+    context.mock.method(console, "info", () => {});
+    context.mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+        calls++;
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active--;
+
+        const query = new URL(String(url)).searchParams;
+        assert.equal(query.has("geometryPrecision"), false);
+        assert.equal(query.has("maxAllowableOffset"), false);
+        const cityIndex = query.get("where")?.match(/PROVIDER CITY (\d+)/)?.[1];
+        assert.ok(cityIndex);
+        const index = Number(cityIndex);
+        return Response.json({
+            type: "FeatureCollection",
+            features: [{
+                type: "Feature", geometry: polygon,
+                properties: { WADMKC: `District ${index}`, WADMKK: `Provider City ${index}` },
+            }],
+        });
+    });
+
+    const first = await getCityZoneBoundaries(rows);
+    assert.equal(first.geometry.features.length, rows.length);
+    assert.deepEqual(first.missingZones, []);
+    assert.equal(maxActive, 4);
+    assert.equal(calls, rows.length);
+
+    await getCityZoneBoundaries(rows);
+    assert.equal(calls, rows.length);
 });
 
 test("simultaneous boundary requests share a lookup and cache identity includes the city", async (context) => {
@@ -199,6 +251,7 @@ test("failed, empty and invalid provider responses stay retryable with distinct 
     ];
     for (const [name, failure, message] of cases) {
         let calls = 0;
+        context.mock.method(console, "error", () => {});
         context.mock.method(globalThis, "fetch", async () => ++calls === 1 ? failure() : Response.json(boundary));
         const row = providerRow(`provider-retry-${name}`);
         await assert.rejects(getZoneBoundary(row), message);

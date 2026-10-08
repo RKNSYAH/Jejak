@@ -2,6 +2,55 @@
 
 ## Current status
 
+### Housing expansion refresh: 2026-10-08
+
+The user authorized another push of the updated workbook. The housing-only
+refresh is **committed and reconciled** on
+`https://zucvrejoloiuxpaotedt.supabase.co`.
+
+- Source: `../outputs/01a0f5ae-03b7-7221-8db1-5712fc57628c/Jejak_Static_Data_Research_Completed.xlsx`.
+  It is not in `public/` and was not copied there. SHA-256:
+  `446e80d7a181e8c3d72fd0e97ec3c04c49364a0ea7758bdc5dec39e85ed63a19`.
+- Compared with the October 2 promoted snapshot, housing adds **36 kos rows**
+  for 36 previously uncovered districts, retrieved October 8. The existing 77
+  housing rows and all other data sheets are unchanged; the quality-audit tab
+  also changed but is not a destination table.
+- `public.housing_statistics` now has **113 rows**. All 113 scoped payloads
+  reconcile exactly; all original 77 full rows and IDs are unchanged. All 16
+  other contract/reference table fingerprints are unchanged, including regions,
+  boundaries, education, verified enrollment corrections and cost scenarios.
+- All housing rows remain derived static baselines with unknown observation
+  periods and retained source limitations. No dates, prices or geographic
+  identities were fabricated. No schema migration, scenario recalculation,
+  evidence discovery or application UI changes were performed.
+- Fresh backup and eight local verification checks passed: exact snapshot
+  restoration, changed-data guard, late-failure rollback, payload reconciliation,
+  ID retention, repeat import, recovery approval and scoped recovery. The exact
+  recovery SQL bound to the hosted result also passed local restoration.
+- Hosted public RPC checks verified all **36 newly covered districts** and
+  **144 rent metrics**, including values, provenance, derived evidence status,
+  unknown periods and baseline caveats. Scenario browser access returned 401;
+  private audit access returned 406. UI was not tested; enrichment was not run.
+- Preparation tests: 18 passed. ESLint passed for the changed refresh runner.
+
+Private artifacts are in
+`ingestion/data/prepared/static_research_refresh_446e80d7a181/scoped/refresh-backup/`.
+The October 2 manifest is the explicit predecessor; its hash is pinned in the
+fresh backup. Historical backups were not overwritten. `restore-data.sql`
+requires separate approval and unchanged hosted housing fingerprints, restores
+only housing data, and retains audit/history. It was not run remotely and is
+not a full project/Auth/Storage backup. Sequence increments are not rewound.
+
+`ingestion/refresh_static_research.mjs` now accepts optional predecessor-manifest
+and source-workbook paths after its existing four arguments. It takes scope
+from the prepared manifest, restricted to education/housing, verifies source
+and archived workbook hashes, and pins the predecessor hash before promotion.
+Execution remains `backup`, `verify`, `promote`, then `reconcile`; `checkRows()`
+verifies results and `restoreSql()` generates the tested, guarded recovery file.
+This refresh confirmed original rows were unchanged and new rows were appended;
+the runner still rejects reordered/deleted predecessor rows rather than guessing
+their correspondence.
+
 ### Education and housing refresh: 2026-10-02
 
 The user supplied an updated workbook and authorized re-pushing sheet
@@ -22,7 +71,7 @@ The updated workbook SHA-256 is
   than retaining stale duplicates with old source labels.
 - All 15 other contract/reference tables have exactly unchanged row fingerprints,
   including all 689 regions, boundaries/provenance, enrollment corrections and
-  both 32-row cost-scenario tables. No schema migration, LF-01 run, UI changes,
+  both 32-row cost-scenario tables. No schema migration, zone evidence discovery run, UI changes,
   or scenario recalculation was part of this refresh.
 - Preflight found a live edit to Pancoran's old kos row: median 2,200,000,
   average 1,950,000 and maximum 4,500,000 IDR, compared with the previous workbook's
@@ -64,8 +113,8 @@ Implementation order:
 4. `reconcile` compares every scoped field, checks untouched tables and ID
    preservation, and tests a recovery file bound to the actual hosted result.
 
-The refresh runner is guarded against the original approved manifest and this
-two-table scope; it is not an automatic arbitrary future-workbook uploader.
+For this promotion, the refresh runner used the original approved manifest and
+the two-table scope; it was not an automatic arbitrary future-workbook uploader.
 Do not rerun the initial-load promotion runner or overwrite its historical
 backup. Future refreshes need a new artifact folder, reviewed predecessor
 manifest/identity mapping and fresh backup, verification and scope approval.
@@ -149,7 +198,7 @@ The unclassified feature remains unsupported, without geometry or official codes
 for map details, map catalogue rents, and onboarding previews. It overlays supported
 fields without changing stored static rows. Geography, population, city living costs,
 education data, and other unsupported fields continue to use their static sources.
-Cache failures or missing values retain the static fallback. These reads do not run LF-01.
+Cache failures or missing values retain the static fallback. These reads do not run zone evidence discovery.
 
 - Housing: calculate medians from actual district-local listings for each housing type.
   A pooled rent range cannot supply a per-type median.
@@ -341,8 +390,8 @@ Completed checks:
   and [six unindexed foreign keys](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys)
   are outside this import's scope.
 - Lint and TypeScript checks pass. The broader `bun run test` has 121 passes and
-  two failures in `tests/lf05.test.ts` (transport inference), outside these import
-  changes. No application UI or LF-01 run was triggered/tested by hosted checks.
+  two failures in `tests/relocationProfileInterpretation.test.ts` (transport inference), outside these import
+  changes. No application UI or zone evidence discovery run was triggered/tested by hosted checks.
 
 Read-only verification can be repeated:
 

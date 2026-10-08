@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { ZoneSummary } from "@/app/engine/types";
 import type { LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
+import { hasHousingStatistics } from "@/app/engine/onboarding/livePreview";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
 import { clamp } from "./viewport";
 
@@ -50,6 +51,7 @@ export default function MapBottomSheet({
     onHeightChange,
     ref,
     recommendations,
+    restrictSelectionToHousingData = false,
     onEditPreferences,
     reachActive = false,
     title,
@@ -61,6 +63,7 @@ export default function MapBottomSheet({
     onHeightChange: (height: number) => void;
     ref: Ref<MapBottomSheetHandle>;
     recommendations?: LiveDistrictRecommendation[];
+    restrictSelectionToHousingData?: boolean;
     onEditPreferences?: () => void;
     reachActive?: boolean;
     title?: string;
@@ -199,6 +202,7 @@ export default function MapBottomSheet({
                             isSample={zone.is_sample}
                             compact={!isExpanded}
                             recommendation={recommendations?.find((item) => item.district.zone_id === zone.zone_id)}
+                            restrictSelectionToHousingData={restrictSelectionToHousingData}
                             reachActive={reachActive}
                             onClick={() => onSelect(zone)}
                         />
@@ -209,21 +213,24 @@ export default function MapBottomSheet({
     )
 }
 
-function RegionCard({ name, cityName, isSample, compact, onClick, recommendation, reachActive }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation; reachActive: boolean }) {
+function RegionCard({ name, cityName, isSample, compact, onClick, recommendation, restrictSelectionToHousingData, reachActive }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation; restrictSelectionToHousingData: boolean; reachActive: boolean }) {
+    const housingUnavailable = restrictSelectionToHousingData && (!recommendation || !hasHousingStatistics(recommendation));
     const reachStyle = reachActive && recommendation?.reachBand === "near" ? "border-primary bg-primary/10"
         : reachActive && recommendation?.reachBand === "edge" ? "border-secondary bg-accent/20" : "bg-base-100";
     return (
         <button
             type="button"
-            onClick={onClick}
+            aria-disabled={housingUnavailable}
+            onClick={() => { if (!housingUnavailable) onClick(); }}
             data-reach-band={reachActive ? recommendation?.reachBand ?? "unknown" : undefined}
-            className={`card card-border min-h-24 min-w-0 cursor-pointer ${reachStyle} text-left shadow-overlay hover:border-primary focus-visible:outline-primary md:min-h-28 ${compact ? "w-[min(10rem,calc((100cqi-0.5rem)/2))] shrink-0 snap-start md:w-[min(16rem,calc((100cqi-3rem)/5))]" : "w-full"}`}
+            className={`card card-border min-h-24 min-w-0 ${housingUnavailable ? "cursor-not-allowed" : "cursor-pointer hover:border-primary"} ${reachStyle} text-left shadow-overlay focus-visible:outline-primary md:min-h-28 ${compact ? "w-[min(10rem,calc((100cqi-0.5rem)/2))] shrink-0 snap-start md:w-[min(16rem,calc((100cqi-3rem)/5))]" : "w-full"}`}
         >
             <span className="card-body min-w-0 justify-between gap-1 p-2.5 md:gap-3 md:p-4">
                 <span className="wrap-break-word font-body text-sm font-semibold leading-tight text-ink md:text-lg md:leading-snug">{recommendation?.rank ? `${recommendation.rank}. ` : ""}{name}</span>
                 <span className="font-body text-xs text-ink-muted md:text-sm">{cityName}</span>
                 <span className="font-body text-xs font-medium text-ink-muted md:text-sm">{isSample ? "Data contoh" : "Lihat data kecamatan"}</span>
-                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent === null ? "Sewa belum tersedia" : `Rata-rata sewa Rp${formatRupiah(recommendation.rent)}`}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
+                {housingUnavailable && !recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">Sewa belum tersedia</span>}
+                {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent !== null && hasHousingStatistics(recommendation) ? `Rata-rata sewa Rp${formatRupiah(recommendation.rent)}` : "Sewa belum tersedia"}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
                 {recommendation?.commuteEstimate?.minutes && <span className="font-body text-xs text-ink-muted">Estimasi {recommendation.commuteEstimate.minutes.low}–{recommendation.commuteEstimate.minutes.high} mnt · titik kecamatan</span>}
                 {recommendation && recommendation.reachBand !== "unknown" && <span className="font-body text-xs text-ink-muted">{recommendation.reachBand === "near" ? "Dalam perkiraan jangkauan" : recommendation.reachBand === "edge" ? "Tepi perkiraan jangkauan" : "Di luar perkiraan jangkauan"}{recommendation.reachBand === "edge" ? "" : " · titik kecamatan"}</span>}
                 {reachActive && (!recommendation || recommendation.reachBand === "unknown") && <span className="font-body text-xs text-ink-muted">Lokasi kecamatan belum tersedia</span>}

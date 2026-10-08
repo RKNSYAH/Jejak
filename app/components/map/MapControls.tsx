@@ -116,7 +116,6 @@ export default function MapControls(props: MapControlsProps) {
     return (
         <div data-hci-region="controls" className="pointer-events-none absolute top-[max(1rem,env(safe-area-inset-top))] right-3 left-[max(0.75rem,env(safe-area-inset-left))] z-100 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 @container md:top-4 md:right-(--controls-right) md:left-4 md:flex md:flex-col md:items-start"
             style={{ "--controls-right": `${Math.max(props.sidebarWidth, ACCOUNT_CLUSTER_WIDTH + 16) + 12}px` } as CSSProperties}>
-            {/* Header and lens row share one width on desktop; on mobile they are grid rows beside the account cluster. */}
             <div className="contents md:flex md:w-full md:max-w-128 md:flex-col md:gap-2">
             <HeaderCluster region="map-header" className="pointer-events-auto col-start-1 row-start-1">
                 <div className="hidden shrink-0 md:flex"><BrandLogo border={false} /></div>
@@ -167,7 +166,7 @@ export default function MapControls(props: MapControlsProps) {
                     </div>
                 </search>
             </HeaderCluster>
-                {/* Beside the search bar when the controls row has room (32rem header + gap + banner); otherwise centered below. */}
+                {/* The 52rem breakpoint reserves room for the 32rem header, gap, and banner. */}
                 {props.showProfileReminder && <aside aria-label="Pengingat profil" data-hci-region="profile-completion-banner"
                     className="alert pointer-events-auto absolute left-0 top-full mt-2 w-max max-w-full grid-cols-1 max-md:flex rounded-xl border-rule bg-base-100 py-0 pr-0 pl-3 text-left text-base-content shadow-overlay md:@container/profile-reminder md:left-1/2 md:min-h-18 md:w-[min(34rem,100%)] md:-translate-x-1/2 md:p-3 @min-[52rem]:top-0 @min-[52rem]:left-[calc(32rem+0.75rem)] @min-[52rem]:mt-0 @min-[52rem]:w-[min(34rem,calc(100%-32.75rem))] @min-[52rem]:translate-x-0">
                     <div className="flex items-center gap-1 md:grid md:w-full md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-3 md:gap-y-2 @min-[30rem]/profile-reminder:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
@@ -219,7 +218,6 @@ export default function MapControls(props: MapControlsProps) {
                     {props.heatmapError && <button type="button" className="btn btn-sm btn-outline btn-neutral ml-2" onClick={props.onRetryHeatmap}>Coba lagi</button>}
                 </div>}
             </div>
-            {/* In the grid beside search on mobile; on desktop it sits 16px from the map's top-right corner, above the detail card. */}
             <AccountCluster account={props.account}
                 className="pointer-events-auto col-start-2 row-start-1 md:absolute md:top-0 md:right-[calc(1rem-var(--controls-right))]" />
             

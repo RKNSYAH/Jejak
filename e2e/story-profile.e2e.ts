@@ -13,7 +13,7 @@ test("unknown-budget story discards guessed car and requires an unselected trans
     await page.goto("/map?onboarding=demo");
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(
         "saya berencana pindah ke jakarta selatan untuk kerja sebagai software engineer budget belum tahu");
-    const initialResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+    const initialResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     const initial = (await (await initialResponse).json()).profile;
     expect(initial.soft_preferences.transport_mode).toBeUndefined();
@@ -27,12 +27,13 @@ test("unknown-budget story discards guessed car and requires an unselected trans
     }
     // Reproduce a pre-fix cached proposal that silently accepted the guessed mode.
     await page.evaluate(() => {
-        const key = "jejak:relocation-onboarding";
-        const draft = JSON.parse(sessionStorage.getItem(key)!);
+        const key = "jejak:relocation-onboarding:v2:11111111-1111-4111-8111-111111111111";
+        const saved = JSON.parse(sessionStorage.getItem(key)!);
+        const draft = saved.draft;
         draft.proposal.soft_preferences.transport_mode = "car";
         draft.proposal.inferred_fields.push("transport_mode");
         draft.proposal.clarification_questions = draft.proposal.clarification_questions.filter((question: string) => !question.startsWith("Moda transportasi"));
-        sessionStorage.setItem(key, JSON.stringify(draft));
+        sessionStorage.setItem(key, JSON.stringify(saved));
     });
     await page.reload();
     await expect(transportRow).toContainText("Belum ada");
@@ -44,7 +45,7 @@ test("unknown-budget story discards guessed car and requires an unselected trans
     await page.getByRole("radio", { name: "Motor", exact: true }).check();
     await page.reload();
     await expect(page.getByRole("radio", { name: "Motor", exact: true })).toBeChecked();
-    const followUpResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+    const followUpResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     const processed = (await (await followUpResponse).json()).profile;
     expect(processed.soft_preferences.transport_mode).toBe("motorcycle");
@@ -58,7 +59,7 @@ for (const [length, story] of [
     ["long", "Saya pindah sebagai software engineer. Saya ingin tinggal dekat kantor dengan kos yang nyaman. " +
         "Akses perjalanan dan biaya hidup penting untuk rencana saya. ".repeat(6)],
 ] as const) {
-    test(`${length} story keeps the same step-2 fields, sends every answer through LF-05 and saves to PostgreSQL`, async ({ page }) => {
+    test(`${length} story keeps the same step-2 fields, sends every answer through profile interpretation and saves to PostgreSQL`, async ({ page }) => {
         await stubZones(page);
         await page.goto("/map?onboarding=demo");
         await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(story);
@@ -75,7 +76,7 @@ for (const [length, story] of [
         await page.getByRole("textbox", { name: "Berapa anggaran bulananmu?" }).fill("Rp6 juta");
         await page.getByLabel("Atau tulis lokasi tujuanmu", { exact: true }).fill("Kuningan");
         await page.getByRole("radio", { name: "Transport umum", exact: true }).check();
-        const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+        const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
         await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
         const analysisResponse = await analysis;
         expect(analysisResponse.status()).toBe(200);
@@ -146,13 +147,13 @@ test("map-picked story answer survives refresh and saves exact chosen coordinate
     await page.locator(".maplibregl-canvas").click({ position: { x: 140, y: 180 } });
     const region = page.getByRole("region", { name: "Pertanyaan lanjutan" });
     await expect(region).toContainText("Titik dipilih:");
-    const point = await page.evaluate(() => JSON.parse(sessionStorage.getItem("jejak:relocation-onboarding")!).mapPoint);
+    const point = await page.evaluate(() => JSON.parse(sessionStorage.getItem("jejak:relocation-onboarding:v2:11111111-1111-4111-8111-111111111111")!).draft.mapPoint);
     expect(point.latitude).toEqual(expect.any(Number));
     await page.reload();
     await expect(region).toContainText("Titik dipilih:");
     await page.getByRole("textbox", { name: "Berapa anggaran bulananmu?" }).fill("Rp6 juta");
     await page.getByRole("radio", { name: "Transport umum", exact: true }).check();
-    const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+    const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     const proposed = (await (await analysis).json()).profile;
     expect(proposed.decision_trace.received_message).toContain("Lokasi kantor dipilih di peta:");
@@ -167,7 +168,7 @@ test("resubmitting the story from step 1 asks follow-up questions again instead 
     await stubZones(page);
     const requests: Record<string, unknown>[] = [];
     page.on("request", (request) => {
-        if (new URL(request.url()).pathname === "/api/lf05") requests.push(request.postDataJSON());
+        if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") requests.push(request.postDataJSON());
     });
     await page.goto("/map?onboarding=demo");
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(reportedStory);
@@ -193,7 +194,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await stubZones(page);
     const requests: Record<string, unknown>[] = [];
     page.on("request", (request) => {
-        if (new URL(request.url()).pathname === "/api/lf05") requests.push(request.postDataJSON());
+        if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") requests.push(request.postDataJSON());
     });
     await page.goto("/map?onboarding=demo");
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(reportedStory);
@@ -213,7 +214,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await page.reload();
     await expect(page.getByRole("textbox", { name: commuteQuestion })).toHaveValue("45");
     await expect(page.getByRole("button", { name: "Belum tahu", exact: true })).toHaveAttribute("aria-pressed", "true");
-    const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+    const analysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     const proposed = (await (await analysis).json()).profile;
     expect(requests).toHaveLength(2);
@@ -282,7 +283,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
 test("no follow-up questions opens review directly after an explicit goal choice", async ({ page }) => {
     await stubZones(page);
     let analyses = 0;
-    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/lf05") analyses++; });
+    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") analyses++; });
     await page.goto("/map?onboarding=demo");
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah. Rp6 juta, kantor di Kuningan, naik transportasi umum.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
@@ -297,10 +298,10 @@ test("no follow-up questions opens review directly after an explicit goal choice
     expect((await (await page.request.get("/api/user/relocation-profile")).json()).profile.profile.hard_constraints.goal).toBe("both");
 });
 
-test("failed follow-up processing keeps step two and retries LF-05 with unchanged answers", async ({ page }) => {
+test("failed follow-up processing keeps step two and retries profile interpretation with unchanged answers", async ({ page }) => {
     await stubZones(page);
     let analyses = 0;
-    await page.route((url) => url.pathname === "/api/lf05", (route) => {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", (route) => {
         analyses++;
         if (analyses === 2) return route.fulfill({ status: 502, json: { error: "Rencana belum bisa dianalisis. Coba lagi." } });
         return route.fallback();
@@ -332,7 +333,7 @@ test("new unanswered questions stay on step two before a fresh review", async ({
     await stubZones(page);
     let analyses = 0;
     const newQuestion = "Apa pola kerjamu?";
-    await page.route((url) => url.pathname === "/api/lf05", async (route) => {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", async (route) => {
         analyses++;
         if (analyses !== 2) return route.fallback();
         const response = await route.fetch();

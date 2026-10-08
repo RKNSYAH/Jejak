@@ -1,12 +1,13 @@
 import { onboardingTaxonomy } from "../extractUserProfile";
+import { LANGFLOW_CONTRACTS } from "../lib/langflowContracts";
 import { isRecord } from "../lib/zoneGeometry";
-import type { LF01Candidate } from "./lf01Contract";
+import type { ZoneEvidenceCandidate } from "./zoneEvidenceDiscoveryContract";
 
 export type SectorClassification = { label: string; method: string; confidence: number };
 
-// There is no organization registry yet, so LF-02 can only classify sectors and
-// occupations; identity stays unresolved (docs/LF-02 "Input ownership").
-export function buildLF02Input(runId: string, candidates: LF01Candidate[]) {
+// Without an organization registry, classification can label sectors and
+// occupations but cannot resolve identity.
+export function buildEvidenceClassificationInput(runId: string, candidates: ZoneEvidenceCandidate[]) {
     return {
         run_id: runId,
         evidence_candidates: candidates.map((candidate) => candidate.raw),
@@ -15,10 +16,10 @@ export function buildLF02Input(runId: string, candidates: LF01Candidate[]) {
     };
 }
 
-export function parseLF02Output(value: unknown, runId: string): Map<string, SectorClassification> {
-    if (!isRecord(value) || value.contract_version !== "lf02-v2" || (value.run_id !== undefined && value.run_id !== runId) ||
+export function parseEvidenceClassificationOutput(value: unknown, runId: string): Map<string, SectorClassification> {
+    if (!isRecord(value) || value.contract_version !== LANGFLOW_CONTRACTS.evidenceClassification || (value.run_id !== undefined && value.run_id !== runId) ||
         value.writes_performed !== false) {
-        throw new Error("INVALID_LF02_OUTPUT");
+        throw new Error("INVALID_EVIDENCE_CLASSIFICATION_OUTPUT");
     }
 
     const sectors = new Map<string, SectorClassification>();

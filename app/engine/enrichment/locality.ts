@@ -1,5 +1,5 @@
 import type { GeocodeResult } from "./geocoder";
-import type { Precision } from "./lf01Contract";
+import type { Precision } from "./zoneEvidenceDiscoveryContract";
 
 export type LocalityTier = "zone" | "city" | "region" | "national";
 
@@ -19,7 +19,7 @@ export function normalizePlaceName(name: string): string {
 }
 
 type LocalityInput = {
-    // Precision LF-01 read from the source; "unknown" defers to the geocoder.
+    // Precision read from the source; "unknown" defers to the geocoder.
     statedPrecision: Precision;
     geocode: GeocodeResult;
     // Tier from trusted district boundaries, or null when no boundary covers the point.

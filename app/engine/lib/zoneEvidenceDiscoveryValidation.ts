@@ -1,9 +1,9 @@
-import type { LF01Input, MissingEvidence } from "../types";
+import type { ZoneEvidenceDiscoveryInput, MissingEvidence } from "../types";
 import { isRecord } from "./zoneGeometry";
 
-// LF-01 fetches at most this many pages per call (search results plus job and listing details).
-export const MAX_LF01_SOURCES = 30;
-// Companies per office-address lookup; each becomes one LF-01 search query.
+// Discovery fetches at most this many pages per call (search results plus job and listing details).
+export const MAX_ZONE_EVIDENCE_DISCOVERY_SOURCES = 30;
+// Companies per office-address lookup; each becomes one discovery search query.
 export const MAX_COMPANY_NAMES = 8;
 
 const evidenceTypes: MissingEvidence[] = [
@@ -22,7 +22,7 @@ function readStrings(value: unknown, name: string): string[] | undefined {
     return value.map((item) => readString(item, name));
 }
 
-export function validateLF01Input(value: unknown): LF01Input {
+export function validateZoneEvidenceDiscoveryInput(value: unknown): ZoneEvidenceDiscoveryInput {
     if (!isRecord(value)) throw new Error("Expected a JSON object");
     for (const key of Object.keys(value)) {
         if (key.startsWith("fixture") || key === "mode" || key === "cached_content_hashes") {
@@ -42,8 +42,8 @@ export function validateLF01Input(value: unknown): LF01Input {
     }
 
     const maximumSources = value.maximum_sources === undefined ? 10 : value.maximum_sources;
-    if (typeof maximumSources !== "number" || !Number.isInteger(maximumSources) || maximumSources < 1 || maximumSources > MAX_LF01_SOURCES) {
-        throw new Error(`maximum_sources must be an integer from 1 to ${MAX_LF01_SOURCES}`);
+    if (typeof maximumSources !== "number" || !Number.isInteger(maximumSources) || maximumSources < 1 || maximumSources > MAX_ZONE_EVIDENCE_DISCOVERY_SOURCES) {
+        throw new Error(`maximum_sources must be an integer from 1 to ${MAX_ZONE_EVIDENCE_DISCOVERY_SOURCES}`);
     }
     const missingEvidence = readStrings(value.missing_evidence, "missing_evidence") ?? ["company_presence", "active_openings"];
     const validatedEvidence = missingEvidence.map((item) => {
@@ -52,7 +52,7 @@ export function validateLF01Input(value: unknown): LF01Input {
         return evidence;
     });
 
-    let boundingBox: LF01Input["bounding_box"];
+    let boundingBox: ZoneEvidenceDiscoveryInput["bounding_box"];
     if (value.bounding_box !== undefined) {
         const box = value.bounding_box;
         if (!Array.isArray(box) || box.length !== 4 || box.some((n) => typeof n !== "number" || !Number.isFinite(n))) {

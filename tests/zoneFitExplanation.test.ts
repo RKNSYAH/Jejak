@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "../app/api/lf04/route";
+import { POST } from "../app/api/zone-fit-explanation/route";
 import { explainZoneFit } from "../app/engine/controller/explanationController";
-import { parseLF04Output, validateLF04Request } from "../app/engine/lib/lf04Validation";
+import { parseZoneFitExplanationOutput, validateZoneFitExplanationRequest } from "../app/engine/lib/zoneFitExplanationValidation";
 import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
@@ -46,8 +46,8 @@ const profile: PersistedRelocationProfile = {
     contract_version: "lf05-v2",
 };
 
-test("LF-04 request validation rejects user-supplied profiles, unaccepted snapshots, and bad scores", () => {
-    assert.deepEqual(validateLF04Request(request), request);
+test("zone fit explanation request validation rejects user-supplied profiles, unaccepted snapshots, and bad scores", () => {
+    assert.deepEqual(validateZoneFitExplanationRequest(request), request);
     for (const invalid of [
         { ...request, confirmed_profile: { confirmed: true } },
         { ...request, run_id: "mine" },
@@ -59,12 +59,12 @@ test("LF-04 request validation rejects user-supplied profiles, unaccepted snapsh
         { ...request, comparison_zone: { zone_id: "tebet" } },
         { ...request, language: "fr" },
     ]) {
-        assert.throws(() => validateLF04Request(invalid), /INVALID_LF04_REQUEST/);
+        assert.throws(() => validateZoneFitExplanationRequest(invalid), /INVALID_ZONE_FIT_EXPLANATION_REQUEST/);
     }
 });
 
-test("LF-04 output validation re-checks evidence IDs and numeric grounding", () => {
-    const parsed = parseLF04Output(explanation, validateLF04Request(request));
+test("zone fit explanation output validation re-checks evidence IDs and numeric grounding", () => {
+    const parsed = parseZoneFitExplanationOutput(explanation, validateZoneFitExplanationRequest(request));
     assert.equal(parsed.generation_method, "gemini");
     assert.equal("fallback_reason" in parsed, false);
     assert.equal("runtime_usage" in parsed, false);
@@ -78,11 +78,11 @@ test("LF-04 output validation re-checks evidence IDs and numeric grounding", () 
         { ...explanation, evidence_gaps: [] },
         { ...explanation, contract_version: "lf04-v1" },
     ]) {
-        assert.throws(() => parseLF04Output(invalid, validateLF04Request(request)), /INVALID_LF04_OUTPUT/);
+        assert.throws(() => parseZoneFitExplanationOutput(invalid, validateZoneFitExplanationRequest(request)), /INVALID_ZONE_FIT_EXPLANATION_OUTPUT/);
     }
 });
 
-test("LF-04 controller sends the stored profile as confirmed and returns the validated explanation", async (context) => {
+test("zone fit explanation controller sends the stored profile as confirmed and returns the validated explanation", async (context) => {
     const restoreEnvironment = withWorkflowEnvironment();
     let sentPayload: Record<string, unknown> | undefined;
     context.mock.method(globalThis, "fetch", async (_input: string | URL | Request, init?: RequestInit) => {
@@ -91,7 +91,7 @@ test("LF-04 controller sends the stored profile as confirmed and returns the val
     });
 
     try {
-        const result = await explainZoneFit(profile, validateLF04Request(request));
+        const result = await explainZoneFit(profile, validateZoneFitExplanationRequest(request));
         assert.equal(result.headline, explanation.headline);
         assert.equal(sentPayload?.flow_id, "2314c8f6-931d-46fd-b54d-e634ede6f3d5");
 
@@ -110,10 +110,10 @@ test("LF-04 controller sends the stored profile as confirmed and returns the val
     }
 });
 
-test("LF-04 route validates before authentication and never calls Langflow for anonymous users", async (context) => {
+test("zone fit explanation route validates before authentication and never calls Langflow for anonymous users", async (context) => {
     const restoreEnvironment = withWorkflowEnvironment();
     const fetches = countFetches(context);
-    const post = (body: string, type?: string) => POST(postJson("/api/lf04", body, type));
+    const post = (body: string, type?: string) => POST(postJson("/api/zone-fit-explanation", body, type));
 
     try {
         assert.equal((await post(JSON.stringify(request), "text/plain")).status, 415);

@@ -187,10 +187,10 @@ test("editing rent then cancel restores saved value", async ({ page }) => {
     expect((await latestProfile(page)).revision).toBe(initial.revision);
 });
 
-test("invalid budget never reaches LF-05 and priority sliders support keyboard edits", async ({ page }) => {
+test("invalid budget never reaches profile interpretation and priority sliders support keyboard edits", async ({ page }) => {
     const initial = await openEditor(page);
     let calls = 0;
-    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/lf05") calls += 1; });
+    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") calls += 1; });
     await field(page, "housing-budget").getByRole("button", { name: /Ubah/ }).click();
     await page.locator("#housing-budget").fill("-1");
     await expect(page.locator("#housing-budget")).toHaveAttribute("aria-invalid", "true");
@@ -235,7 +235,7 @@ test("clarifications block persistence until answers and inferred changes are co
     const initial = await openEditor(page);
     const question = "Berapa batas sewa barumu per bulan?";
     let calls = 0;
-    await page.route((url) => url.pathname === "/api/lf05", async (route) => {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", async (route) => {
         const body = route.request().postDataJSON();
         calls += 1;
         if (calls === 2) expect(body.clarification_answers).toEqual([{ question, answer: "Rp2 juta" }]);
@@ -268,17 +268,17 @@ test("clarifications block persistence until answers and inferred changes are co
     expect(saved.profile.hard_constraints.housing_budget).toEqual({ amount: updatedRent, currency: "IDR", period: "month" });
 });
 
-test("rent edit passes through real LF-05 refinement and RPC, reconciles explicit value, and caches new revision", async ({ page }) => {
+test("rent edit passes through real profile interpretation refinement and RPC, reconciles explicit value, and caches new revision", async ({ page }) => {
     const initial = await openEditor(page);
     await editField(page, "housing-budget", String(updatedRent));
     await page.getByRole("slider", { name: "Karier", exact: true }).press("ArrowRight");
-    const refinement = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/lf05");
+    const refinement = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
     const saving = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
     await page.getByRole("button", { name: "Simpan dan hitung ulang", exact: true }).click();
-    const lf05 = await refinement;
+    const interpretation = await refinement;
     const save = await saving;
-    expect(lf05.status()).toBe(200);
-    expect(lf05.request().postDataJSON()).toMatchObject({ mode: "refinement", base_revision: initial.revision });
+    expect(interpretation.status()).toBe(200);
+    expect(interpretation.request().postDataJSON()).toMatchObject({ mode: "refinement", base_revision: initial.revision });
     expect(save.status()).toBe(201);
     const stored = (await save.json()).profile;
     expect(stored.revision).toBe(initial.revision + 1);
@@ -292,7 +292,7 @@ test("rent edit passes through real LF-05 refinement and RPC, reconciles explici
 
 test("narrative inference asks for review; dismissing review does not leave save disabled", async ({ page }) => {
     await openEditor(page);
-    await page.route((url) => url.pathname === "/api/lf05", (route) => route.fulfill({ json: { profile: {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", (route) => route.fulfill({ json: { profile: {
         hard_constraints: { goal: "work", destination_cities: ["jakarta-selatan"], monthly_budget: { amount: 6_000_000, currency: "IDR", period: "month" },
             housing_budget: { amount: 4_000_000, currency: "IDR", period: "month" }, commute_minutes: 45, deal_breakers: [] },
         soft_preferences: { transport_mode: "transit", destination: null, housing_types: ["kos"], over_budget: "mark" },
@@ -392,8 +392,8 @@ test("recalc retry avoids duplicate revision and map adopts latest server profil
     await expect(page).toHaveURL(/\/map\?profile=updated/);
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await expect.poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).profile.revision, cacheKey)).toBe(stored.revision);
-    expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-onboarding"))).toContain("draft cerita lama");
-    expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-form:v1"))).toContain("monthlyBudget");
+    expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-onboarding"))).toBeNull();
+    expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-form:v1"))).toBeNull();
     const preview = page.locator('[data-hci-region="onboarding-preview"]');
     await expect(preview).toBeVisible();
     // Budget fits, but no route may silently satisfy this profile's commute limit.

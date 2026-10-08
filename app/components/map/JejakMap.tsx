@@ -40,17 +40,18 @@ import { useOnboardingGeometry } from "./onboarding/useOnboardingGeometry";
 import { useSavedRelocationProfile } from "./onboarding/useSavedRelocationProfile";
 import { isDesktopViewport, prefersReducedMotion, useMediaQuery } from "./viewport";
 import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
-import { evaluateLiveOnboarding, isLiveRecommendationSample, monthlyCostRange, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
+import { evaluateLiveOnboarding, hasHousingStatistics, isLiveRecommendationSample, monthlyCostRange, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { saveRelocationProfile } from "@/app/engine/lib/relocationProfileApi";
 import { normalizeRelocationProfileInputs, type StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
-import type { LF05ProposedProfile } from "@/app/engine/lib/lf05Validation";
+import type { RelocationProfileProposal } from "@/app/engine/lib/relocationProfileInterpretationValidation";
 import { getRelocationGoal } from "@/app/engine/lib/relocationGoal";
 import type { LivePreviewMapContext } from "@/app/engine/onboarding/types";
 import type { AccountSummary } from "@/app/engine/controller/userServerController";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
-import { applyLF05FieldEdit } from "@/app/engine/lib/lf05FollowUp";
-import { validateLF05Proposal } from "@/app/engine/lib/lf05Validation";
+import { applyProfileFieldEdit } from "@/app/engine/lib/relocationProfileInterpretationFollowUp";
+import { validateRelocationProfileProposal } from "@/app/engine/lib/relocationProfileInterpretationValidation";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
+import { useAccountIdentity } from "@/app/engine/lib/useAccountIdentity";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -72,6 +73,7 @@ function getDesktopPanelInset(container: HTMLElement | null) {
 export default function JejakMap({ userId, account, confirmedProfile, profileLoadFailed = false }: {
     userId: string; account: AccountSummary | null; confirmedProfile?: StoredRelocationProfile | null; profileLoadFailed?: boolean;
 }) {
+    const { account: identity, active: accountActive } = useAccountIdentity(userId);
     const router = useRouter();
     const mapRef = useRef<MapRef>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -115,8 +117,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const orbitMoveEndRef = useRef<(() => void) | null>(null);
     const chatComposerRef = useRef<HTMLDivElement>(null);
     const bottomSheetStateRef = useRef(bottomSheetState);
-    const profile = useSavedRelocationProfile(userId, confirmedProfile);
-    const form = useFormOnboarding(!!confirmedProfile);
+    const profile = useSavedRelocationProfile(identity, confirmedProfile);
+    const form = useFormOnboarding(userId, !!confirmedProfile);
     const [storyPreviewProfile, setStoryPreviewProfile] = useState<StoredRelocationProfile | null>(confirmedProfile ?? null);
     const [storyPreviewVisible, setStoryPreviewVisible] = useState(!!confirmedProfile);
     const storyCityCatalog = form.data.cities;
@@ -124,7 +126,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const storyDataError = form.dataError;
     const selectPreviewCity = form.selectPreviewCity;
     const [storyStep, setStoryStep] = useState<StoryStep>(0);
-    const [storyProposal, setStoryProposal] = useState<LF05ProposedProfile | null>(null);
+    const [storyProposal, setStoryProposal] = useState<RelocationProfileProposal | null>(null);
     const storyDraftActive = storyStep === 2 && !form.active;
     const storyReviewActive = storyStep === 3 && !form.active;
     const storyMapProfile = useMemo(() => {
@@ -175,6 +177,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         form.active, legacyOnboardingActive, savedPreferences?.cityId]);
     const [savedProfileRevision, setSavedProfileRevision] = useState<number | null>(confirmedProfile?.revision ?? null);
     function confirmProfileSaved(saved: StoredRelocationProfile) {
+        if (identity.signal.aborted) return;
         profile.setSavedProfile(saved);
         setSavedProfileRevision(saved.revision);
     }
@@ -230,7 +233,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const previewDistricts = useMemo(() => activePreview ? [...visiblePreviewDistricts(activePreview)]
         .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.district.zone_id.localeCompare(b.district.zone_id)) : [], [activePreview]);
     const sampleSelected = sampleSelection?.cityId === activePreview?.city?.city_id
-        ? previewDistricts.find((item) => item.district.zone_id === sampleSelection?.id) : undefined;
+        ? previewDistricts.find((item) => item.district.zone_id === sampleSelection?.id && hasHousingStatistics(item)) : undefined;
     const sampleSelectedId = sampleSelected?.district.zone_id ?? null;
     function setSampleSelectedId(id: string | null) {
         const cityId = activePreview?.city?.city_id;
@@ -267,7 +270,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const propertiesByZone = useMemo(() => new Map(layerData.features.map((feature) => [feature.properties.zone_id, feature.properties])), [layerData]);
     const metricRange = useMemo(() => getMetricRange(layerData.features.map((feature) => feature.properties.value)), [layerData]);
     const visibleZoneIds = useMemo(() => [...new Set(layerData.features.map((feature) => feature.properties.zone_id))], [layerData]);
-    // H3 cells of the selected district, for categories that have cell layers.
     const cellOptions = useMemo(() => (category ? cellLayers[category] : undefined) ?? [], [category]);
     const activeCellLayer = cellOptions.find((layer) => layer.id === cellLayerId) ?? cellOptions[0] ?? null;
     const cells = useMapCells(prototypeActive ? null : selectedId ?? null, category, activeCellLayer?.kind === "fill");
@@ -338,7 +340,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         setOnboardingMapPoint(point);
         setOnboardingOffice("Dipilih di peta");
         if (storyReviewActive) {
-            setStoryProposal((current) => current ? validateLF05Proposal(applyLF05FieldEdit(current, "destination", {
+            setStoryProposal((current) => current ? validateRelocationProfileProposal(applyProfileFieldEdit(current, "destination", {
                 name: "Titik pilihanmu", precision: "point", ...point,
             }), onboardingTaxonomy) : null);
             setOnboardingMapPicking(false);
@@ -389,11 +391,13 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     }
 
     function selectPreviewDistrict(zoneId: string) {
+        const item = activePreview?.districts.find((candidate) => candidate.district.zone_id === zoneId);
+        if (!item || !hasHousingStatistics(item)) return;
         setSampleSelectedId(zoneId);
         // A user pick owns the camera, even if city boundaries are still loading.
         onboardingCameraRef.current = onboardingCameraKey;
         bottomSheetRef.current?.collapse();
-        const center = activePreview?.districts.find((item) => item.district.zone_id === zoneId)?.district.center ?? (() => {
+        const center = item.district.center ?? (() => {
             const features = onboardingGeometry.geometry?.features.filter((feature) => feature.properties.zone_id === zoneId) ?? [];
             const bounds = features.length ? getGeometryBounds({ type: "FeatureCollection", features }) : null;
             return bounds ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2] as [number, number] : null;
@@ -426,7 +430,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
 
             if (previousTime !== null) {
                 const elapsed = Math.min(time - previousTime, 50);
-                map.setBearing(map.getBearing() + elapsed * -0.0025);
+                map.setBearing(map.getBearing() + elapsed * -0.0005);
             }
 
             previousTime = time;
@@ -613,6 +617,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const hoveredRentSharePercent = rentSharePercent(hoveredMetadata?.wage_to_rent_ratio ?? null);
     const hoveredProperties = hoveredZone ? propertiesByZone.get(hoveredZone.id) : undefined;
     const hoveredValue = hoveredProperties?.value ?? null;
+
+    if (!accountActive) return null;
 
     return (
         <div ref={mapContainerRef} data-hci-region="map" className="relative h-full min-h-0 overflow-hidden">
@@ -824,6 +830,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 ref={bottomSheetRef}
                 zones={prototypeActive ? sampleZones : regularDistrictDataAvailable ? regularZones : state.catalog.zones}
                 recommendations={prototypeActive ? previewDistricts : regularReach || regularDistrictDataAvailable ? regularDistricts : undefined}
+                restrictSelectionToHousingData={prototypeActive}
                 reachActive={prototypeActive ? !!activePreview?.planningReach : !!regularReach}
                 title={regularDistrictDataAvailable ? regularReach ? "Kecamatan di sekitar tujuanmu" : "Kecamatan sesuai profilmu" : undefined}
                 emptyMessage={regularDistrictDataAvailable ? "Tidak ada kecamatan dengan batas anggaran ini." : undefined}
@@ -850,6 +857,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 onClearContext={closeSelection}
             />
             <RelocationOnboarding
+                account={identity}
                 step={storyStep}
                 onStepChange={setStoryStep}
                 proposal={storyProposal}
@@ -904,7 +912,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 onMapPick={form.startPickingDestination} pickingDestination={form.pickingDestination}
                 selectedDistrictId={sampleSelectedId} onSelectDistrict={selectPreviewDistrict}
                 onFinish={async () => {
-                    const saved = await saveRelocationProfile({ form_answers: form.session!.answers });
+                    const saved = await saveRelocationProfile({ form_answers: form.session!.answers }, identity);
                     confirmProfileSaved(saved);
                     setSampleSelectedId(null); setCategory("summary"); form.finish();
                 }} storageAvailable={form.storageAvailable} preview={activePreview ?? form.preview} />}

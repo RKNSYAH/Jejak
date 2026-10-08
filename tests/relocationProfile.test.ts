@@ -150,7 +150,7 @@ test("profile saving reads the owned confirmed database row before reporting suc
 });
 
 test("profile deletion requires sign-in and removes only the owner's primary profile rows", async (context) => {
-  assert.equal((await DELETE()).status, 401);
+  assert.equal((await DELETE(new Request("http://localhost/api/user/relocation-profile", { method: "DELETE" }))).status, 401);
   const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.NEXT_PUBLIC_SUPABASE_URL = "http://localhost:54321";

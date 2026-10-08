@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildEvidenceRow, checkClaimValue, dedupHash, publishedConfidence, type EvidenceRow } from "../app/engine/enrichment/acceptance";
 import { addressQueries, createNominatimGeocoder, GeocodeBudgetError, GeocoderUnavailableError, type GeocodeCache, type GeocodeResult } from "../app/engine/enrichment/geocoder";
-import { parseLF01Output, type LF01Candidate } from "../app/engine/enrichment/lf01Contract";
+import { parseZoneEvidenceDiscoveryOutput, type ZoneEvidenceCandidate } from "../app/engine/enrichment/zoneEvidenceDiscoveryContract";
 import { resolveLocality, type LocalityTier } from "../app/engine/enrichment/locality";
 import { runEnrichment, type EnrichmentDeps, type EnrichmentJob, type RunStatus } from "../app/engine/enrichment/pipeline";
 import { evidenceScope, evidenceTypeForClaim, scopeEvidenceTypes, snapshotScope, type EvidenceType } from "../app/engine/enrichment/scopes";
@@ -40,7 +40,7 @@ function candidate({ id = "ev-1", claim = {}, location = {}, source = {}, subjec
     };
 }
 
-function lf01Output(candidates: unknown[], extra: object = {}) {
+function zoneEvidenceDiscoveryOutput(candidates: unknown[], extra: object = {}) {
     return {
         contract_version: "lf01-v2", run_id: runId, evidence_candidates: candidates, unresolved_pages: [], rejected_urls: [],
         source_coverage: { queries: [], pages_retrieved: 4, sources_monitored: 3, coverage: "partial" },
@@ -48,8 +48,8 @@ function lf01Output(candidates: unknown[], extra: object = {}) {
     };
 }
 
-function parsed(overrides: Overrides = {}): LF01Candidate {
-    return parseLF01Output(lf01Output([candidate(overrides)]), runId).candidates[0];
+function parsed(overrides: Overrides = {}): ZoneEvidenceCandidate {
+    return parseZoneEvidenceDiscoveryOutput(zoneEvidenceDiscoveryOutput([candidate(overrides)]), runId).candidates[0];
 }
 
 const jakarta = (latitude: number, longitude: number, precision: GeocodeResult["precision"]): GeocodeResult => ({
@@ -73,8 +73,8 @@ test("scope identities are canonical, sector-scoped for work, and hash determini
     assert.equal(evidenceTypeForClaim("kos_rent_summary", null), null);
 });
 
-test("LF-01 output needs the lf01-v2 envelope and skips malformed candidates individually", () => {
-    const result = parseLF01Output(lf01Output([
+test("zone evidence discovery validates its deployed envelope and skips malformed candidates individually", () => {
+    const result = parseZoneEvidenceDiscoveryOutput(zoneEvidenceDiscoveryOutput([
         candidate(),
         candidate({ id: "ev-http", source: { url: "http://insecure.example", canonical_url: "http://insecure.example" } }),
         candidate(),
@@ -87,11 +87,11 @@ test("LF-01 output needs the lf01-v2 envelope and skips malformed candidates ind
     assert.equal(result.sourcesMonitored, 3);
 
     for (const bad of [
-        { ...lf01Output([]), contract_version: "lf01-v1" },
-        { ...lf01Output([]), run_id: "another-run" },
-        { ...lf01Output([]), writes_performed: true },
-        { ...lf01Output([]), evidence_candidates: {} },
-    ]) assert.throws(() => parseLF01Output(bad, runId), /INVALID_LF01_OUTPUT/);
+        { ...zoneEvidenceDiscoveryOutput([]), contract_version: "lf01-v1" },
+        { ...zoneEvidenceDiscoveryOutput([]), run_id: "another-run" },
+        { ...zoneEvidenceDiscoveryOutput([]), writes_performed: true },
+        { ...zoneEvidenceDiscoveryOutput([]), evidence_candidates: {} },
+    ]) assert.throws(() => parseZoneEvidenceDiscoveryOutput(bad, runId), /INVALID_ZONE_EVIDENCE_DISCOVERY_OUTPUT/);
 });
 
 test("acceptance checks value shapes and hashes claims independent of key order", () => {
@@ -293,7 +293,7 @@ function fakeDeps(options: {
 test("pipeline accepts located, on-sector claims, publishes a snapshot, and completes each run", async () => {
     const { deps, calls, flowInputs } = fakeDeps({
         flows: {
-            [LANGFLOW_FLOWS.lf01]: () => lf01Output([
+            [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: () => zoneEvidenceDiscoveryOutput([
                 candidate({ id: "ev-1" }),
                 candidate({ id: "ev-2", claim: { claim_type: "office_location", normalized_value: "Menara Example" },
                     location: { raw_address: "Jl. Sudirman, Jakarta Selatan", building_name: "Menara Example", precision: "building" } }),
@@ -303,7 +303,7 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
                 candidate({ id: "ev-6", claim: { normalized_value: { title: "No address" } }, location: { raw_address: null } }),
                 candidate({ id: "ev-7", claim: { claim_type: "salary", normalized_value: "Rp10 juta" } }),
             ]),
-            [LANGFLOW_FLOWS.lf02]: () => ({
+            [LANGFLOW_FLOWS.evidenceClassification]: () => ({
                 contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], writes_performed: false, status: "partial",
                 unresolved_candidates: [
                     { evidence_id: "ev-1", classification: { sector: { label: sector, method: "exact_taxonomy", confidence: 1 } } },
@@ -327,12 +327,12 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
     assert.deepEqual(outcome.rejected, { rent_summary_not_ingested: 1, not_requested: 1, sector_mismatch: 1 });
     assert.equal(outcome.snapshotId, 99);
 
-    const lf01Input = flowInputs[LANGFLOW_FLOWS.lf01] as Record<string, unknown>;
-    assert.deepEqual(lf01Input.missing_evidence, ["active_openings", "company_presence"]);
-    assert.equal(lf01Input.maximum_sources, 6);
-    assert.equal(lf01Input.run_id, runId);
-    assert.deepEqual(lf01Input.target_sectors, [sector]);
-    assert.deepEqual(calls.filter((call) => call.stage).map((call) => call.stage![0]), ["lf01", "lf02", "geocoding", "ingesting"]);
+    const zoneEvidenceDiscoveryInput = flowInputs[LANGFLOW_FLOWS.zoneEvidenceDiscovery] as Record<string, unknown>;
+    assert.deepEqual(zoneEvidenceDiscoveryInput.missing_evidence, ["active_openings", "company_presence"]);
+    assert.equal(zoneEvidenceDiscoveryInput.maximum_sources, 6);
+    assert.equal(zoneEvidenceDiscoveryInput.run_id, runId);
+    assert.deepEqual(zoneEvidenceDiscoveryInput.target_sectors, [sector]);
+    assert.deepEqual(calls.filter((call) => call.stage).map((call) => call.stage![0]), ["zone_evidence_discovery", "evidence_classification", "geocoding", "ingesting"]);
 
     const openings = calls.find((call) => call.upsert?.[0] === 11)!.upsert![1];
     // The Bandung posting keeps its own city: it never borrows the Jakarta office.
@@ -347,12 +347,12 @@ test("pipeline accepts located, on-sector claims, publishes a snapshot, and comp
     const completions = calls.filter((call) => call.complete).map((call) => call.complete!);
     assert.deepEqual(completions.map(([id, status, , code]) => [id, status, code]), [[11, "completed", null], [12, "completed", null]]);
     assert.equal(completions[0][2].accepted, 3);
-    assert.equal(completions[0][2].lf02_status, "classified");
+    assert.equal(completions[0][2].evidence_classification_status, "classified");
 });
 
-test("an LF-01 failure fails every run and publishes nothing", async () => {
+test("a zone evidence discovery failure fails every run and publishes nothing", async () => {
     const { deps, calls } = fakeDeps({
-        flows: { [LANGFLOW_FLOWS.lf01]: () => { throw new LangflowError("timeout", "slow"); } },
+        flows: { [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: () => { throw new LangflowError("timeout", "slow"); } },
         places: {},
         tiers: [],
     });
@@ -363,11 +363,23 @@ test("an LF-01 failure fails every run and publishes nothing", async () => {
     assert.deepEqual(calls.filter((call) => call.complete).map((call) => call.complete!.slice(0, 2)), [[11, "failed"], [12, "failed"]]);
 });
 
-test("LF-02 failures and incomplete LF-01 coverage keep accepted evidence but mark runs partial", async () => {
+test("invalid discovery output records a descriptive failure without publishing", async () => {
+    const { deps, calls } = fakeDeps({
+        flows: { [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: () => ({}) },
+        places: {}, tiers: [],
+    });
+    const outcome = await runEnrichment(deps, careerJob(runs));
+    assert.equal(outcome.status, "failed");
+    assert.equal(outcome.errorCode, "invalid_zone_evidence_discovery_output");
+    assert.equal(calls.some((call) => call.upsert || call.publish), false);
+    assert.ok(calls.filter((call) => call.complete).every((call) => call.complete![3] === outcome.errorCode));
+});
+
+test("classification failures and incomplete discovery coverage keep accepted evidence but mark runs partial", async () => {
     const { deps, calls } = fakeDeps({
         flows: {
-            [LANGFLOW_FLOWS.lf01]: () => lf01Output([candidate()], { status: "partial", incomplete_evidence_categories: ["company_presence"] }),
-            [LANGFLOW_FLOWS.lf02]: () => { throw new LangflowError("unreachable", "down"); },
+            [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: () => zoneEvidenceDiscoveryOutput([candidate()], { status: "partial", incomplete_evidence_categories: ["company_presence"] }),
+            [LANGFLOW_FLOWS.evidenceClassification]: () => { throw new LangflowError("unreachable", "down"); },
         },
         places: { "Jl. Pancoran Raya 1": jakarta(-6.25, 106.84, "street") },
         tiers: ["zone"],
@@ -377,7 +389,7 @@ test("LF-02 failures and incomplete LF-01 coverage keep accepted evidence but ma
     assert.deepEqual(outcome.accepted, { active_opening: 1, office_presence: 0 });
     const completions = calls.filter((call) => call.complete).map((call) => call.complete!);
     assert.deepEqual(completions.map(([id, status]) => [id, status]), [[11, "partial"], [12, "partial"]]);
-    assert.equal(completions[0][2].lf02_status, "failed:langflow_unreachable");
+    assert.equal(completions[0][2].evidence_classification_status, "failed:langflow_unreachable");
 });
 
 test("noisy Indonesian office addresses get the query forms that resolved live", () => {
@@ -410,8 +422,8 @@ test("pipeline falls back to a cleaned address and names non-local headcounts", 
         location: { raw_address: null, precision: "unknown" } });
     const { deps } = fakeDeps({
         flows: {
-            [LANGFLOW_FLOWS.lf01]: () => lf01Output([office, headcount]),
-            [LANGFLOW_FLOWS.lf02]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
+            [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: () => zoneEvidenceDiscoveryOutput([office, headcount]),
+            [LANGFLOW_FLOWS.evidenceClassification]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
         },
         places: {
             "Satrio Tower, Jakarta Selatan": null,
@@ -440,19 +452,19 @@ test("postings without a precise location borrow their company's office at distr
     let officeRequest: Record<string, unknown> | null = null;
     const { deps, calls } = fakeDeps({
         flows: {
-            [LANGFLOW_FLOWS.lf01]: (input) => {
+            [LANGFLOW_FLOWS.zoneEvidenceDiscovery]: (input) => {
                 const request = input as Record<string, unknown>;
                 if (request.company_names) {
                     officeRequest = request;
-                    return { ...lf01Output([{ ...office("beta-office", "PT Beta Digital Indonesia", null, "Jl. Pancoran Raya 1, Jakarta Selatan"), run_id: `${runId}-offices` }]), run_id: `${runId}-offices` };
+                    return { ...zoneEvidenceDiscoveryOutput([{ ...office("beta-office", "PT Beta Digital Indonesia", null, "Jl. Pancoran Raya 1, Jakarta Selatan"), run_id: `${runId}-offices` }]), run_id: `${runId}-offices` };
                 }
-                return lf01Output([
+                return zoneEvidenceDiscoveryOutput([
                     posting("alpha-job", "Alpha Teknologi", "Jakarta Selatan"),
                     office("alpha-office", "PT. Alpha Teknologi", "Menara Caraka", "Menara Caraka Lantai 12B, Kelurahan Kuningan Timur, Jakarta Selatan"),
                     posting("beta-job", "Beta Digital", null),
                 ]);
             },
-            [LANGFLOW_FLOWS.lf02]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
+            [LANGFLOW_FLOWS.evidenceClassification]: () => ({ contract_version: "lf02-v2", run_id: runId, resolved_candidates: [], unresolved_candidates: [], writes_performed: false }),
         },
         places: {
             "Menara Caraka, Jakarta Selatan": jakarta(-6.226, 106.825, "building"),
@@ -519,7 +531,6 @@ test("located offices become the district's company count instead of a separate 
     assert.equal(companies?.geographic_level, "zone");
     assert.equal(merged.find((fact) => fact.metric === "employment_rate")?.value, 0.7);
 
-    // No located offices: the stored fact stays.
     assert.equal(mergeLocatedEvidence(stored, undefined), stored);
     assert.equal(mergeLocatedEvidence(stored, { ...cluster, counts: { active_opening: { count: 1, organizations: 1 } } }), stored);
 });

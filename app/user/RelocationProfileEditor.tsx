@@ -7,9 +7,11 @@ import type { AccountSummary } from "../engine/controller/userServerController";
 import UserHeader from "../components/UserHeader";
 import { onboardingTaxonomy } from "../engine/extractUserProfile";
 import { getOnboardingData, type OnboardingDataResponse } from "../engine/lib/onboardingApi";
-import { validateLF05Proposal, type LF05ProposedProfile } from "../engine/lib/lf05Validation";
+import { validateRelocationProfileProposal, type RelocationProfileProposal } from "../engine/lib/relocationProfileInterpretationValidation";
 import { isRelocationGoal, relocationGoalLabels } from "../engine/lib/relocationGoal";
-import { isStoredRelocationProfile } from "../engine/lib/relocationProfileCache";
+import { saveRelocationProfile } from "../engine/lib/relocationProfileApi";
+import { useAccountIdentity } from "../engine/lib/useAccountIdentity";
+import { accountFetch } from "../engine/lib/accountIdentity";
 import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../engine/lib/relocationProfile";
 import { transportModeLabels } from "../engine/onboarding/demoData";
 import { evaluateLiveOnboarding, profilePreviewPreferences } from "../engine/onboarding/livePreview";
@@ -17,6 +19,7 @@ import { useUserProfileStore } from "../stores/userStores";
 import SignOutButton from "./SignOutButton";
 import UserSettings, { type SettingsTab } from "./UserSettings";
 import { cloneProfile, displayedWeights, formatProfileValue, parseAmount, profileFieldsDiffer, profileStory, summarizeProfileChanges, updatePriority, updateProfileField, type PriorityKey } from "./profileEditorModel";
+import { isRecord } from "../engine/lib/zoneGeometry";
 
 type Props = {
     userId: string;
@@ -87,13 +90,14 @@ function emptyValue(value: unknown): boolean {
 }
 
 export default function RelocationProfileEditor({ userId, email, account, savedProfile, loadError }: Props) {
+    const { account: identity, active: accountActive } = useAccountIdentity(userId);
     const [tab, setTab] = useState<ActiveTab>("profile");
     const [original, setOriginal] = useState<PersistedRelocationProfile | null>(savedProfile ? cloneProfile(savedProfile.profile) : null);
     const [draft, setDraft] = useState<PersistedRelocationProfile | null>(savedProfile ? cloneProfile(savedProfile.profile) : null);
     const [revision, setRevision] = useState(savedProfile?.revision ?? null);
     const [story, setStory] = useState("");
     const [storyDialogOpen, setStoryDialogOpen] = useState(false);
-    const [proposal, setProposal] = useState<LF05ProposedProfile | null>(null);
+    const [proposal, setProposal] = useState<RelocationProfileProposal | null>(null);
     const [reviewOpen, setReviewOpen] = useState(false);
     const [confirmedProposal, setConfirmedProposal] = useState(false);
     const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -137,9 +141,9 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
     const savedMapHref = `/map?profile=updated&revision=${revision ?? ""}`;
 
     useEffect(() => {
-        if (!savedProfile) return;
+        if (!savedProfile || identity.signal.aborted) return;
         setStoreProfile(userId, savedProfile);
-    }, [savedProfile, setStoreProfile, userId]);
+    }, [identity, savedProfile, setStoreProfile, userId]);
 
     useEffect(() => {
         if (storyDialogOpen) storyDialogRef.current?.showModal();
@@ -153,10 +157,10 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
 
     useEffect(() => {
         if (!dirty) return;
-        const preventClose = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+        const preventClose = (event: BeforeUnloadEvent) => { if (!identity.signal.aborted) event.preventDefault(); };
         window.addEventListener("beforeunload", preventClose);
         return () => window.removeEventListener("beforeunload", preventClose);
-    }, [dirty]);
+    }, [dirty, identity]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -248,7 +252,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
     }
 
     async function sendRefinement(answers: { question: string; answer: string }[] = []) {
-        if (!draft || revision === null || requestLock.current) return;
+        if (!draft || revision === null || requestLock.current || identity.signal.aborted) return;
         const validation = validateProfile(draft);
         setAttempted(true);
         setErrors(validation);
@@ -264,7 +268,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
         const allAnswers = [...answeredRefinementQuestions.current.filter(({ question }) =>
             !answers.some((answer) => answer.question === question)), ...answers];
         try {
-            const response = await fetch("/api/lf05", {
+            const { response, result } = await accountFetch(identity, "/api/relocation-profile-interpretation", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -273,12 +277,10 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                 }),
                 signal: AbortSignal.timeout(120_000),
             });
-            const result: unknown = await response.json().catch(() => null);
-            if (!response.ok || !result || typeof result !== "object" || !("profile" in result)) {
-                const message = result && typeof result === "object" && "error" in result && typeof result.error === "string" ? result.error : "Perubahan belum dapat ditinjau. Coba lagi.";
-                throw new Error(message);
+            if (!response.ok || !isRecord(result) || !("profile" in result)) {
+                throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Perubahan belum dapat ditinjau. Coba lagi.");
             }
-            const proposed = validateLF05Proposal(result.profile, onboardingTaxonomy);
+            const proposed = validateRelocationProfileProposal(result.profile, onboardingTaxonomy);
             answeredRefinementQuestions.current = allAnswers;
             setProposal(proposed);
             setConfirmedProposal(false);
@@ -301,7 +303,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
         }
     }
 
-    async function persistProposal(nextProposal: LF05ProposedProfile, inheritedLock = false) {
+    async function persistProposal(nextProposal: RelocationProfileProposal, inheritedLock = false) {
         if (revision === null || requestLock.current && !inheritedLock) return;
         setPending(true);
         if (!inheritedLock) requestLock.current = true;
@@ -311,18 +313,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
         setReviewOpen(false);
         let persisted = false;
         try {
-            const response = await fetch("/api/user/relocation-profile", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ proposal: nextProposal, confirmed_fields: nextProposal.inferred_fields, base_revision: revision }),
-                signal: AbortSignal.timeout(30_000),
-            });
-            const result: unknown = await response.json().catch(() => null);
-            if (!response.ok || !result || typeof result !== "object" || !("profile" in result) || !isStoredRelocationProfile(result.profile)) {
-                const message = result && typeof result === "object" && "error" in result && typeof result.error === "string" ? result.error : "Profil belum tersimpan. Coba lagi.";
-                throw new Error(message);
-            }
-            const saved = result.profile;
+            const saved = await saveRelocationProfile({ proposal: nextProposal, confirmed_fields: nextProposal.inferred_fields, base_revision: revision }, identity);
             persisted = true;
             setProfileJustSaved(true);
             setSavedButFailed(false);
@@ -478,14 +469,16 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
         setField(group, "destination", value);
     }
 
-    const accountPanel = <UserSettings email={email} account={account} hasSavedProfile={loadError ? null : !!savedProfile || profileJustSaved}
+    if (!accountActive) return null;
+
+    const accountPanel = <UserSettings identity={identity} email={email} account={account} hasSavedProfile={loadError ? null : !!savedProfile || profileJustSaved}
         hasUnsavedChanges={dirty} activeTab={tab} onNavigate={protectNavigation} onCreateProfile={protectNavigation} onReturnToProfile={() => setTab("profile")}>
         <div onClickCapture={(event) => {
             if (dirty && !window.confirm("Perubahanmu belum disimpan. Tetap keluar dari akun?")) {
                 event.preventDefault();
                 event.stopPropagation();
             }
-        }}><SignOutButton userId={userId} /></div>
+        }}><SignOutButton identity={identity} /></div>
     </UserSettings>;
 
     if (loadError) return <Shell account={account} onNavigate={protectNavigation} activeTab={tab} onTabChange={setTab}>

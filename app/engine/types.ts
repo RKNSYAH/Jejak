@@ -113,7 +113,7 @@ export type MissingEvidence =
     | "company_presence" | "active_openings" | "salary" | "headcount"
     | "news" | "kos" | "apartment" | "house" | "housing";
 
-export interface LF01Input {
+export interface ZoneEvidenceDiscoveryInput {
     run_id: string;
     zone_id: string;
     requested_at: string;
@@ -130,7 +130,7 @@ export interface LF01Input {
     bounding_box?: [number, number, number, number];
     target_occupations?: string[];
     existing_entity_ids?: string[];
-    // Companies whose office address LF-01 should look up (postings that name no location).
+    // Companies whose office address discovery should look up (postings that name no location).
     company_names?: string[];
 }
 

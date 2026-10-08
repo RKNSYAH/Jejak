@@ -11,7 +11,11 @@ Jejak is a relocation-planning project for people choosing where to study or wor
 - Browse areas ranked by wage-to-rent ratio, with population as a secondary sort key.
 - Measure click-to-paint and response latency through anonymous alpha-study telemetry.
 
-The broader plan includes personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. The authenticated `/user` page edits the primary relocation profile: LF-05 reviews requested changes, inferred changes require confirmation, and a verified saved revision drives deterministic kecamatan recalculation. Returning through `/map?profile=updated` uses that server-side revision instead of older onboarding previews; unfinished drafts remain in browser storage. Evidence enrichment runs through the API only; no UI triggers it yet. A signed-in `POST /api/zones/[zoneId]/enrich` claims runs and, after responding, runs LF-01, LF-02, geocoding, and acceptance in the background, then publishes a zone snapshot. `POST /api/lf05` interprets onboarding stories and supports profile refinement with a server-loaded confirmed baseline. `POST /api/lf03` (evidence conflict review) and `POST /api/lf04` (zone explanation against the saved confirmed profile) are linked API-only; nothing calls them yet.
+The broader plan includes personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for that scope. The authenticated `/user` page edits the primary relocation profile: relocation profile interpretation reviews requested changes, inferred changes require confirmation, and a verified saved revision drives deterministic kecamatan recalculation. Returning through `/map?profile=updated` uses that server-side revision instead of older onboarding previews; unfinished drafts remain in browser storage. Evidence enrichment runs through the API only; no UI triggers it yet. A signed-in `POST /api/zones/[zoneId]/enrich` claims runs and, after responding, runs zone evidence discovery, evidence classification, geocoding, and acceptance in the background, then publishes a zone snapshot. `POST /api/relocation-profile-interpretation` interprets onboarding stories and supports profile refinement with a server-loaded confirmed baseline. `POST /api/evidence-conflict-review` and `POST /api/zone-fit-explanation` (against the saved confirmed profile) are linked API-only; nothing calls them yet.
+
+Onboarding drafts use user-scoped session-storage keys and owner-checked envelopes; legacy unowned drafts are discarded. Session expiry preserves owned drafts for the same account, while explicit logout/account deletion clears that account's drafts in the current tab. Account changes invalidate pending personal requests and reload the protected page. Profile GET/POST/DELETE, relocation profile interpretation POST, and account DELETE require `X-Jejak-User-Id` to match the verified session; a missing or stale expected ID returns `409 ACCOUNT_CHANGED` before data/model access. This header never grants authorization. Successful profile reads/saves include `user_id`, checked before updating client state or cache.
+
+Langflow registry keys, validators, helpers, tests, and app endpoints use descriptive purpose names. Deployed wire versions remain centralized in `app/engine/lib/langflowContracts.ts` so current flows and saved profiles keep working. The numbered POST endpoints remain compatibility aliases; new callers use the descriptive endpoints. Applied SQL migrations retain their historical identifiers. No live Langflow or database changes are needed for this rename.
 
 Sample data is enabled by default. Treat rows marked `is_sample` as demo content, not verified or live evidence. Coverage depends on the regions and facts in your database.
 
@@ -53,7 +57,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-project-anon-key
 JEJAK_INCLUDE_SAMPLE_DATA=true
 NEXT_PUBLIC_HCI_TELEMETRY=true
 
-# Langflow (LF-05 onboarding and evidence enrichment). Server-only.
+# Langflow (relocation profile interpretation and evidence enrichment). Server-only.
 NEXT_LANGFLOW_URL=https://your-langflow-host
 NEXT_LANGFLOW_API_KEY=your-langflow-api-key
 
@@ -68,7 +72,7 @@ JEJAK_GEOCODER_USER_AGENT=Jejak/0.1 (you@example.com)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Required public anon key for browser and server clients. Use the anon key, not a service-role key. |
 | `JEJAK_INCLUDE_SAMPLE_DATA` | Set to `false` to exclude sample rows from map reads. |
 | `NEXT_PUBLIC_HCI_TELEMETRY` | Set to `false` to disable click telemetry. Keep it enabled for the interaction-latency tests. |
-| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/lf03`, `/api/lf04`, `/api/lf05`, and enrichment return 503. |
+| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/evidence-conflict-review`, `/api/zone-fit-explanation`, `/api/relocation-profile-interpretation`, and enrichment return 503. |
 | `NEXT_LANGFLOW_API_KEY` | Langflow API key, sent as `x-api-key`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for the backend-only enrichment RPCs. Used only by server enrichment code. |
 | `JEJAK_GEOCODER_USER_AGENT` | Identifying User-Agent with contact details, required by Nominatim's usage policy. |
@@ -162,10 +166,10 @@ Find report files in `playwright-report/` and test artifacts in `test-results/`.
 
 ```text
 app/
-  api/                 Map data, geometry, auth, telemetry, LF-03/04/05, and enrichment routes
+  api/                 Map data, geometry, auth, telemetry, conflict review, zone explanation, profile interpretation, enrichment
   components/map/      Map canvas, controls, discovery sheet, and detail panel
   engine/              Data controllers, API clients, validation, and types
-  engine/enrichment/   LF-01/LF-02 contracts, geocoding, acceptance, snapshots, pipeline
+  engine/enrichment/   Discovery/classification contracts, geocoding, acceptance, snapshots, pipeline
   map/page.tsx         Map route
   stores/              Client state
 docs/                  Product, design, AI, and data-research specifications
@@ -190,7 +194,7 @@ Evidence enrichment follows this path:
 
 ```text
 POST /api/zones/[zoneId]/enrich → enrichmentController (claim runs) → after(): pipeline
-  → LF-01 → LF-02 + company-office LF-01 pass (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
+  → zone evidence discovery → evidence classification + company-office discovery pass (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
   → publish_region_snapshot → complete_enrichment_run
 GET /api/zones/[zoneId]/evidence?scope=career|housing   snapshot, freshness, refresh state
 GET /api/enrichment-runs/[runId]                          one run's status

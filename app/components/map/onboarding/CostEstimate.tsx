@@ -1,4 +1,5 @@
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
+import { hasHousingStatistics } from "@/app/engine/onboarding/livePreview";
 import type { LiveOnboardingPreview } from "@/app/engine/onboarding/types";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 
@@ -25,7 +26,8 @@ export default function CostEstimate({ preview, selectedDistrictId, onSelectDist
             disabled={disabled} onChange={(event) => onSelectDistrict(event.target.value)}
             className="select min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm">
             <option value="" disabled>Pilih kecamatan</option>
-            {visiblePreviewDistricts(preview).map((item) => <option key={item.district.zone_id} value={item.district.zone_id}>{`${item.rank ? `${item.rank}. ` : ""}${item.district.zone_name}`}</option>)}
+            {visiblePreviewDistricts(preview).map((item) => <option key={item.district.zone_id} value={item.district.zone_id}
+                disabled={!hasHousingStatistics(item)}>{`${item.rank ? `${item.rank}. ` : ""}${item.district.zone_name}${hasHousingStatistics(item) ? "" : " · sewa belum tersedia"}`}</option>)}
         </select>
         <dl className="mt-4 space-y-4 text-sm">
             <div>

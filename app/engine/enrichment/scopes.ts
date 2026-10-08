@@ -15,8 +15,8 @@ export const scopeEvidenceTypes: Record<EnrichmentScope, EvidenceType[]> = {
     housing: ["kos_listing", "apartment_listing", "house_listing"],
 };
 
-// Policy names differ from LF-01's request vocabulary (docs/LF-01 "Input shape").
-export const lf01EvidenceByType: Record<EvidenceType, MissingEvidence> = {
+// Policy names differ from the discovery request vocabulary.
+export const discoveryEvidenceByType: Record<EvidenceType, MissingEvidence> = {
     office_presence: "company_presence",
     active_opening: "active_openings",
     salary_observation: "salary",
@@ -28,7 +28,7 @@ export const lf01EvidenceByType: Record<EvidenceType, MissingEvidence> = {
 
 const LOCAL_HEADCOUNT_SCOPES = new Set(["office", "site", "city"]);
 
-// LF-01 claim types that can become accepted evidence. Provider rent summaries
+// Discovered claim types that can become accepted evidence. Provider rent summaries
 // (kos_rent_summary, ...) describe a whole page, not listings, and are not ingested.
 export function evidenceTypeForClaim(claimType: string, claimScope: string | null): EvidenceType | null {
     switch (claimType) {
