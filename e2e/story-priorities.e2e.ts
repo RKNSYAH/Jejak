@@ -6,7 +6,7 @@ const originalWeights = { career: 0.5, education: 0, housing: 0.15, cost_of_livi
 
 async function startReview(page: Page) {
     await stubZones(page);
-    await page.route((url) => url.pathname === "/api/lf05", (route) => route.fulfill({ json: { profile: {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", (route) => route.fulfill({ json: { profile: {
         hard_constraints: { goal: "work", destination_cities: ["Jakarta Selatan"],
             monthly_budget: { amount: 8_000_000, currency: "IDR", period: "month" },
             housing_budget: { amount: 4_000_000, currency: "IDR", period: "month" }, commute_minutes: 45 },
@@ -42,7 +42,7 @@ async function startReview(page: Page) {
 
 test("story review keeps the map live, resets inferred weights, picks a destination and saves edited priorities", async ({ page }, testInfo) => {
     let analyses = 0;
-    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/lf05") analyses++; });
+    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") analyses++; });
     await startReview(page);
     const panel = page.locator('[data-hci-region="relocation-onboarding-step-3"]');
     const ranking = page.getByRole("list", { name: "Peringkat teratas" });
@@ -75,7 +75,7 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     await page.locator(".maplibregl-canvas").click({ position: { x: 150, y: testInfo.project.name === "mobile" ? 170 : 180 } });
     await expect(panel.locator('[data-hci-region="story-review-profile"]')).toContainText("Titik pilihanmu");
     await expect(save).toBeEnabled();
-    const draft = await page.evaluate(() => JSON.parse(sessionStorage.getItem("jejak:relocation-onboarding")!));
+    const draft = await page.evaluate(() => JSON.parse(sessionStorage.getItem("jejak:relocation-onboarding:v2:11111111-1111-4111-8111-111111111111")!).draft);
     expect(draft.proposal.soft_preferences.destination).toEqual({ name: "Titik pilihanmu", precision: "point", ...draft.mapPoint });
     expect(draft.proposal.priority_weights.housing / draft.proposal.priority_weights.cost_of_living).toBeCloseTo(3);
     expect(analyses).toBe(1);

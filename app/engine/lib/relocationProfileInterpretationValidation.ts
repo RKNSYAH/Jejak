@@ -1,9 +1,10 @@
-import type { LF05Taxonomy } from "../extractUserProfile";
-import { isStringList } from "./lf04Validation";
+import type { RelocationProfileTaxonomy } from "../extractUserProfile";
+import { LANGFLOW_CONTRACTS } from "./langflowContracts";
+import { isStringList } from "./zoneFitExplanationValidation";
 import { isRecord } from "./zoneGeometry";
 import { isRelocationGoal } from "./relocationGoal";
 
-export type LF05ProposedProfile = {
+export type RelocationProfileProposal = {
     hard_constraints: Record<string, unknown>;
     soft_preferences: Record<string, unknown>;
     priority_weights: Record<string, number>;
@@ -12,7 +13,7 @@ export type LF05ProposedProfile = {
     requires_confirmation: true;
     confirmed: false;
     taxonomy_version: string;
-    contract_version: "lf05-v2";
+    contract_version: typeof LANGFLOW_CONTRACTS.relocationProfileInterpretation;
     writes_performed: false;
     decision_trace: Record<string, unknown>;
     runtime_usage: unknown;
@@ -34,7 +35,7 @@ function validateBudget(value: unknown) {
         value.currency === "IDR" && value.period === "month";
 }
 
-export function isLF05Destination(value: unknown): boolean {
+export function isProfileDestination(value: unknown): boolean {
     return isRecord(value) && !Object.keys(value).some((key) => !["name", "precision", "latitude", "longitude"].includes(key)) &&
         typeof value.name === "string" && !!value.name.trim() && value.name.length <= 200 &&
         ["city", "area", "point"].includes(String(value.precision)) &&
@@ -43,7 +44,7 @@ export function isLF05Destination(value: unknown): boolean {
             : value.latitude === undefined && value.longitude === undefined);
 }
 
-function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Taxonomy) {
+function validateProfileValues(values: Record<string, unknown>, taxonomy: RelocationProfileTaxonomy) {
     const sectorIds = new Set(taxonomy.sectors.map(({ id }) => id));
     const occupationIds = new Set(taxonomy.occupations.map(({ id }) => id));
 
@@ -81,7 +82,7 @@ function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Ta
             continue;
         }
         if (field === "destination") {
-            if (!isLF05Destination(value)) return false;
+            if (!isProfileDestination(value)) return false;
             continue;
         }
         if (field === "monthly_budget" || field === "housing_budget") {
@@ -106,8 +107,8 @@ function validateProfileValues(values: Record<string, unknown>, taxonomy: LF05Ta
     return true;
 }
 
-export function validateLF05Proposal(value: unknown, taxonomy: LF05Taxonomy): LF05ProposedProfile {
-    if (!isRecord(value) || JSON.stringify(value).length > 60_000) throw new Error("INVALID_LF05_PROFILE");
+export function validateRelocationProfileProposal(value: unknown, taxonomy: RelocationProfileTaxonomy): RelocationProfileProposal {
+    if (!isRecord(value) || JSON.stringify(value).length > 60_000) throw new Error("INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE");
 
     if (
         !isRecord(value.hard_constraints) || !validateProfileValues(value.hard_constraints, taxonomy) ||
@@ -115,22 +116,22 @@ export function validateLF05Proposal(value: unknown, taxonomy: LF05Taxonomy): LF
         !isRecord(value.priority_weights) || !isStringList(value.inferred_fields, PROFILE_FIELDS.size) ||
         !isStringList(value.clarification_questions, 20) || value.clarification_questions.some((question) => !question.trim() || question.length > 4000) ||
         value.requires_confirmation !== true || value.confirmed !== false ||
-        value.taxonomy_version !== taxonomy.version || value.contract_version !== "lf05-v2" || value.writes_performed !== false ||
+        value.taxonomy_version !== taxonomy.version || value.contract_version !== LANGFLOW_CONTRACTS.relocationProfileInterpretation || value.writes_performed !== false ||
         !isRecord(value.decision_trace) || !("runtime_usage" in value)
     ) {
-        throw new Error("INVALID_LF05_PROFILE");
+        throw new Error("INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE");
     }
 
-    if (value.inferred_fields.some((field) => !PROFILE_FIELDS.has(field))) throw new Error("INVALID_LF05_PROFILE");
+    if (value.inferred_fields.some((field) => !PROFILE_FIELDS.has(field))) throw new Error("INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE");
 
     const weightEntries = Object.entries(value.priority_weights);
     if (
         weightEntries.some(([key, weight]) => !WEIGHT_FIELDS.has(key) || typeof weight !== "number" || !Number.isFinite(weight) || weight < 0 || weight > 1) ||
         (weightEntries.length > 0 && Math.abs(weightEntries.reduce((sum, [, weight]) => sum + Number(weight), 0) - 1) > 0.000001)
     ) {
-        throw new Error("INVALID_LF05_PROFILE");
+        throw new Error("INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE");
     }
 
-    if (SENSITIVE_TEXT.test(JSON.stringify(value))) throw new Error("INVALID_LF05_PROFILE");
-    return value as unknown as LF05ProposedProfile;
+    if (SENSITIVE_TEXT.test(JSON.stringify(value))) throw new Error("INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE");
+    return value as unknown as RelocationProfileProposal;
 }

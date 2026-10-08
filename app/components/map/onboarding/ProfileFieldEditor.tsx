@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
-import { SENSITIVE_TEXT } from "@/app/engine/lib/lf05Validation";
+import { SENSITIVE_TEXT } from "@/app/engine/lib/relocationProfileInterpretationValidation";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
 import { transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
@@ -18,7 +18,7 @@ function initialDraft(field: string, value: unknown): string | number {
     if (field === "target_occupations" || field === "destination_cities") {
         const first = Array.isArray(value) ? value.find((item) => typeof item === "string") : null;
         if (field === "destination_cities" && typeof first === "string") {
-            // LF-05 may return an area id or its label; the select works with labels.
+            // Profile interpretation may return an area id or its label; the select works with labels.
             return onboardingTaxonomy.areas?.find((area) => area.id === first || area.label === first)?.label ?? first;
         }
         return typeof first === "string" ? first : "";
@@ -26,7 +26,6 @@ function initialDraft(field: string, value: unknown): string | number {
     return typeof value === "string" ? value : "";
 }
 
-// Turns the draft into a stored profile value, or an Indonesian error to show beside the field.
 function toProfileValue(field: string, draft: string | number): { value: unknown } | { error: string } {
     if (field === "housing_budget" || field === "monthly_budget") {
         const amount = Number(draft);

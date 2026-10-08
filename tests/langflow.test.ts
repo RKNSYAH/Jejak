@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getLangflowConfig, isLangflowConfigured, LangflowError, parseFlowEnvelope, runFlow } from "../app/engine/lib/langflow";
+import { flowErrorResponse, getLangflowConfig, isLangflowConfigured, LangflowError, parseFlowEnvelope, runFlow, type FlowErrorMessages } from "../app/engine/lib/langflow";
 import { completed, withEnvironment } from "./helpers";
 
 test("Langflow config accepts a base URL or the workflows endpoint and nothing else", () => {
@@ -43,6 +43,7 @@ test("runFlow posts the workflow request and maps transport failures to safe cod
             sent = { url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) };
             return Response.json(completed({ output: { text: '{"contract_version":"lf01-v2","ok":true}' } }));
         });
+        const errorLog = context.mock.method(console, "error", () => {});
         const result = await runFlow("flow-id", { zone_id: "pancoran" }, { timeoutMs: 1000, contract: "lf01-v2", sessionId: "session-1" });
         assert.deepEqual(result, { contract_version: "lf01-v2", ok: true });
         assert.ok(sent);
@@ -61,6 +62,24 @@ test("runFlow posts the workflow request and maps transport failures to safe cod
             }
         };
         assert.equal(await failure(async () => new Response("down", { status: 500 })), "upstream");
+        fetchMock.mock.mockImplementation(async () => Response.json({ detail: "Invalid API key: test-key" }, { status: 401 }));
+        let upstreamError: unknown;
+        await assert.rejects(runFlow("flow-id", {}, { timeoutMs: 1000 }), (error: unknown) => {
+            upstreamError = error;
+            return error instanceof LangflowError
+                && error.code === "upstream"
+                && error.message === "Langflow returned HTTP 401";
+        });
+        assert.equal(errorLog.mock.calls.length, 2);
+        assert.deepEqual(errorLog.mock.calls.at(-1)?.arguments[1], {
+            flowId: "flow-id",
+            status: 401,
+            detail: "Invalid API key: [redacted]",
+        });
+        const messages = Object.fromEntries(["config", "timeout", "unreachable", "upstream", "invalid_response", "incomplete", "invalid_output"].map((code) => [code, ["Request failed.", 502]])) as FlowErrorMessages;
+        const response = flowErrorResponse(messages, upstreamError);
+        assert.equal(response.status, 502);
+        assert.deepEqual(await response.json(), { error: "Request failed." });
         assert.equal(await failure(async () => { throw new TypeError("fetch failed"); }), "unreachable");
         assert.equal(await failure(async () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); }), "timeout");
         assert.equal(await failure(async () => new Response("<html>")), "invalid_response");

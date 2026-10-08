@@ -12,7 +12,6 @@ export type ClusterRow = {
     latest_retrieved_at: string | null;
 };
 
-// One cluster per district, with a count and an approximate label per evidence type.
 export function toEvidenceClusters(rows: ClusterRow[], typeOrder: string[]): EvidenceCluster[] {
     const clusters = new Map<string, EvidenceCluster>();
     for (const row of rows) {

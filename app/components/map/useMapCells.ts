@@ -7,7 +7,6 @@ import { cellLayers } from "./mapMetrics";
 
 type Entry = { data: MapCellsResponse } | { error: string };
 
-// Loads the H3 cells of the selected district once per category that has cell layers.
 export function useMapCells(zoneId: string | null, category: MapCategory | null, includeGeometry: boolean) {
     const baseKey = zoneId && category && cellLayers[category]?.length ? `${zoneId}:${category}` : null;
     const key = baseKey ? `${baseKey}:${includeGeometry ? "full" : "points"}` : null;

@@ -66,8 +66,3 @@ begin
         raise notice 'Role jejak_readonly not found. Create it (create role jejak_readonly login password ''...'';) then re-run this block.';
     end if;
 end $$;
-
--- Test:
---   select * from public.get_zone_data('setiabudi');
--- returns the Setiabudi row (population 124000, employment_rate 0.72, median_income 7200000,
--- public_transport_stops 38, universities 4, housing_median_rent 3500000, ...).

@@ -1,4 +1,5 @@
 import { RELOCATION_PROFILE_NAME, RELOCATION_PROFILE_SCHEMA_VERSION, type StoredRelocationProfile } from "./relocationProfile";
+import { LANGFLOW_CONTRACTS } from "./langflowContracts";
 import { isRecord } from "./zoneGeometry";
 import { getRelocationGoal } from "./relocationGoal";
 
@@ -20,7 +21,7 @@ export function isStoredRelocationProfile(value: unknown): value is StoredReloca
         isRecord(profile.hard_constraints) && isRecord(profile.soft_preferences) &&
         getRelocationGoal({ hard_constraints: profile.hard_constraints, soft_preferences: profile.soft_preferences }) !== null &&
         isRecord(profile.priority_weights) && Object.values(profile.priority_weights).every((weight) => typeof weight === "number" && Number.isFinite(weight)) &&
-        typeof profile.taxonomy_version === "string" && profile.contract_version === "lf05-v2";
+        typeof profile.taxonomy_version === "string" && profile.contract_version === LANGFLOW_CONTRACTS.relocationProfileInterpretation;
 }
 
 // undefined means unknown/cache miss; null means the server confirmed no profile.

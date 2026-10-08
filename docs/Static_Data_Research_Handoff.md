@@ -9,7 +9,7 @@ building and population grids, transit) that the ETL turns into heatmap cells.
 
 This document covers **static datasets only**. Do not collect current job
 vacancies, live housing listings, company offices, or company-level employment
-claims. Those belong to the dynamic LF-01 enrichment flow.
+claims. Those belong to the dynamic zone evidence discovery flow.
 
 ## Spreadsheet rules
 
@@ -861,7 +861,7 @@ These belong to the dynamic flow:
 
 ```text
 API checks the exact database cache scope
-→ LF-01 runs only when required evidence is missing or stale
+→ zone evidence discovery runs only when required evidence is missing or stale
 → backend validates candidates
 → zone_evidence_cache
 → privacy-safe regional snapshot

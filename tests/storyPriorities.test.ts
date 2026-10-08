@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { storyPriorityWeights, updateStoryPriority } from "../app/engine/onboarding/storyPriorities";
 import { priorityKeys } from "../app/engine/onboarding/preview";
-import { validateLF05Proposal } from "../app/engine/lib/lf05Validation";
+import { validateRelocationProfileProposal } from "../app/engine/lib/relocationProfileInterpretationValidation";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 
 test("story sliders retain six-dimensional splits and always sum to 100%", () => {
@@ -16,7 +16,7 @@ test("story sliders retain six-dimensional splits and always sum to 100%", () =>
         assert.ok(Math.abs(Object.values(weights).reduce((sum, weight) => sum + weight, 0) - 1) < 0.000001);
         if (weights.education) assert.ok(Math.abs(weights.career / weights.education - 1.5) < 0.000001);
         if (weights.cost_of_living) assert.ok(Math.abs(weights.housing / weights.cost_of_living - 3) < 0.000001);
-        validateLF05Proposal({ hard_constraints: { goal: "both" }, soft_preferences: {}, priority_weights: weights,
+        validateRelocationProfileProposal({ hard_constraints: { goal: "both" }, soft_preferences: {}, priority_weights: weights,
             inferred_fields: [], clarification_questions: [], requires_confirmation: true, confirmed: false,
             taxonomy_version: onboardingTaxonomy.version, contract_version: "lf05-v2", writes_performed: false,
             decision_trace: {}, runtime_usage: null }, onboardingTaxonomy);

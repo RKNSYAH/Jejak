@@ -1,15 +1,15 @@
-type LF05TaxonomyEntry = {
+type RelocationProfileTaxonomyEntry = {
     id: string;
     label: string;
     aliases: string[];
 };
 
-export type LF05Taxonomy = {
+export type RelocationProfileTaxonomy = {
     version: string;
-    sectors: LF05TaxonomyEntry[];
-    occupations: LF05TaxonomyEntry[];
-    /** Destination areas. Any alias (kecamatan, district) resolves to the area label, here and in LF-05. */
-    areas?: LF05TaxonomyEntry[];
+    sectors: RelocationProfileTaxonomyEntry[];
+    occupations: RelocationProfileTaxonomyEntry[];
+    /** Destination aliases resolve to the same area label locally and in profile interpretation. */
+    areas?: RelocationProfileTaxonomyEntry[];
 };
 
 type TaxonomyMatch = {
@@ -18,7 +18,7 @@ type TaxonomyMatch = {
     matchedText: string;
 };
 
-export const onboardingTaxonomy: LF05Taxonomy = {
+export const onboardingTaxonomy: RelocationProfileTaxonomy = {
     version: "2026-09",
     sectors: [
         { id: "software_and_it_services", label: "Software and IT services", aliases: ["IT", "software", "teknologi informasi", "programming"] },
@@ -39,7 +39,7 @@ export const onboardingTaxonomy: LF05Taxonomy = {
     ],
     // Kecamatan and well-known districts resolve to their city ("kerja ke Kuningan" -> Jakarta Selatan).
     // Names that straddle two cities (Sudirman, Senayan, Gatot Subroto, Kota Tua) or lie mostly outside
-    // Jakarta (Bintaro, Cibubur) are left out on purpose. LF-05 receives this list as taxonomy.areas.
+    // Jakarta (Bintaro, Cibubur) are left out on purpose. Profile interpretation receives this list as taxonomy.areas.
     areas: [
         { id: "jakarta_selatan", label: "Jakarta Selatan", aliases: ["jaksel", "south jakarta", "cilandak", "jagakarsa", "kebayoran baru", "kebayoran lama", "kebayoran", "mampang prapatan", "mampang", "pancoran", "pasar minggu", "pesanggrahan", "setiabudi", "setia budi", "tebet", "kuningan", "mega kuningan", "karet", "semanggi", "scbd", "rasuna said", "blok m", "senopati", "kemang", "tb simatupang", "simatupang", "fatmawati", "pondok indah", "lebak bulus", "kalibata", "cipete", "gandaria", "ragunan", "manggarai", "tanjung barat", "radio dalam"] },
         { id: "jakarta_pusat", label: "Jakarta Pusat", aliases: ["jakpus", "central jakarta", "cempaka putih", "gambir", "johar baru", "kemayoran", "menteng", "sawah besar", "senen", "tanah abang", "thamrin", "monas", "cikini", "bendungan hilir", "benhil", "salemba", "pasar baru", "harmoni"] },
@@ -50,12 +50,12 @@ export const onboardingTaxonomy: LF05Taxonomy = {
     ],
 };
 
-type LF05Input = {
+type RelocationProfileInterpretationInput = {
     mode: "onboarding";
     language: "id" | "en";
     session_reference: string;
     privacy_screened: true;
-    taxonomy: LF05Taxonomy;
+    taxonomy: RelocationProfileTaxonomy;
     message: string;
 };
 
@@ -90,14 +90,14 @@ type ExtractedUserProfile = {
 const workTerms = ["kerja", "bekerja", "pekerjaan", "work", "job", "find a job", "cari kerja"];
 const studyTerms = ["kuliah", "sekolah", "belajar", "studi", "study", "studying", "university"];
 const housingTerms = ["kos", "kost", "sewa", "kontrakan", "rent", "housing", "apartment", "apartemen", "hunian", "tempat tinggal"];
-// LF-05 treats a stated salary as the monthly budget when no budget amount is given.
+// Profile interpretation treats a stated salary as the monthly budget when no budget amount is given.
 const budgetTerms = ["budget", "gaji", "salary", "penghasilan", "anggaran", "biaya bulanan", "dana bulanan", "pengeluaran", "monthly budget"];
 const commuteTerms = ["waktu tempuh", "waktu perjalanan", "perjalanan", "commute", "travel time"];
-// "Jakarta" alone is a city, not an area: LF-05 still asks which part of Jakarta.
+// "Jakarta" alone is a city, not an area: profile interpretation still asks which part of Jakarta.
 const wholeCityNames = ["jakarta", "dki", "dki jakarta", "jkt"];
 // "kerja ke", "kantor di", "office in" right before an area names the workplace, not only the destination.
 const workplaceCue = /(?:kerja|bekerja|kantor(?:nya)?|ngantor|office|work(?:ing)?)(?:\s+(?:saya|aku|gue|gw|my))?\s+(?:di|ke|in|at|to|dekat|near)\s*$/iu;
-// Mirrors LF-05's parser: a currency prefix or a unit suffix is required, so "45 menit" or "2026" never count.
+// Mirrors the flow's parser: a currency prefix or a unit suffix is required, so "45 menit" or "2026" never count.
 const moneyPattern =
     /(?<![\p{L}\p{N}.,])(?:(?:rp\.?|idr)\s*(?:\d{1,3}(?:[.,]\d{3})+(?!\d)|\d+(?:[.,]\d+)?)(?:\s*(?:juta(?:an)?|jt|mio|million|ribu(?:an)?|rb|k))?|\d+(?:[.,]\d+)?\s*(?:juta(?:an)?|jt|mio|million|miliar|milyar|ribu(?:an)?|rb|k|rupiah|idr))(?![\p{L}])/iu;
 const durationPattern =
@@ -135,7 +135,7 @@ function findTermOccurrences(message: string, term: string) {
     }));
 }
 
-function findTaxonomyMatches(message: string, entries: LF05TaxonomyEntry[]): TaxonomyMatch[] {
+function findTaxonomyMatches(message: string, entries: RelocationProfileTaxonomyEntry[]): TaxonomyMatch[] {
     const candidates = entries.flatMap((entry) =>
         [entry.label, ...entry.aliases]
             .filter((term) => term.trim())
@@ -157,7 +157,7 @@ function findTaxonomyMatches(message: string, entries: LF05TaxonomyEntry[]): Tax
     return selected.sort((left, right) => left.start - right.start).map(({ match }) => match);
 }
 
-function findDestination(message: string, taxonomy: LF05Taxonomy, areaMentions: TaxonomyMatch[]) {
+function findDestination(message: string, taxonomy: RelocationProfileTaxonomy, areaMentions: TaxonomyMatch[]) {
     // A named area, kecamatan or district wins: "kerja ke Kuningan" -> Jakarta Selatan.
     if (areaMentions.length) return areaMentions[0].label;
 
@@ -180,7 +180,7 @@ function findDestination(message: string, taxonomy: LF05Taxonomy, areaMentions: 
     return city;
 }
 
-function findWorkplaceArea(message: string, taxonomy: LF05Taxonomy) {
+function findWorkplaceArea(message: string, taxonomy: RelocationProfileTaxonomy) {
     // Every mention counts here, even a second one in the same city ("tinggal di Tebet, kantor di SCBD").
     const office = (taxonomy.areas ?? [])
         .flatMap((entry) => [entry.label, ...entry.aliases].flatMap((term) => findTermOccurrences(message, term)))
@@ -209,7 +209,7 @@ function hasPriorityCueNearTerm(message: string, terms: string[]) {
     return findTerm(lowerMessage.slice(sentenceStart + 1, sentenceEnd), priorityTerms) !== null;
 }
 
-export function extractUserProfile(message: string, taxonomy: LF05Taxonomy = onboardingTaxonomy): ExtractedUserProfile {
+export function extractUserProfile(message: string, taxonomy: RelocationProfileTaxonomy = onboardingTaxonomy): ExtractedUserProfile {
     const work = findTerm(message, workTerms);
     const study = findTerm(message, studyTerms);
     const areaMentions = findTaxonomyMatches(message, taxonomy.areas ?? []);
@@ -217,7 +217,7 @@ export function extractUserProfile(message: string, taxonomy: LF05Taxonomy = onb
     const targetSectors = findTaxonomyMatches(message, taxonomy.sectors);
     const targetOccupations = findTaxonomyMatches(message, taxonomy.occupations);
     const housing = findTerm(message, housingTerms);
-    // Any rupiah amount covers the budget topic: LF-05 accepts a monthly budget, a rent cap or a salary.
+    // Any rupiah amount covers the budget topic: profile interpretation accepts a monthly budget, a rent cap or a salary.
     const budgetMention = findTerm(message, budgetTerms) ?? message.match(moneyPattern)?.[0] ?? null;
     const commuteMention = findTerm(message, commuteTerms) ?? message.match(durationPattern)?.[0] ?? null;
     const priorityMention = findTerm(message, priorityTerms);
@@ -256,12 +256,12 @@ export function extractUserProfile(message: string, taxonomy: LF05Taxonomy = onb
 }
 
 /** Call only after server-side screening; serialize result as Chat Input input_value. */
-export function buildLF05Input(
+export function buildRelocationProfileInterpretationInput(
     message: string,
-    taxonomy: LF05Taxonomy,
+    taxonomy: RelocationProfileTaxonomy,
     sessionReference: string,
-    language: LF05Input["language"] = "id",
-): LF05Input {
+    language: RelocationProfileInterpretationInput["language"] = "id",
+): RelocationProfileInterpretationInput {
     return {
         mode: "onboarding",
         language,

@@ -17,7 +17,7 @@ async function openReachForm(page: Page, region: keyof typeof metros) {
     let routeCalls = 0;
     await stubZones(page);
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.request().method() === "GET"
-        ? route.fulfill({ json: { profile: null } }) : route.fallback());
+        ? route.fulfill({ json: { user_id: "11111111-1111-4111-8111-111111111111", profile: null } }) : route.fallback());
     const areas = [0, 1].map((index) => ({ zone_id: `${city.id}-${index ? "b" : "a"}`, zone_name: `Kecamatan ${index ? "B" : "A"}`,
         city_id: city.id, city_name: city.name, is_sample: false, center: [city.center[0] - 0.02 + index * 0.01, city.center[1] - 0.01],
         facts: [{ metric: "median_monthly_rent_idr", value: 1_500_000, unit: "IDR", source: "Survei fixture", source_url: null,
@@ -50,11 +50,13 @@ async function openReachForm(page: Page, region: keyof typeof metros) {
     await page.route((url) => url.pathname === "/api/onboarding/commute", (route) => { routeCalls++; return route.abort(); });
     await page.addInitScript(({ cityId, point, defaults }) => {
         // Seed the first visit only; subsequent visits must use the saved/skipped state.
-        if (sessionStorage.getItem("jejak:relocation-form:v1")) return;
-        sessionStorage.setItem("jejak:relocation-form:v1", JSON.stringify({
+        const ownerId = "11111111-1111-4111-8111-111111111111";
+        const key = `jejak:relocation-form:v2:${ownerId}`;
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, JSON.stringify({ ownerId, draft: {
             version: 1, status: "active", step: 3, answers: { ...defaults, city: cityId, transport: "car", destinationId: null,
                 destinationName: "Kantor fixture", destinationPoint: point },
-        }));
+        } }));
     }, { cityId: city.id, point: city.center, defaults: initialFormAnswers });
     await page.goto("/map?onboarding=demo");
     await expect(page.getByRole("heading", { name: "Seberapa jauh perjalanan yang nyaman?" })).toBeVisible();

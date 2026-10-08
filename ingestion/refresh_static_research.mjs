@@ -9,7 +9,9 @@ import { applyMigrations, createDatabase } from '../supabase/tests/bootstrap.mjs
 
 try {
 const run = promisify(execFile);
-const [action, project, approval, inputFolder] = process.argv.slice(2);
+const [action, project, approval, inputFolder,
+  priorManifest = 'ingestion/data/prepared/static_research/manifest.json',
+  sourceWorkbook = 'public/Jejak_Static_Data_Research_Completed.xlsx'] = process.argv.slice(2);
 assert.ok(['backup', 'verify', 'promote', 'reconcile'].includes(action));
 assert.match(project ?? '', /^[a-z]{20}$/);
 const folder = resolve(inputFolder);
@@ -21,13 +23,18 @@ const hash = (value) => createHash('sha256').update(value).digest('hex');
 const quote = (value) => "'" + String(value).replaceAll("'", "''") + "'";
 const json = (value) => quote(JSON.stringify(value)) + '::jsonb';
 const contract = JSON.parse(await readFile('ingestion/static_research_contract.json', 'utf8'));
-const targets = ['education_facilities', 'housing_statistics'];
 const all = [...Object.keys(contract.tables), 'sector_mapping'];
-const untouched = all.filter((t) => !targets.includes(t));
 const manifest = JSON.parse(await readFile(resolve(folder, 'manifest.json'), 'utf8'));
-const prior = JSON.parse(await readFile('ingestion/data/prepared/static_research/manifest.json', 'utf8'));
+const targets = manifest.report.scope ?? ['education_facilities', 'housing_statistics'];
+assert.ok(targets.length > 0 && targets.every((t) => ['education_facilities', 'housing_statistics'].includes(t)),
+  'Refresh scope is limited to education and housing');
+assert.equal(new Set(targets).size, targets.length, 'Repeated refresh table');
+const untouched = all.filter((t) => !targets.includes(t));
+const priorBytes = await readFile(priorManifest);
+const prior = JSON.parse(priorBytes);
 assert.equal(manifest.report.workbook_sha256, approval);
-assert.equal(hash(await readFile('public/Jejak_Static_Data_Research_Completed.xlsx')), approval);
+assert.equal(hash(await readFile(sourceWorkbook)), approval);
+assert.equal(hash(await readFile(resolve(folder, 'source.xlsx'))), approval);
 assert.equal((await readFile('supabase/.temp/project-ref', 'utf8')).trim(), project);
 assert.equal(manifest.report.review_rows, 0);
 assert.ok(manifest.rows.every((r) => targets.includes(r.target_table)));
@@ -112,7 +119,8 @@ if (action === 'backup') {
     assert.deepEqual(drift, reviewed, 'Unexpected live edits require review before replacing them');
   }
   const backup = { project, approval, captured_at: new Date().toISOString(), ...state, mappings,
-    reviewed_live_drift: drift, import_hash: hash(await readFile(resolve(folder, 'import.sql'))), manifest_hash: hash(await readFile(resolve(folder, 'manifest.json'))) };
+    prior_manifest_hash: hash(priorBytes), reviewed_live_drift: drift,
+    import_hash: hash(await readFile(resolve(folder, 'import.sql'))), manifest_hash: hash(await readFile(resolve(folder, 'manifest.json'))) };
   await writeFile(resolve(remote, 'backup.json'), JSON.stringify(backup, null, 2) + '\n');
   console.log(JSON.stringify({ backed_up: targets, mapped_existing_ids: mappings.length, remote_writes: false }));
 } else {
@@ -120,6 +128,7 @@ if (action === 'backup') {
   const backup = JSON.parse(bytes);
   assert.equal(backup.project, project);
   assert.equal(backup.approval, approval);
+  if (backup.prior_manifest_hash) assert.equal(backup.prior_manifest_hash, hash(priorBytes), 'Predecessor manifest changed');
   assert.equal(backup.manifest_hash, hash(await readFile(resolve(folder, 'manifest.json'))));
   const importSql = await readFile(resolve(folder, 'import.sql'), 'utf8');
   assert.equal(backup.import_hash, hash(importSql));

@@ -117,6 +117,38 @@ test("a sourced zero company count remains observed evidence rather than missing
     assert.equal(preview.districts.find((item) => item.district.zone_id === areas[1].zone_id)?.score, 100);
 });
 
+test("only districts with positive rent data for the requested housing type can be recommended", () => {
+    const companyFact = (value: number) => ({ metric: "company_count", value, unit: "company", source: "Direktori perusahaan",
+        period_end: null, evidence_type: "derived" as const, limitations: null, is_sample: false });
+    const unsupported = [
+        { ...areas[1], zone_id: "missing-rent", facts: [companyFact(100)] },
+        { ...areas[1], zone_id: "unavailable-rent", facts: [{ ...areas[1].facts[0], evidence_type: "unavailable" as const }, companyFact(100)] },
+        { ...areas[1], zone_id: "wrong-housing-type", facts: [{ ...areas[1].facts[0], metric: "median_monthly_rent_idr:apartment", dimension_value: "apartment" }, companyFact(100)] },
+        { ...areas[1], zone_id: "zero-rent", facts: [{ ...areas[1].facts[0], value: 0 }, companyFact(100)] },
+    ] satisfies OnboardingArea[];
+    const supported = { ...areas[0], facts: [...areas[0].facts, companyFact(1)] };
+    const preview = evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 100, affordability: 0, mobility: 0, environment: 0 },
+    }, 4, { cities, areas: [supported, ...unsupported], destinations: [] });
+
+    assert.deepEqual(preview.ranked.map((item) => item.district.zone_id), [supported.zone_id]);
+    for (const id of ["missing-rent", "unavailable-rent", "wrong-housing-type", "zero-rent"]) {
+        const item = preview.districts.find((district) => district.district.zone_id === id)!;
+        assert.equal(item.rank, null);
+        assert.equal(item.rent, null);
+    }
+    assert.equal(preview.districts.find((item) => item.district.zone_id === "missing-rent")?.score, 100);
+    assert.deepEqual(evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 100, affordability: 0, mobility: 0, environment: 0 },
+    }, 4, { cities, areas: unsupported, destinations: [] }).ranked, []);
+});
+
 test("story profile preview resolves a supported city without inventing missing budget values", () => {
     const profile: PersistedRelocationProfile = {
         schema_version: "relocation-profile-v1",

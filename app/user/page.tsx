@@ -19,7 +19,7 @@ export default async function UserPage() {
     }
 
     return (
-        <RelocationProfileEditor userId={claims.sub} email={typeof claims.email === "string" ? claims.email : null}
+        <RelocationProfileEditor key={claims.sub} userId={claims.sub} email={typeof claims.email === "string" ? claims.email : null}
             account={account} savedProfile={savedProfile} loadError={loadError} />
     );
 }

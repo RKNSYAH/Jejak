@@ -1,9 +1,10 @@
+import { LANGFLOW_CONTRACTS } from "../lib/langflowContracts";
 import { isRecord } from "../lib/zoneGeometry";
 
 const precisions = ["building", "street", "neighborhood", "district", "city", "region", "unknown"] as const;
 export type Precision = (typeof precisions)[number];
 
-export type LF01Candidate = {
+export type ZoneEvidenceCandidate = {
     evidenceId: string;
     sourceUrl: string;
     canonicalUrl: string;
@@ -25,13 +26,13 @@ export type LF01Candidate = {
     modelId: string | null;
     promptVersion: string | null;
     extractorConfidence: number | null;
-    // The untouched candidate, forwarded to LF-02 as LF-01 produced it.
+    // Forwarded to classification without changing the discovered candidate.
     raw: Record<string, unknown>;
 };
 
-type LF01Result = {
+type ZoneEvidenceDiscoveryResult = {
     status: string;
-    candidates: LF01Candidate[];
+    candidates: ZoneEvidenceCandidate[];
     skipped: { index: number; reason: string }[];
     incompleteCategories: string[];
     errors: string[];
@@ -61,7 +62,7 @@ function isoDate(value: unknown): string | null {
     return candidate && Number.isFinite(Date.parse(candidate)) ? new Date(candidate).toISOString() : null;
 }
 
-// LF-01 documents the hash as "sha256-hex"; accept bare or prefixed hex.
+// Discovery documents the hash as "sha256-hex"; accept bare or prefixed hex.
 function contentHash(value: unknown): string | null {
     const match = typeof value === "string" ? /^(?:sha256[:-])?([0-9a-f]{64})$/i.exec(value.trim()) : null;
     return match ? match[1].toLowerCase() : null;
@@ -75,7 +76,7 @@ function count(value: unknown): number {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
-function parseCandidate(value: unknown, runId: string): LF01Candidate | string {
+function parseCandidate(value: unknown, runId: string): ZoneEvidenceCandidate | string {
     if (!isRecord(value)) return "not_an_object";
     const source = isRecord(value.source) ? value.source : null;
     const claim = isRecord(value.claim) ? value.claim : null;
@@ -125,17 +126,17 @@ function parseCandidate(value: unknown, runId: string): LF01Candidate | string {
     };
 }
 
-// Validates the lf01-v2 output. A malformed envelope throws (the run fails);
+// A malformed discovery envelope throws (the run fails);
 // a malformed candidate is skipped with a reason so the rest still count.
-export function parseLF01Output(value: unknown, runId: string): LF01Result {
-    if (!isRecord(value) || value.contract_version !== "lf01-v2" || value.run_id !== runId ||
+export function parseZoneEvidenceDiscoveryOutput(value: unknown, runId: string): ZoneEvidenceDiscoveryResult {
+    if (!isRecord(value) || value.contract_version !== LANGFLOW_CONTRACTS.zoneEvidenceDiscovery || value.run_id !== runId ||
         value.writes_performed !== false || !Array.isArray(value.evidence_candidates) ||
         value.evidence_candidates.length > MAX_CANDIDATES || typeof value.status !== "string") {
-        throw new Error("INVALID_LF01_OUTPUT");
+        throw new Error("INVALID_ZONE_EVIDENCE_DISCOVERY_OUTPUT");
     }
 
-    const candidates: LF01Candidate[] = [];
-    const skipped: LF01Result["skipped"] = [];
+    const candidates: ZoneEvidenceCandidate[] = [];
+    const skipped: ZoneEvidenceDiscoveryResult["skipped"] = [];
     const seen = new Set<string>();
     value.evidence_candidates.forEach((item, index) => {
         const parsed = parseCandidate(item, runId);

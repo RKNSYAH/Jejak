@@ -10,7 +10,7 @@ Subsequent changes are additive migrations; do not edit previously applied SQL.
 ## Design in one page
 
 ```text
-Prepared datasets                  LF-01 discovery
+Prepared datasets                  Zone evidence discovery
        |                                  |
 sheet-shaped static tables         backend validation + geocoding
        |                                  |
@@ -34,7 +34,7 @@ auth.users -> relocation_profiles -> recommendation_runs
   columns, not user-triggered LLM calls. The map API presents those wide rows as
   metric facts while retaining provenance and dimensions.
 - **Dynamic data:** openings, listings, office presence, and local employment use
-  a private cache. LF-01 discovers candidates; the backend validates and writes.
+  a private cache. Zone evidence discovery finds candidates; the backend validates and writes.
 - **Public data:** browsers receive prepared facts, public places, and aggregate
   snapshots. They cannot read private company evidence or execute write RPCs.
 - **Geography:** trusted datasets provide boundaries. The ingestion service
@@ -260,7 +260,7 @@ Legacy rows without normalized scope fields cannot satisfy new cache counts.
 
 ### 9. `enrichment_runs`
 
-One LF-01 attempt for one region/type/scope. Fields include an identity `id`, UUID
+One zone evidence discovery attempt for one region/type/scope. Fields include an identity `id`, UUID
 `external_run_id`, scope fields, count/budget at claim time, `status`, `stage`,
 structured `input`/`output`, private `error`, request/start/completion timestamps,
 `lease_expires_at`, `next_retry_at`, and audit timestamps.
@@ -405,7 +405,7 @@ renewal webhook was missed.
 
 ### 17. `geocode_cache`
 
-Backend-only cache of geocoder responses for LF-01 candidate addresses, keyed by
+Backend-only cache of geocoder responses for discovered candidate addresses, keyed by
 `query_hash` (SHA-256 of provider, country, viewbox, and normalized query).
 Fields: `query`, `provider`, `status` (`found`/`not_found`), `result` JSON (required
 exactly when found), `fetched_at`, `expires_at`. Nominatim's usage policy requires
@@ -416,11 +416,11 @@ only `service_role` can read or write.
 
 1. The backend resolves the region and canonicalizes evidence type and filters.
 2. Call `check_and_claim_zone_enrichment()`.
-   - Enough fresh evidence: `cache_hit`, no LF-01 call.
+   - Enough fresh evidence: `cache_hit`, no discovery call.
    - Active run: `refresh_running`, no duplicate call.
    - Failed/partial cooldown: `retry_cooldown`, no new call.
-   - Missing/stale evidence: claim one queued run, return `call_lf01 = true`.
-3. Read existing evidence if preparing a refresh, then call LF-01 once.
+   - Missing/stale evidence: claim one queued run, return the discovery flag (`call_lf01 = true`, retained as a deployed RPC field).
+3. Read existing evidence if preparing a refresh, then call zone evidence discovery once.
 4. Validate and geocode its candidates, classify them with
    `classify_evidence_points()`, and explicitly accept eligible records through
    `upsert_zone_evidence()`.
@@ -443,7 +443,7 @@ Upsert and completion re-check status and lease **under the scope lock**. Expire
 or terminal workers cannot write. Repeating the same terminal completion is a
 no-op; changing it to another terminal state is rejected.
 
-### LF-01 integration
+### Zone evidence discovery integration
 
 The checked-in `Jejak Prepared Request` adapter replaces the old database reader
 without changing its node/class identity. It carries backend-provided
@@ -451,7 +451,7 @@ without changing its node/class identity. It carries backend-provided
 credentials, and never calls the retired `get_zone_data` RPC. Prepared population
 or wage statistics do not satisfy a dynamic office/headcount evidence request.
 
-The application must invoke LF-01 only after a successful backend claim. The
+The application must invoke zone evidence discovery only after a successful backend claim. The
 backend maps policy names such as `active_opening` to the flow's request vocabulary
 such as `active_openings`. Deploy the updated flow export with that orchestration.
 `POST /api/zones/[zoneId]/enrich` implements this orchestration

@@ -64,7 +64,6 @@ export function getCityAreaName(city: { city_id: string; city_name: string }): s
     return getCityMetroArea(city)?.name ?? city.city_name;
 }
 
-// The chosen city plus every catalog city in the same metro.
 export function getMetroCityIds<T extends { city_id: string; city_name: string }>(cityId: string, cities: readonly T[]): string[] {
     const city = cities.find((item) => item.city_id === cityId);
     const area = city ? getCityMetroArea(city) : null;

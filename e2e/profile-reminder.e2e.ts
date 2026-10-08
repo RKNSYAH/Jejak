@@ -16,7 +16,7 @@ test("incomplete profile banner dismisses until refresh and reuses the cached re
     let calls = 0;
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
         calls++;
-        return route.fulfill({ json: { profile: null } });
+        return route.fulfill({ json: { user_id: userId, profile: null } });
     });
     await page.goto("/map");
     const banner = page.getByRole("complementary", { name: "Pengingat profil" });
@@ -67,7 +67,7 @@ test("confirmed profile stays hidden after refresh without another profile fetch
     let calls = 0;
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
         calls++;
-        return route.fulfill({ json: { profile: savedProfile } });
+        return route.fulfill({ json: { user_id: userId, profile: savedProfile } });
     });
     await page.goto("/map?welcome=1");
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
@@ -83,7 +83,7 @@ test("another user's cache never suppresses this user's reminder", async ({ page
     await page.addInitScript(({ profile }) => {
         localStorage.setItem("jejak:relocation-profile:v1:another-user", JSON.stringify({ version: 1, userId: "another-user", profile }));
     }, { profile: savedProfile });
-    await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.fulfill({ json: { profile: null } }));
+    await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.fulfill({ json: { user_id: userId, profile: null } }));
     await page.goto("/map");
     await expect(page.locator('[data-hci-region="profile-completion-banner"]')).toBeVisible();
 });
@@ -106,11 +106,17 @@ test("failed profile fetch is not cached or mistaken for incomplete onboarding",
 
 test("logout clears the cache even when entering the account page directly", async ({ page }) => {
     await page.addInitScript(({ key, id, profile }) => {
-        if (location.pathname === "/user") localStorage.setItem(key, JSON.stringify({ version: 1, userId: id, profile }));
+        if (location.pathname !== "/user") return;
+        localStorage.setItem(key, JSON.stringify({ version: 1, userId: id, profile }));
+        sessionStorage.setItem(`jejak:relocation-form:v2:${id}`, JSON.stringify({ ownerId: id, draft: {} }));
+        sessionStorage.setItem(`jejak:relocation-onboarding:v2:${id}`, JSON.stringify({ ownerId: id, draft: {} }));
+        sessionStorage.setItem("jejak:relocation-onboarding:v2:another-user", "keep another user's draft");
     }, { key: cacheKey, id: userId, profile: savedProfile });
     await page.goto("/user");
     await page.getByRole("button", { name: "Akun", exact: true }).filter({ visible: true }).click();
     await page.getByRole("button", { name: "Keluar dari akun" }).click();
     await expect(page).toHaveURL(/\/login\?status=signed-out/);
     expect(await page.evaluate((key) => localStorage.getItem(key), cacheKey)).toBeNull();
+    expect(await page.evaluate((id) => [sessionStorage.getItem(`jejak:relocation-form:v2:${id}`), sessionStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)], userId)).toEqual([null, null]);
+    expect(await page.evaluate(() => sessionStorage.getItem("jejak:relocation-onboarding:v2:another-user"))).toBe("keep another user's draft");
 });

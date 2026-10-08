@@ -12,10 +12,14 @@ function area(zone_id: string, companyCount: number | null, campusCount: number,
     return {
         zone_id, zone_name: zone_id, city_id: city.city_id, city_name: city.city_name, is_sample,
         center: null,
-        facts: companyCount === null ? [] : [{
-            metric: "company_count", value: companyCount, unit: "company", source: "Directory",
-            period_end: null, evidence_type: "derived", limitations: null, is_sample,
-        }],
+        facts: [
+            ...(companyCount === null ? [] : [{
+                metric: "company_count", value: companyCount, unit: "company", source: "Directory",
+                period_end: null, evidence_type: "derived" as const, limitations: null, is_sample,
+            }]),
+            { metric: "median_monthly_rent_idr", value: 1_500_000, unit: "IDR", source: "Housing survey",
+                period_end: null, evidence_type: "derived", limitations: null, is_sample },
+        ],
         campuses: Array.from({ length: campusCount }, (_, index) => ({
             id: `${zone_id}-campus-${index}`, name: `Campus ${index}`, center: [0, 0], source: "Directory",
             source_url: null, is_sample,

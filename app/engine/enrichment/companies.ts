@@ -1,4 +1,4 @@
-import type { LF01Candidate, Precision } from "./lf01Contract";
+import type { ZoneEvidenceCandidate, Precision } from "./zoneEvidenceDiscoveryContract";
 import { normalizePlaceName } from "./locality";
 
 // Legal forms and parenthesised aliases vary between sources for one company:
@@ -34,8 +34,8 @@ type CompanyOffice = {
     sourceUrl: string;
 };
 
-// Office addresses LF-01 found, grouped by company.
-export function officesByCompany(candidates: LF01Candidate[]): Map<string, CompanyOffice[]> {
+// Discovered office addresses, grouped by company.
+export function officesByCompany(candidates: ZoneEvidenceCandidate[]): Map<string, CompanyOffice[]> {
     const offices = new Map<string, CompanyOffice[]>();
     for (const candidate of candidates) {
         const key = companyKey(candidate.subjectName);
@@ -70,6 +70,6 @@ export function officeForPosting(offices: CompanyOffice[], postingAddress: strin
 }
 
 // Postings whose own location can't place them below city level.
-export function needsCompanyOffice(candidate: LF01Candidate): boolean {
+export function needsCompanyOffice(candidate: ZoneEvidenceCandidate): boolean {
     return (!candidate.rawAddress && !candidate.buildingName) || ["city", "region", "unknown"].includes(candidate.precision);
 }

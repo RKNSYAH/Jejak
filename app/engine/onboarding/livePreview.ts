@@ -30,7 +30,6 @@ export type PreviewInput = {
 
 const housingTypes: Exclude<Housing, "unsure">[] = ["kos", "apartment"];
 
-// Use 10% margin for the budget
 export const BUDGET_MARGIN = 0.1;
 
 // Only the best-ranked districts are highlighted while the form or story is still open.
@@ -166,7 +165,7 @@ function housingType(fact: RegionFact): string | null {
 function rentFacts(area: OnboardingArea, selected: Housing[]) {
     const requested = selected.includes("unsure") || selected.length === 0 ? housingTypes : selected;
     return area.facts.filter((fact) => fact.evidence_type !== "unavailable" && fact.metric.split(":")[0] === "median_monthly_rent_idr" &&
-        requested.includes(housingType(fact) as Exclude<Housing, "unsure">));
+        Number.isFinite(fact.value) && fact.value > 0 && requested.includes(housingType(fact) as Exclude<Housing, "unsure">));
 }
 
 function numericFact(area: OnboardingArea, metric: string): RegionFact | null {
@@ -176,6 +175,10 @@ function numericFact(area: OnboardingArea, metric: string): RegionFact | null {
 export function isLiveRecommendationSample(item: Pick<LiveDistrictRecommendation, "district" | "rentFact">): boolean {
     return item.district.is_sample || item.rentFact?.is_sample === true || item.district.living_cost?.is_sample === true ||
         item.district.facts.some((fact) => fact.is_sample) || item.district.campuses.some((campus) => campus.is_sample);
+}
+
+export function hasHousingStatistics(item: Pick<LiveDistrictRecommendation, "rent" | "rentFact">): boolean {
+    return item.rentFact !== null && item.rent !== null && Number.isFinite(item.rent) && item.rent > 0;
 }
 
 const COST_ROUNDING = 500_000;
@@ -412,7 +415,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
 
     // Changing the commute time or mode moves the reach, so districts outside it drop below the rest. This only
     // reorders: the reach is an assumption-based estimate, so it never excludes a district or changes a score.
-    const ranked = districts.filter((item) => item.eligible !== false && item.score !== null)
+    const ranked = districts.filter((item) => hasHousingStatistics(item) && item.eligible !== false && item.score !== null)
         .sort((a, b) => Number(a.beyondReach) - Number(b.beyondReach) || (b.score ?? 0) - (a.score ?? 0) || a.district.zone_id.localeCompare(b.district.zone_id));
     ranked.forEach((item, index) => { item.rank = index + 1; });
     return {

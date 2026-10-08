@@ -13,11 +13,11 @@ test("saving confirmed onboarding replaces the incomplete cache and hides the re
     let getCalls = 0;
     await stubZones(page);
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
-        if (route.request().method() === "POST") return route.fulfill({ status: 201, json: { profile } });
+        if (route.request().method() === "POST") return route.fulfill({ status: 201, json: { user_id: "11111111-1111-4111-8111-111111111111", profile } });
         getCalls++;
-        return route.fulfill({ json: { profile: null } });
+        return route.fulfill({ json: { user_id: "11111111-1111-4111-8111-111111111111", profile: null } });
     });
-    await page.route((url) => url.pathname === "/api/lf05", (route) => route.fulfill({ json: { profile: {
+    await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", (route) => route.fulfill({ json: { profile: {
         hard_constraints: {}, soft_preferences: { goal: "work" }, priority_weights: { career: 1 },
         inferred_fields: [], clarification_questions: [], requires_confirmation: true, confirmed: false,
         taxonomy_version: "2026-09", contract_version: "lf05-v2", writes_performed: false,

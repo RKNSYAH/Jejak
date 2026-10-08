@@ -1,5 +1,6 @@
 import { createAdminClient, isAdminConfigured } from "../lib/admin";
 import { isLangflowConfigured, runFlow } from "../lib/langflow";
+import { descriptiveEnrichmentStage, DISCOVERY_CLAIM_FIELD } from "../lib/langflowContracts";
 import { getZoneBoundary } from "../lib/zoneBoundary";
 import { getGeometryBounds } from "../lib/zoneGeometry";
 import { createNominatimGeocoder, type GeocodeCache, type GeocodeResult } from "../enrichment/geocoder";
@@ -35,7 +36,7 @@ type ClaimRow = {
     run_id: number | null;
     minimum_required_count: number;
     source_budget: number;
-    call_lf01: boolean;
+    [DISCOVERY_CLAIM_FIELD]: boolean;
     retry_at: string | null;
 };
 
@@ -72,7 +73,7 @@ export async function requestZoneEnrichment(zoneId: string, scope: EnrichmentSco
         if (error) throw error;
         const claim = (data as ClaimRow[])[0];
         scopeTypes.push({ evidenceType, scopeHash, minimumRequiredCount: claim.minimum_required_count });
-        if (claim.call_lf01 && claim.run_id !== null) runs.push({ id: claim.run_id, evidenceType, sourceBudget: claim.source_budget });
+        if (claim[DISCOVERY_CLAIM_FIELD] && claim.run_id !== null) runs.push({ id: claim.run_id, evidenceType, sourceBudget: claim.source_budget });
         claims.push({ evidence_type: evidenceType, status: claim.status, run_id: null, retry_at: claim.retry_at, internalId: claim.run_id });
     }
 
@@ -125,7 +126,7 @@ function createEnrichmentDb(admin: ReturnType<typeof createAdminClient>): Enrich
     return {
         async markRunStage(runIds, stage) {
             const { error } = await admin.from("enrichment_runs")
-                .update({ status: "running", stage, ...(stage === "lf01" ? { started_at: new Date().toISOString() } : {}) })
+                .update({ status: "running", stage, ...(stage === "zone_evidence_discovery" ? { started_at: new Date().toISOString() } : {}) })
                 .in("id", runIds).in("status", ["queued", "running"]);
             if (error) throw error;
         },
@@ -211,14 +212,14 @@ type RunRow = {
 
 const runColumns = "external_run_id, evidence_type, status, stage, requested_at, started_at, completed_at, lease_expires_at, next_retry_at, output, error";
 
-// Only aggregate counts and safe codes leave the server; LF-01 output is not echoed.
+// Only aggregate counts and safe codes leave the server; discovery output is not echoed.
 function publicRun(run: RunRow): EnrichmentRunSummary {
     const output = run.output ?? {};
     return {
         run_id: run.external_run_id,
         evidence_type: run.evidence_type,
         status: run.status,
-        stage: run.stage,
+        stage: descriptiveEnrichmentStage(run.stage),
         requested_at: run.requested_at,
         started_at: run.started_at,
         completed_at: run.completed_at,
@@ -294,7 +295,7 @@ export async function getZoneEvidence(zoneId: string, scope: EnrichmentScope): P
         } : null,
         refresh: {
             status: active ? active.status as "running" | "queued" : cooling ? "cooldown" : "idle",
-            stage: active?.stage ?? null,
+            stage: descriptiveEnrichmentStage(active?.stage ?? null),
             retry_at: active ? null : cooling?.next_retry_at ?? null,
             runs: runs.map(publicRun),
         },

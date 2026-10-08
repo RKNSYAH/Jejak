@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "../app/api/lf05/route";
+import { POST } from "../app/api/relocation-profile-interpretation/route";
 import { interpretOnboardingStory } from "../app/engine/controller/preferenceController";
+import { LANGFLOW_FLOWS } from "../app/engine/lib/langflow";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
-import { validateLF05Proposal } from "../app/engine/lib/lf05Validation";
-import { applyLF05FieldEdit, buildLF05Message, getLF05ClarificationField, getLF05ClarificationQuestions, parseLF05CommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/lf05FollowUp";
-import { extractLF05TransportMode, parseLF05TransportAnswer } from "../app/engine/lib/lf05Transport";
+import { validateRelocationProfileProposal } from "../app/engine/lib/relocationProfileInterpretationValidation";
+import { applyProfileFieldEdit, buildProfileMessage, getProfileClarificationField, getProfileClarificationQuestions, parseProfileCommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/relocationProfileInterpretationFollowUp";
+import { extractProfileTransportMode, parseProfileTransportAnswer } from "../app/engine/lib/relocationProfileInterpretationTransport";
 import { buildPersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
 const validProfile = {
@@ -32,27 +33,27 @@ const validProfile = {
   runtime_usage: null,
 };
 
-test("LF-05 profile validation checks confirmation, taxonomy, budgets, and weights", () => {
-  assert.deepEqual(validateLF05Proposal(validProfile, onboardingTaxonomy), validProfile);
+test("relocation profile interpretation validation checks confirmation, taxonomy, budgets, and weights", () => {
+  assert.deepEqual(validateRelocationProfileProposal(validProfile, onboardingTaxonomy), validProfile);
   assert.throws(
-    () => validateLF05Proposal({ ...validProfile, confirmed: true }, onboardingTaxonomy),
-    /INVALID_LF05_PROFILE/,
+    () => validateRelocationProfileProposal({ ...validProfile, confirmed: true }, onboardingTaxonomy),
+    /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/,
   );
-  assert.throws(() => validateLF05Proposal({ ...validProfile, soft_preferences: { goal: "relocate" } }, onboardingTaxonomy), /INVALID_LF05_PROFILE/);
+  assert.throws(() => validateRelocationProfileProposal({ ...validProfile, soft_preferences: { goal: "relocate" } }, onboardingTaxonomy), /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/);
   assert.throws(
-    () => validateLF05Proposal({ ...validProfile, priority_weights: { career: 0.4 } }, onboardingTaxonomy),
-    /INVALID_LF05_PROFILE/,
+    () => validateRelocationProfileProposal({ ...validProfile, priority_weights: { career: 0.4 } }, onboardingTaxonomy),
+    /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/,
   );
   assert.throws(
-    () => validateLF05Proposal({
+    () => validateRelocationProfileProposal({
       ...validProfile,
       soft_preferences: { target_fields: ["unknown_sector"] },
     }, onboardingTaxonomy),
-    /INVALID_LF05_PROFILE/,
+    /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/,
   );
 });
 
-test("follow-up answers reach LF-05 along with the original story and explicit choices stay authoritative", async (context) => {
+test("follow-up answers reach profile interpretation with the original story and explicit choices stay authoritative", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   let sentMessage = "";
   context.mock.method(globalThis, "fetch", async (_request: unknown, init?: RequestInit) => {
@@ -79,7 +80,7 @@ test("follow-up answers reach LF-05 along with the original story and explicit c
   } finally { restoreEnvironment(); }
 });
 
-test("bare 45 commute answer survives LF-05 omission for the reported Jakarta Selatan story", async (context) => {
+test("bare 45 commute answer survives profile interpretation omission for the reported Jakarta Selatan story", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   const story = "saya berencana pindah ke jakarta selatan untuk kerja sebagai software engineer punya budget 5jt per bulan 2jt untuk kos";
   const question = "Berapa lama waktu perjalanan sekali jalan yang masih bisa Anda terima (dalam menit)?";
@@ -104,9 +105,9 @@ test("bare 45 commute answer survives LF-05 omission for the reported Jakarta Se
 });
 
 test("commute bindings normalize minutes and reject invalid or unbounded numeric answers", async () => {
-  for (const answer of ["45", "45 menit", "45 min", " 45 minutes "]) assert.equal(parseLF05CommuteAnswer(answer), 45);
+  for (const answer of ["45", "45 menit", "45 min", " 45 minutes "]) assert.equal(parseProfileCommuteAnswer(answer), 45);
   for (const answer of ["-1", "241", "45.5", "45 jam", "45 atau 60", "", "Infinity"]) {
-    assert.equal(parseLF05CommuteAnswer(answer), null);
+    assert.equal(parseProfileCommuteAnswer(answer), null);
     assert.throws(() => validateClarificationAnswers([{ question: "Batas perjalanan?", field: "commute_minutes", answer }]), /INVALID_CLARIFICATION_ANSWERS/);
   }
   assert.deepEqual(validateClarificationAnswers([{ question: "Batas perjalanan?", field: "commute_minutes", answer: "45" }]),
@@ -114,21 +115,21 @@ test("commute bindings normalize minutes and reject invalid or unbounded numeric
   for (const commute_minutes of [-1, 241, 45.5, "45", NaN, Infinity]) {
     assert.throws(() => validateFollowUpDetails({ commute_minutes }), /INVALID_CLARIFICATION_ANSWERS/);
   }
-  assert.equal(getLF05ClarificationField("Berapa lama waktu perjalanan sekali jalan yang masih bisa Anda terima (dalam menit)?"), "commute_minutes");
-  assert.equal(getLF05ClarificationField("Which commute mode do you prefer?"), "transport_mode");
-  assert.equal(getLF05ClarificationField("How long can your commute take?"), "commute_minutes");
-  assert.equal(getLF05ClarificationField("Berapa lama waktu perjalanan dengan transportasi umum?"), "commute_minutes");
+  assert.equal(getProfileClarificationField("Berapa lama waktu perjalanan sekali jalan yang masih bisa Anda terima (dalam menit)?"), "commute_minutes");
+  assert.equal(getProfileClarificationField("Which commute mode do you prefer?"), "transport_mode");
+  assert.equal(getProfileClarificationField("How long can your commute take?"), "commute_minutes");
+  assert.equal(getProfileClarificationField("Berapa lama waktu perjalanan dengan transportasi umum?"), "commute_minutes");
   for (const body of [
     { message: "Mau pindah", language: "id", details: { commute_minutes: 241 } },
     { message: "Mau pindah", language: "id", clarification_answers: [{ question: "Waktu tempuh?", answer: "-45", field: "commute_minutes" }] },
-  ]) assert.equal((await POST(postJson("/api/lf05", JSON.stringify(body)))).status, 400);
+  ]) assert.equal((await POST(postJson("/api/relocation-profile-interpretation", JSON.stringify(body)))).status, 400);
 });
 
-test("missing transport and specific destination get follow-ups even when LF-05 returns none", () => {
-  const profile = validateLF05Proposal({ ...validProfile, hard_constraints: { ...validProfile.hard_constraints, destination_cities: ["Jakarta Selatan"] } }, onboardingTaxonomy);
-  assert.deepEqual(getLF05ClarificationQuestions(profile, "Mau pindah."),
+test("missing transport and specific destination get follow-ups even when profile interpretation returns none", () => {
+  const profile = validateRelocationProfileProposal({ ...validProfile, hard_constraints: { ...validProfile.hard_constraints, destination_cities: ["Jakarta Selatan"] } }, onboardingTaxonomy);
+  assert.deepEqual(getProfileClarificationQuestions(profile, "Mau pindah."),
     ["Moda transportasi apa yang kamu pilih?", "Sudah tahu lokasi tujuan spesifik di Jakarta Selatan?"]);
-  assert.deepEqual(getLF05ClarificationQuestions({ ...profile, clarification_questions: ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"] }, "Mau pindah."),
+  assert.deepEqual(getProfileClarificationQuestions({ ...profile, clarification_questions: ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"] }, "Mau pindah."),
     ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"]);
 });
 
@@ -147,7 +148,7 @@ test("unstated transport never accepts a model guess, even with high confidence"
     assert.equal(profile.hard_constraints.transport_mode, undefined);
     assert.equal(profile.soft_preferences.transport_mode, undefined);
     assert.ok(!profile.inferred_fields.includes("transport_mode"));
-    assert.equal(profile.clarification_questions.filter((question) => getLF05ClarificationField(question) === "transport_mode").length, 1);
+    assert.equal(profile.clarification_questions.filter((question) => getProfileClarificationField(question) === "transport_mode").length, 1);
   } finally { restoreEnvironment(); }
 });
 
@@ -155,18 +156,18 @@ test("transport evidence excludes negation, ownership, unrelated context and und
   for (const story of ["Saya kerja di perusahaan mobil.", "Saya punya mobil.", "Saya tidak naik mobil.",
     "Saya belum memilih motor.", "Mungkin naik mobil.", "Saya naik mobil atau motor.", "Saya belum memilih antara mobil, motor.",
     "Saya belum tahu moda transportasi.", "I do not commute by car.", "I work in car software."]) {
-    assert.equal(extractLF05TransportMode(story), null, story);
+    assert.equal(extractProfileTransportMode(story), null, story);
   }
   for (const [answer, mode] of [["Transport umum", "transit"], ["Motor", "motorcycle"], ["Mobil", "car"], ["Jalan kaki", "active"]]) {
-    assert.equal(parseLF05TransportAnswer(answer), mode);
+    assert.equal(parseProfileTransportAnswer(answer), mode);
   }
-  assert.equal(extractLF05TransportMode("budget belum tahu, saya ke kantor naik motor"), "motorcycle");
-  assert.equal(extractLF05TransportMode("Saya pakai sepeda motor."), "motorcycle");
-  assert.equal(extractLF05TransportMode("Saya mempertimbangkan transportasi umum sebagai pilihan utama untuk perjalanan ke kantor."), "transit");
+  assert.equal(extractProfileTransportMode("budget belum tahu, saya ke kantor naik motor"), "motorcycle");
+  assert.equal(extractProfileTransportMode("Saya pakai sepeda motor."), "motorcycle");
+  assert.equal(extractProfileTransportMode("Saya mempertimbangkan transportasi umum sebagai pilihan utama untuk perjalanan ke kantor."), "transit");
   assert.throws(() => validateClarificationAnswers([{ question: "Moda transportasi?", field: "transport_mode", answer: "mobil atau motor" }]), /INVALID_CLARIFICATION_ANSWERS/);
 });
 
-test("explicit story transport and radio answers override LF-05 guesses and omissions", async (context) => {
+test("explicit story transport and radio answers override profile interpretation guesses and omissions", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   context.mock.method(globalThis, "fetch", async () => Response.json(completed({ output: { text: JSON.stringify({
     ...validProfile, soft_preferences: { ...validProfile.soft_preferences, transport_mode: "car" },
@@ -181,7 +182,7 @@ test("explicit story transport and radio answers override LF-05 guesses and omis
       const profile = await interpretOnboardingStory(story, "id");
       assert.equal(profile.soft_preferences.transport_mode, mode);
       assert.ok(!profile.inferred_fields.includes("transport_mode"));
-      assert.ok(!profile.clarification_questions.some((question) => getLF05ClarificationField(question) === "transport_mode"));
+      assert.ok(!profile.clarification_questions.some((question) => getProfileClarificationField(question) === "transport_mode"));
     }
     const profile = await interpretOnboardingStory("Saya ke kantor naik mobil.", "id",
       [{ question: "Moda transportasi apa yang kamu pilih?", answer: "Motor" }]);
@@ -211,7 +212,7 @@ test("unknown specific destination retains a city without inventing coordinates 
     assert.match(sentMessage, /Belum tahu/);
     assert.ok(sentMessage.includes(JSON.stringify(destination)));
     assert.throws(() => validateFollowUpDetails({ destination: { ...destination, latitude: -6, longitude: 106 } }), /INVALID_CLARIFICATION_ANSWERS/);
-    assert.throws(() => validateLF05Proposal({ ...profile, soft_preferences: { destination: { ...destination, latitude: -6 } } }, onboardingTaxonomy), /INVALID_LF05_PROFILE/);
+    assert.throws(() => validateRelocationProfileProposal({ ...profile, soft_preferences: { destination: { ...destination, latitude: -6 } } }, onboardingTaxonomy), /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/);
   } finally { restoreEnvironment(); }
 });
 
@@ -226,7 +227,7 @@ test("walking and cycling follow-ups retain their subtype through normalization 
       assert.equal(profile.soft_preferences.active_mode, subtype);
       assert.ok(!profile.inferred_fields.includes("active_mode"));
       assert.equal(buildPersistedRelocationProfile(profile, profile.inferred_fields).soft_preferences.active_mode, subtype);
-      const corrected = applyLF05FieldEdit(profile, "transport_mode", "car");
+      const corrected = applyProfileFieldEdit(profile, "transport_mode", "car");
       assert.equal(corrected.soft_preferences.active_mode, undefined);
     }
     const ambiguous = await interpretOnboardingStory("Jalan kaki.", "id", [], "work", { transport_mode: "active" });
@@ -242,23 +243,23 @@ test("follow-ups reject malformed, duplicate, excessive and sensitive answers", 
     [{ question: "Budget?", answer: "1" }, { question: "Budget?", answer: "2" }]]) {
     assert.throws(() => validateClarificationAnswers(value), /INVALID_CLARIFICATION_ANSWERS/);
   }
-  assert.throws(() => buildLF05Message("Mau pindah", [{ question: "Catatan?", answer: "NIK 1234567890123456" }]), /SENSITIVE_ONBOARDING_INPUT/);
+  assert.throws(() => buildProfileMessage("Mau pindah", [{ question: "Catatan?", answer: "NIK 1234567890123456" }]), /SENSITIVE_ONBOARDING_INPUT/);
   assert.throws(() => validateFollowUpDetails({ destination: { name: "Peta", precision: "point", latitude: 999, longitude: 106 } }), /INVALID_CLARIFICATION_ANSWERS/);
   assert.throws(() => validateFollowUpDetails({ transport_mode: ["transit"] }), /INVALID_CLARIFICATION_ANSWERS/);
   assert.deepEqual(validateFollowUpDetails({ destination: { name: "Peta", precision: "point", latitude: -6.1234567890123456, longitude: 106.83 } }),
     { destination: { name: "Peta", precision: "point", latitude: -6.1234567890123456, longitude: 106.83 } });
-  assert.throws(() => validateLF05Proposal({ ...validProfile, soft_preferences: { transport_mode: ["transit"] } }, onboardingTaxonomy), /INVALID_LF05_PROFILE/);
-  assert.throws(() => validateLF05Proposal({ ...validProfile, soft_preferences: { destination: { name: "Kuningan", precision: "area", latitude: -6 } } }, onboardingTaxonomy), /INVALID_LF05_PROFILE/);
+  assert.throws(() => validateRelocationProfileProposal({ ...validProfile, soft_preferences: { transport_mode: ["transit"] } }, onboardingTaxonomy), /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/);
+  assert.throws(() => validateRelocationProfileProposal({ ...validProfile, soft_preferences: { destination: { name: "Kuningan", precision: "area", latitude: -6 } } }, onboardingTaxonomy), /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/);
   for (const body of [
     { message: "Mau pindah", language: "id", goal: "unknown" },
     { message: "Mau pindah", language: "id", clarification_answers: [{ question: "Catatan?", answer: "NIK 1234567890123456" }] },
   ]) {
-    const response = await POST(postJson("/api/lf05", JSON.stringify(body)));
+    const response = await POST(postJson("/api/relocation-profile-interpretation", JSON.stringify(body)));
     assert.equal(response.status, 400);
   }
 });
 
-test("map-picked office coordinates are sent through LF-05 and retained without becoming an inference", async (context) => {
+test("map-picked office coordinates reach profile interpretation and remain explicit", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   const destination = { name: "Dipilih di peta", precision: "point" as const, latitude: -6.2297, longitude: 106.8304 };
   context.mock.method(globalThis, "fetch", async (_request: unknown, init?: RequestInit) => {
@@ -280,7 +281,7 @@ test("map-picked office coordinates are sent through LF-05 and retained without 
   } finally { restoreEnvironment(); }
 });
 
-test("LF-05 controller sends screened server-built input and returns validated profile", async (context) => {
+test("profile interpretation controller sends screened server-built input and returns validated profile", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   const upstreamProfile = {
     ...validProfile,
@@ -310,7 +311,7 @@ test("LF-05 controller sends screened server-built input and returns validated p
     assert.equal(profile.clarification_questions.length, 4);
     assert.equal(sentUrl, "http://localhost:7860/api/v2/workflows");
     assert.equal(new Headers(sentHeaders).get("x-api-key"), "test-api-key");
-    assert.equal(sentPayload?.flow_id, "8feff2fc-81df-438d-8dae-c10563f1ab67");
+    assert.equal(sentPayload?.flow_id, LANGFLOW_FLOWS.relocationProfileInterpretation);
     assert.equal(sentPayload?.mode, "sync");
 
     const input = JSON.parse(String(sentPayload?.input_value)) as Record<string, unknown>;
@@ -326,10 +327,10 @@ test("LF-05 controller sends screened server-built input and returns validated p
   }
 });
 
-test("LF-05 route rejects sensitive text and user-injected trusted fields", async (context) => {
+test("profile interpretation route rejects sensitive text and user-injected trusted fields", async (context) => {
   const restoreEnvironment = withWorkflowEnvironment();
   const fetches = countFetches(context);
-  const post = (body: object) => POST(postJson("/api/lf05", JSON.stringify(body)));
+  const post = (body: object) => POST(postJson("/api/relocation-profile-interpretation", JSON.stringify(body)));
 
   try {
     const sensitive = await post({ message: "Alamat rumah saya ...", language: "id" });
@@ -348,17 +349,17 @@ test("LF-05 route rejects sensitive text and user-injected trusted fields", asyn
 });
 
 test("a review-step edit replaces the value, keeps its section, and stops counting it as inferred", () => {
-    const proposal = validateLF05Proposal(validProfile, onboardingTaxonomy);
-    const edited = applyLF05FieldEdit(proposal, "housing_budget", { amount: 1500000, currency: "IDR", period: "month" });
-    // LF-05 put this budget in soft preferences; the edit keeps it there.
+    const proposal = validateRelocationProfileProposal(validProfile, onboardingTaxonomy);
+    const edited = applyProfileFieldEdit(proposal, "housing_budget", { amount: 1500000, currency: "IDR", period: "month" });
+    // Interpretation put this budget in soft preferences; the edit keeps it there.
     assert.deepEqual(edited.soft_preferences.housing_budget, { amount: 1500000, currency: "IDR", period: "month" });
     assert.equal(Object.hasOwn(edited.hard_constraints, "housing_budget"), false);
-    assert.equal(applyLF05FieldEdit(proposal, "commute_minutes", 30).hard_constraints.commute_minutes, 30);
+    assert.equal(applyProfileFieldEdit(proposal, "commute_minutes", 30).hard_constraints.commute_minutes, 30);
     assert.equal(edited.inferred_fields.includes("housing_budget"), false);
     assert.ok(edited.inferred_fields.includes("goal"));
-    // A field LF-05 left empty lands where explicit follow-up details go.
-    const moved = applyLF05FieldEdit(proposal, "transport_mode", "car");
+    // An empty interpreted field lands where explicit follow-up details go.
+    const moved = applyProfileFieldEdit(proposal, "transport_mode", "car");
     assert.equal(moved.soft_preferences.transport_mode, "car");
     assert.equal(Object.hasOwn(moved.hard_constraints, "transport_mode"), false);
-    assert.doesNotThrow(() => validateLF05Proposal(edited, onboardingTaxonomy));
+    assert.doesNotThrow(() => validateRelocationProfileProposal(edited, onboardingTaxonomy));
 });

@@ -6,13 +6,17 @@ import { isStoredRelocationProfile, readRelocationProfileCache } from "@/app/eng
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import type { StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import { useUserProfileStore } from "@/app/stores/userStores";
+import { accountFetch, type AccountScope } from "@/app/engine/lib/accountIdentity";
 
-export function useSavedRelocationProfile(userId: string, initialProfile?: StoredRelocationProfile | null) {
+export function useSavedRelocationProfile(account: AccountScope, initialProfile?: StoredRelocationProfile | null) {
+    const { userId } = account;
     const savedProfile = useUserProfileStore((state) => state.relocationProfileUserId === userId ? state.relocationProfile : null);
     const loaded = useUserProfileStore((state) => state.relocationProfileUserId === userId);
     const storeProfile = useUserProfileStore((state) => state.setRelocationProfile);
     const [failedUserId, setFailedUserId] = useState<string | null>(null);
-    const setSavedProfile = useCallback((profile: StoredRelocationProfile | null) => storeProfile(userId, profile), [storeProfile, userId]);
+    const setSavedProfile = useCallback((profile: StoredRelocationProfile | null) => {
+        if (!account.signal.aborted) storeProfile(userId, profile);
+    }, [account, storeProfile, userId]);
 
     useEffect(() => {
         if (initialProfile !== undefined) {
@@ -25,17 +29,18 @@ export function useSavedRelocationProfile(userId: string, initialProfile?: Store
         }
         if (useUserProfileStore.getState().relocationProfileUserId === userId) return;
         const controller = new AbortController();
-        const { signal } = controller;
+        const signal = AbortSignal.any([controller.signal, account.signal]);
         const timer = window.setTimeout(async () => {
+            if (signal.aborted) return;
             const cached = readRelocationProfileCache(userId);
             if (cached !== undefined) {
                 setSavedProfile(cached);
                 return;
             }
             try {
-                const response = await fetch("/api/user/relocation-profile", { cache: "no-store", signal });
+                const { response, result } = await accountFetch(account, "/api/user/relocation-profile", { cache: "no-store", signal: controller.signal });
                 if (handleAuthFailure(response) || !response.ok) throw new Error("Profil tersimpan belum dapat dimuat.");
-                const result: unknown = await response.json();
+                if (isRecord(result) && result.user_id !== userId) { account.invalidate(); return; }
                 if (!isRecord(result) || !("profile" in result) || (result.profile !== null && !isStoredRelocationProfile(result.profile))) {
                     throw new Error("Respons profil tidak valid.");
                 }
@@ -50,7 +55,7 @@ export function useSavedRelocationProfile(userId: string, initialProfile?: Store
             window.clearTimeout(timer);
             controller.abort();
         };
-    }, [initialProfile, setSavedProfile, userId]);
+    }, [account, initialProfile, setSavedProfile, userId]);
 
     return { savedProfile, loaded, settled: loaded || failedUserId === userId, setSavedProfile };
 }

@@ -1,15 +1,14 @@
 import { LANGFLOW_FLOWS, runFlow } from "../lib/langflow";
-import { parseLF03Output, type LF03ConflictGroup, type LF03Recommendation } from "../lib/lf03Validation";
+import { LANGFLOW_CONTRACTS } from "../lib/langflowContracts";
+import { parseEvidenceConflictReviewOutput, type EvidenceConflictGroup, type EvidenceConflictRecommendation } from "../lib/evidenceConflictReviewValidation";
 
-// Sends one validated conflict group to LF-03 and returns its validated recommendation.
-// Nothing is written: the evidence policy still decides which claim to accept.
-// Throws LangflowError or INVALID_LF03_OUTPUT.
-export async function reviewEvidenceConflict(group: LF03ConflictGroup): Promise<LF03Recommendation> {
+// Conflict review recommends only; evidence policy still decides acceptance.
+export async function reviewEvidenceConflict(group: EvidenceConflictGroup): Promise<EvidenceConflictRecommendation> {
     const runId = crypto.randomUUID();
-    const result = await runFlow(LANGFLOW_FLOWS.lf03, { run_id: runId, ...group }, {
+    const result = await runFlow(LANGFLOW_FLOWS.evidenceConflictReview, { run_id: runId, ...group }, {
         timeoutMs: 120_000,
-        contract: "lf03-v2",
+        contract: LANGFLOW_CONTRACTS.evidenceConflictReview,
         sessionId: runId,
     });
-    return parseLF03Output(result, group);
+    return parseEvidenceConflictReviewOutput(result, group);
 }

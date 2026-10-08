@@ -1,5 +1,5 @@
 import { isRecord } from "../lib/zoneGeometry";
-import type { Precision } from "./lf01Contract";
+import type { Precision } from "./zoneEvidenceDiscoveryContract";
 import { sha256Hex } from "./scopes";
 
 export type GeocodeResult = {

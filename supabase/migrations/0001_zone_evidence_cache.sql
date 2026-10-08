@@ -50,11 +50,9 @@ create table if not exists public.zone_evidence_cache (
 create unique index if not exists zone_evidence_cache_dedup
     on public.zone_evidence_cache (dedup_key);
 
--- Read path: "how many / which live claims for zone R".
 create index if not exists zone_evidence_cache_zone_live
     on public.zone_evidence_cache (zone_id, expires_at);
 
--- Cleanup path.
 create index if not exists zone_evidence_cache_expires
     on public.zone_evidence_cache (expires_at);
 

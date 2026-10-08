@@ -179,7 +179,7 @@ flowchart TD
 | AI | Preference interpretation | Converts natural-language answers into structured preferences for user confirmation |
 | AI | Grounded recommendation explanation | Explains recommendations from retrieved metrics and score components without inventing statistics |
 | AI | Conversational refinement and query scopes | Applies requests such as “prioritize salary” or “stay within 30 minutes of this campus”; explicit prompts outrank the active lens and may create several category query scopes |
-| AI | Scoped evidence enrichment | Starts LF-01 only when the user requests a specific evidence scope with missing or stale accepted evidence |
+| AI | Scoped evidence enrichment | Starts zone evidence discovery only when the user requests a specific evidence scope with missing or stale accepted evidence |
 | Trust | Evidence disclosure | Shows source, year, geographic level, observation type, and limitations for material claims |
 
 ### Expansion features
@@ -459,7 +459,7 @@ Interprets requests such as “prioritize salary” or “keep me within 30 minu
 
 The application keeps the selected lens as a browsing default. Langflow interprets an explicit prompt into one or more category query scopes, including the requested place, topic, and evidence type. The prompt's scopes take precedence over the lens for that response. Deterministic services fetch accepted data and calculate results for each scope. The application chooses one primary map visualization for the response and puts the scope-by-scope explanation in the detail surface.
 
-Opening a zone does not, by itself, call LF-01. Zone selection can show trusted geometry, search results, and any accepted cached evidence. LF-01 runs only when the user requests a specific evidence scope and accepted evidence for that zone and scope is missing or stale. A background run can update the requested evidence after validation; it does not activate a map layer or change the visualization on its own.
+Opening a zone does not, by itself, call zone evidence discovery. Zone selection can show trusted geometry, search results, and any accepted cached evidence. Discovery runs only when the user requests a specific evidence scope and accepted evidence for that zone and scope is missing or stale. A background run can update the requested evidence after validation; it does not activate a map layer or change the visualization on its own.
 
 Recommended analytical tools include:
 
@@ -591,7 +591,7 @@ BPS can provide the primary official statistical foundation, supplemented by oth
 - flood or disaster exposure
 - other factors supported by reliable data
 
-Base data collection and cleaning should happen through an ETL process before a user request. Recommendations query prepared, accepted datasets. A user request for a specific missing or stale evidence scope may start a bounded background LF-01 enrichment run under approved source and validation policies; the map remains usable while it runs.
+Base data collection and cleaning should happen through an ETL process before a user request. Recommendations query prepared, accepted datasets. A user request for a specific missing or stale evidence scope may start a bounded background zone evidence discovery run under approved source and validation policies; the map remains usable while it runs.
 
 ---
 
@@ -631,7 +631,7 @@ The interface tracks evidence status per zone and requested scope:
 | Stale | An accepted snapshot exists but exceeds its freshness policy | Show its age and limitation; keep it visible while a requested refresh runs |
 | Missing | No accepted snapshot supports that scope | Show an unavailable state without inventing a metric or hiding the searchable zone |
 
-Selecting a zone alone does not request new evidence. When a user asks for a specific evidence scope, the runtime checks its status and may start one idempotent LF-01 enrichment run for missing or stale evidence. It continues serving any accepted snapshot while that run proceeds. Enrichment only changes available evidence after validation; the current map visualization changes through a separate user or query action.
+Selecting a zone alone does not request new evidence. When a user asks for a specific evidence scope, the runtime checks its status and may start one idempotent zone evidence discovery run for missing or stale evidence. It continues serving any accepted snapshot while that run proceeds. Enrichment only changes available evidence after validation; the current map visualization changes through a separate user or query action.
 
 ### Evidence geographic scoping
 

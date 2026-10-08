@@ -258,7 +258,7 @@ Jev may help select among parser- or taxonomy-supplied candidates, but code rema
 
 ## 7. Langflow Flow Catalogue
 
-### LF-01: Zone Evidence Enrichment
+### Zone Evidence Discovery
 
 **Purpose:** Find missing or stale organization and vacancy evidence for one zone and one or more sectors.
 
@@ -316,11 +316,11 @@ Jev may help select among parser- or taxonomy-supplied candidates, but code rema
 - Retry network failures with a bounded backoff.
 - Do not retry a domain that returns a policy or authorization rejection.
 
-### LF-02: Entity Resolution and Sector Classification
+### Evidence Classification
 
 **Purpose:** Link newly extracted names to existing organizations, offices, sectors, and occupations.
 
-**Inputs:** Evidence candidates from LF-01.
+**Inputs:** Evidence candidates from zone evidence discovery.
 
 **Steps:**
 
@@ -337,7 +337,7 @@ Jev may help select among parser- or taxonomy-supplied candidates, but code rema
 
 **Rule:** Gemini may propose a new organization or classification. The ingestion service decides whether the proposal meets acceptance rules.
 
-### LF-03: Evidence Conflict Review
+### Evidence Conflict Review
 
 **Purpose:** Review claims that refer to the same entity and attribute but disagree.
 
@@ -359,7 +359,7 @@ Examples:
 
 The validation service applies the final conflict policy. The model does not overwrite earlier evidence.
 
-### LF-04: Personalized Zone Explanation
+### Zone Fit Explanation
 
 **Purpose:** Explain a prepared zone snapshot against a confirmed relocation profile.
 
@@ -387,9 +387,9 @@ The validation service applies the final conflict policy. The model does not ove
 
 The API must reject any material numeric claim that lacks a matching evidence identifier or snapshot field.
 
-Jev must not replace LF-04. This flow needs grounded, user-facing prose; use Gemini only after deterministic fit calculation and evidence selection.
+Jev must not replace zone fit explanation. This flow needs grounded, user-facing prose; use Gemini only after deterministic fit calculation and evidence selection.
 
-### LF-05: Preference Interpretation
+### Relocation Profile Interpretation
 
 **Purpose:** Convert conversational onboarding answers into a proposed structured relocation profile.
 
@@ -406,7 +406,7 @@ This flow must not collect national identification numbers, religion, ethnicity,
 3. Send the user wording, relevant confirmed context, parsed values, and candidate labels to Jev. Batch independent, atomic typed questions that classify: goal (`study`, `work`, `both`, or `unclear`); sector/category; whether each constraint is hard or soft; priority strength on an ordered rubric; whether clarification is needed; and whether the message changes a confirmed preference. Include `not_stated`, `other`, and `needs_clarification` options where appropriate.
 4. Code builds a proposed profile from exact parser values, accepted taxonomy labels, Jev answers, and existing confirmed fields. It must preserve the distinction between explicit values and semantic inferences, must not overwrite a confirmed field without a high-confidence change decision, and must not apply an inferred profile to recommendations yet.
 5. If Jev confidence or Noul probability is below the benchmarked field threshold, labels are tied or out of taxonomy, the message is unusual, or the parser and semantic decision conflict, route the bounded state to Gemini for difficult extraction or clarification planning. Gemini returns schema-constrained fields and reasons; code still validates exact numeric fields and taxonomy membership.
-6. Present the proposed profile, confidence-aware clarification prompts, and detected changes to the user. The user confirms or corrects hard constraints, soft preferences, and priority weights before saving them and before LF-04 or deterministic fit scoring uses them.
+6. Present the proposed profile, confidence-aware clarification prompts, and detected changes to the user. The user confirms or corrects hard constraints, soft preferences, and priority weights before saving them and before zone fit explanation or deterministic fit scoring uses them.
 
 **Proposed profile contract:**
 
@@ -796,7 +796,7 @@ Returns:
 
 ### POST `/api/recommendations/explain`
 
-Sends a confirmed profile and accepted snapshot to LF-04. The server validates all referenced evidence identifiers before returning the explanation.
+Sends a confirmed profile and accepted snapshot to zone fit explanation. The server validates all referenced evidence identifiers before returning the explanation.
 
 Langflow credentials, model credentials, crawler tokens, and privileged database keys must remain server-side.
 
@@ -1032,7 +1032,7 @@ If the Indonesian and mixed-language Jev benchmark does not meet the agreed gate
 ### Demo sequence
 
 1. The user selects IT as a target field.
-2. LF-05 presents a proposed profile with explicit values, inferred preferences, and any clarification request; the user confirms it.
+2. Relocation profile interpretation presents a proposed profile with explicit values, inferred preferences, and any clarification request; the user confirms it.
 3. The application recommends several supported cities or opens a fixed destination.
 4. The user opens South Jakarta and selects Pancoran.
 5. The map displays the latest company-presence and hiring snapshot.
@@ -1053,10 +1053,10 @@ The MVP meets this specification when:
 - Jev, when enabled, uses pinned `jev-1.13.0`, direct atomic typed questions, compact relevant state, versioned criteria, and per-flow confidence/probability thresholds
 - Jev never performs text generation, exact numeric parsing, arithmetic, date comparison, geographic membership, or final evidence-policy selection
 - structured pages can bypass Gemini extraction
-- LF-01 can use Jev as a verifier/gate but still escalates difficult extraction and low-confidence cases to Gemini
-- LF-02 uses MiniLM shortlist generation, deterministic checks, Jev typed resolution where benchmarked, and Gemini fallback for ambiguous cases
-- LF-03 records Jev atomic evidence judgments where used and applies deterministic policy for the final claim preference
-- LF-05 builds a proposed profile from deterministic values, MiniLM/taxonomy candidates, and confidence-gated Jev decisions; it falls back to Gemini when needed and requires user confirmation before use
+- Zone evidence discovery can use Jev as a verifier/gate but still escalates difficult extraction and low-confidence cases to Gemini
+- Evidence classification uses MiniLM shortlist generation, deterministic checks, Jev typed resolution where benchmarked, and Gemini fallback for ambiguous cases
+- Evidence conflict review records Jev atomic evidence judgments where used and applies deterministic policy for the final claim preference
+- Relocation profile interpretation builds a proposed profile from deterministic values, MiniLM/taxonomy candidates, and confidence-gated Jev decisions; it falls back to Gemini when needed and requires user confirmation before use
 - every accepted record retains its source and retrieval date
 - company aliases and duplicate job postings resolve consistently
 - the system stores geographic precision and rejects city-only evidence from zone-level layers
@@ -1077,16 +1077,16 @@ The MVP meets this specification when:
 2. Create organization, office, vacancy, evidence, run, and snapshot tables.
 3. Implement deterministic parsers and PostGIS assignment.
 4. Build the zone snapshot API and MapLibre layers with seeded test data.
-5. Create LF-01 with one search provider and one crawler.
+5. Create zone evidence discovery with one search provider and one crawler.
 6. Add Gemini structured extraction for parser failures and difficult extraction.
 7. Add multilingual MiniLM for deduplication, relevance, and taxonomy candidate generation.
 8. Define compact Jev question sets, a versioned threshold configuration, feature flag, and Indonesian/mixed-language benchmarks; pin `jev-1.13.0`.
-9. Add Jev first to LF-05 as a confidence-gated semantic classifier, with deterministic profile assembly, user confirmation, and Gemini fallback.
-10. Add evaluated Jev gates to LF-02, LF-03, and LF-01; keep deterministic policies authoritative.
+9. Add Jev first to relocation profile interpretation as a confidence-gated semantic classifier, with deterministic profile assembly, user confirmation, and Gemini fallback.
+10. Add evaluated Jev gates to evidence classification, evidence conflict review, and zone evidence discovery; keep deterministic policies authoritative.
 11. Implement validation, rejection reasons, provenance, and Jev decision traces.
 12. Add background refresh status to the interface.
 13. Create deterministic summaries.
-14. Add LF-04 personalized explanations using Gemini only for generation.
+14. Add zone fit explanation using Gemini only for generation.
 15. Run extraction, entity-resolution, preference, geography, explanation, language, and injection tests before enabling any Jev automatic action.
 
 The team should add sentiment and a generative SLM only after the core evidence pipeline works.

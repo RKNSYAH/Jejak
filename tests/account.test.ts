@@ -4,7 +4,7 @@ import { DELETE } from "../app/api/user/route";
 import { deleteAccount } from "../app/engine/controller/userServerController";
 
 test("account deletion requires sign-in and deletes only the signed-in auth user", async (context) => {
-    assert.equal((await DELETE()).status, 401);
+    assert.equal((await DELETE(new Request("http://localhost/api/user", { method: "DELETE" }))).status, 401);
     const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "http://localhost:54321";

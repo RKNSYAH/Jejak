@@ -1,11 +1,10 @@
 import { isRecord } from "../lib/zoneGeometry";
-import type { LF01Candidate, Precision } from "./lf01Contract";
-import type { SectorClassification } from "./lf02Contract";
+import type { ZoneEvidenceCandidate, Precision } from "./zoneEvidenceDiscoveryContract";
+import type { SectorClassification } from "./evidenceClassificationContract";
 import type { LocalityTier } from "./locality";
 import { sha256Hex, type EvidenceType } from "./scopes";
 
 const CONFIDENCE_VERSION = "evidence-confidence-v1";
-// Spec §15: below 0.40 a value is "insufficient" and is not published.
 export const ACCEPTANCE_THRESHOLD = 0.4;
 
 const LISTING_TYPES = new Set<EvidenceType>(["kos_listing", "apartment_listing", "house_listing"]);
@@ -19,7 +18,7 @@ function wholeNumber(value: unknown, minimum: number, maximum: number): value is
 }
 
 // Returns a rejection reason, or null when the claim value fits its evidence type.
-export function checkClaimValue(candidate: LF01Candidate, type: EvidenceType): string | null {
+export function checkClaimValue(candidate: ZoneEvidenceCandidate, type: EvidenceType): string | null {
     const value = candidate.normalizedValue;
     if (type === "active_opening" && candidate.temporalStatus === "expired") return "expired_vacancy";
     if (LISTING_TYPES.has(type)) {
@@ -64,7 +63,7 @@ function onDomain(host: string, domain: string): boolean {
     return host === domain || host.endsWith(`.${domain}`);
 }
 
-function sourceReliability(candidate: LF01Candidate): number {
+function sourceReliability(candidate: ZoneEvidenceCandidate): number {
     // LinkedIn and Indeed postings arrive as search-provider titles and snippets only.
     if (candidate.sourceType === "search_snippet") return 0.3;
     const host = hostOf(candidate.canonicalUrl);
@@ -78,10 +77,8 @@ const precisionScore: Record<Precision, number> = {
     building: 1, street: 0.85, neighborhood: 0.7, district: 0.55, city: 0.3, region: 0.15, unknown: 0,
 };
 
-// evidence-confidence-v1, an MVP form of spec §15: 30% source reliability,
-// 25% geographic precision, 20% freshness, 15% extractor confidence (standing in
-// for per-record coverage), 10% cross-source agreement.
-export function publishedConfidence(candidate: LF01Candidate, precision: Precision, agreed: boolean, now: Date): number {
+// MVP of spec §15: extractor confidence substitutes for per-record coverage.
+export function publishedConfidence(candidate: ZoneEvidenceCandidate, precision: Precision, agreed: boolean, now: Date): number {
     const observedAt = Date.parse(candidate.publishedAt ?? candidate.retrievedAt);
     const ageDays = (now.getTime() - observedAt) / 86_400_000;
     const freshness = ageDays <= 7 ? 1 : ageDays <= 30 ? 0.5 : 0;
@@ -110,7 +107,7 @@ export type EvidenceRow = {
 };
 
 export function buildEvidenceRow(input: {
-    candidate: LF01Candidate;
+    candidate: ZoneEvidenceCandidate;
     type: EvidenceType;
     latitude: number;
     longitude: number;
@@ -143,7 +140,7 @@ export function buildEvidenceRow(input: {
             published_at: candidate.publishedAt,
             retrieved_at: candidate.retrievedAt,
             evidence_id: candidate.evidenceId,
-            lf01_run_id: input.runId,
+            zone_evidence_discovery_run_id: input.runId,
             extraction_method: candidate.extractionMethod,
             model_id: candidate.modelId,
             prompt_version: candidate.promptVersion,

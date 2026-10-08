@@ -1,4 +1,4 @@
-// Parses a JSON request body, or returns the 415/400 response to send instead.
+// Returns parsed JSON or an error Response.
 export async function readJsonBody(request: Request, maxBytes?: number): Promise<unknown> {
     if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
         return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });

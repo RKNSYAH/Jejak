@@ -8,9 +8,7 @@ export default async function Header({ activeHref = "/", overlay = false }: { ac
   const startHref = claims ? "/map" : "/login";
   const links = [
     { href: "/", label: "Fitur" },
-    { href: "/how", label: "Cara Kerja" },
     { href: "/pricing", label: "Harga" },
-    { href: "/about", label: "Tentang" },
   ];
 
   return (

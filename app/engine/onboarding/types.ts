@@ -3,8 +3,15 @@ import type { RegionFact } from "../types";
 import type { CommuteEstimate, CommuteResponse } from "../routing/types";
 import type { PlanningReach, PlanningReachBand } from "./planningReach";
 
+// Legacy cleanup only; new drafts must use draftKeys(userId) and an owner envelope.
 export const FORM_DRAFT_KEY = "jejak:relocation-form:v1";
 export const STORY_DRAFT_KEY = "jejak:relocation-onboarding";
+export function draftKeys(userId: string) {
+    return {
+        form: `jejak:relocation-form:v2:${userId}`,
+        story: `jejak:relocation-onboarding:v2:${userId}`,
+    };
+}
 export type FormStep = 1 | 2 | 3 | 4;
 export type Housing = "kos" | "apartment" | "house" | "unsure";
 export type Transport = "transit" | "motorcycle" | "car" | "active";

@@ -3,22 +3,27 @@ import { getAuthenticatedUserId } from "@/app/engine/controller/userServerContro
 import { readJsonBody } from "@/app/engine/lib/http";
 import { buildFormRelocationProfile, buildPersistedRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
+import { accountChangedResponse } from "@/app/engine/lib/accountIdentity";
 
-export async function GET() {
+export async function GET(request: Request) {
     const userId = await getAuthenticatedUserId().catch(() => null);
     if (!userId) return Response.json({ error: "Masuk untuk memuat profil." }, { status: 401 });
+    const changed = accountChangedResponse(request, userId);
+    if (changed) return changed;
 
     try {
-        return Response.json({ profile: await getSavedRelocationProfile(userId) });
+        return Response.json({ user_id: userId, profile: await getSavedRelocationProfile(userId) }, { headers: { "Cache-Control": "private, no-store" } });
     } catch (error) {
         console.error("Unable to load relocation profile", error);
         return Response.json({ error: "Profil tersimpan belum dapat dimuat." }, { status: 503 });
     }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
     const userId = await getAuthenticatedUserId().catch(() => null);
     if (!userId) return Response.json({ error: "Masuk untuk menghapus profil." }, { status: 401 });
+    const changed = accountChangedResponse(request, userId);
+    if (changed) return changed;
 
     try {
         await deleteRelocationProfile(userId);
@@ -58,6 +63,8 @@ export async function POST(request: Request) {
 
     const userId = await getAuthenticatedUserId().catch(() => null);
     if (!userId) return Response.json({ error: "Masuk kembali untuk menyimpan profil." }, { status: 401 });
+    const changed = accountChangedResponse(request, userId);
+    if (changed) return changed;
 
     try {
         if (!isForm && body.base_revision !== undefined) {
@@ -66,11 +73,11 @@ export async function POST(request: Request) {
             }
             const latest = await getSavedRelocationProfile(userId);
             if (!latest || latest.revision !== body.base_revision) {
-                return Response.json({ error: "Profil berubah sejak terakhir dimuat. Muat ulang sebelum menyimpan.",
-                    ...(latest ? { profile: latest } : {}) }, { status: 409 });
+                return Response.json({ user_id: userId, error: "Profil berubah sejak terakhir dimuat. Muat ulang sebelum menyimpan.",
+                    ...(latest ? { profile: latest } : {}) }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
             }
         }
-        return Response.json({ profile: await saveConfirmedRelocationProfile(userId, profile) }, { status: 201 });
+        return Response.json({ user_id: userId, profile: await saveConfirmedRelocationProfile(userId, profile) }, { status: 201, headers: { "Cache-Control": "private, no-store" } });
     } catch (error) {
         console.error("Unable to save relocation profile", error);
         return Response.json({ error: "Profil belum tersimpan. Coba lagi." }, { status: 503 });

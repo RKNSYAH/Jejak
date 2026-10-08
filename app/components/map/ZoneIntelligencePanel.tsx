@@ -198,7 +198,6 @@ export default function ZoneIntelligencePanel(props: ZoneIntelligencePanelProps)
 
   return (
     <>
-      {/* Floating card below the top-right account cluster and above the collapsed bottom sheet. */}
       <aside
         id="zone-intelligence-desktop"
         data-hci-region="zone-panel"

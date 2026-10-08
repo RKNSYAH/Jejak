@@ -5,11 +5,12 @@ import { initialFormAnswers } from "@/app/engine/onboarding/demoData";
 import { displayStep, followSuggestedWeights, parseFormSession } from "@/app/engine/onboarding/preview";
 import { evaluateLiveOnboarding, formPreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { getOnboardingData, type OnboardingDataResponse } from "@/app/engine/lib/onboardingApi";
-import { FORM_DRAFT_KEY, type FormAnswers, type FormSession, type FormStep, type LiveOnboardingPreview } from "@/app/engine/onboarding/types";
+import { type FormAnswers, type FormSession, type FormStep, type LiveOnboardingPreview } from "@/app/engine/onboarding/types";
+import { readOnboardingDraft, writeOnboardingDraft } from "@/app/engine/onboarding/draftStorage";
 
 const emptyData: OnboardingDataResponse = { cities: [], areas: [], destinations: [] };
 
-export function useFormOnboarding(skipRestoredDraft = false) {
+export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
     const [session, setSession] = useState<FormSession | null>(null);
     const [ready, setReady] = useState(false);
     const [storyOpenRequest, setStoryOpenRequest] = useState(0);
@@ -24,26 +25,22 @@ export function useFormOnboarding(skipRestoredDraft = false) {
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            // Keep unfinished inputs in storage, but don't let them replace a newly saved profile.
-            if (skipRestoredDraft) {
-                setReady(true);
-                return;
-            }
             try {
-                const saved = sessionStorage.getItem(FORM_DRAFT_KEY);
-                const parsed = saved ? parseFormSession(JSON.parse(saved)) : null;
+                const saved = readOnboardingDraft(userId, "form");
+                // Keep owned unfinished inputs, but don't replace a newly saved profile.
+                const parsed = skipRestoredDraft ? null : parseFormSession(saved);
                 setSession(parsed ? { ...parsed, answers: { ...parsed.answers, experience: null, extras: [] } } : null);
-            } catch { setStorageAvailable(false); }
+            } catch { if (!skipRestoredDraft) setStorageAvailable(false); }
             setReady(true);
         }, 0);
         return () => window.clearTimeout(timer);
-    }, [skipRestoredDraft]);
+    }, [skipRestoredDraft, userId]);
 
     useEffect(() => {
         if (!ready || !session) return;
-        try { sessionStorage.setItem(FORM_DRAFT_KEY, JSON.stringify(session)); }
+        try { writeOnboardingDraft(userId, "form", session); }
         catch { /* The form remains usable when browser storage is unavailable. */ }
-    }, [ready, session]);
+    }, [ready, session, userId]);
 
     const cityId = previewCityOverride !== undefined
         ? previewCityOverride

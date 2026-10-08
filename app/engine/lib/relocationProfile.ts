@@ -1,5 +1,6 @@
 import { onboardingTaxonomy } from "../extractUserProfile";
-import { SENSITIVE_TEXT, validateLF05Proposal, type LF05ProposedProfile } from "./lf05Validation";
+import { LANGFLOW_CONTRACTS } from "./langflowContracts";
+import { SENSITIVE_TEXT, validateRelocationProfileProposal, type RelocationProfileProposal } from "./relocationProfileInterpretationValidation";
 import { getRelocationGoal } from "./relocationGoal";
 import { parseFormSession } from "../onboarding/preview";
 import { getDestination } from "../onboarding/demoData";
@@ -13,7 +14,7 @@ export type PersistedRelocationProfile = {
     soft_preferences: Record<string, unknown>;
     priority_weights: Record<string, number>;
     taxonomy_version: string;
-    contract_version: LF05ProposedProfile["contract_version"];
+    contract_version: RelocationProfileProposal["contract_version"];
 };
 
 export type StoredRelocationProfile = {
@@ -46,7 +47,7 @@ export function normalizeRelocationProfileInputs(
         destination: null, career_stage: null, departure_time: null, extras: [], over_budget: "mark", ...softPreferences,
     };
     delete soft.goal;
-    // LF-05 can put an explicit limit in either group. Keep one canonical location.
+    // Profile interpretation can put an explicit limit in either group. Keep one canonical location.
     for (const field of ["destination_cities", "monthly_budget", "housing_budget", "commute_minutes", "deal_breakers"] as const) {
         if (hardConstraints[field] == null && soft[field] != null) hard[field] = soft[field];
         delete soft[field];
@@ -54,7 +55,7 @@ export function normalizeRelocationProfileInputs(
     return {
         schema_version: RELOCATION_PROFILE_SCHEMA_VERSION,
         hard_constraints: hard, soft_preferences: soft, priority_weights: { ...priorityWeights },
-        taxonomy_version: onboardingTaxonomy.version, contract_version: "lf05-v2",
+        taxonomy_version: onboardingTaxonomy.version, contract_version: LANGFLOW_CONTRACTS.relocationProfileInterpretation,
     };
 }
 
@@ -108,7 +109,7 @@ export function buildPersistedRelocationProfile(
     proposalValue: unknown,
     confirmedFieldsValue: unknown,
 ): PersistedRelocationProfile {
-    const proposal = validateLF05Proposal(proposalValue, onboardingTaxonomy);
+    const proposal = validateRelocationProfileProposal(proposalValue, onboardingTaxonomy);
     if (
         !Array.isArray(confirmedFieldsValue) ||
         confirmedFieldsValue.length > proposal.inferred_fields.length ||

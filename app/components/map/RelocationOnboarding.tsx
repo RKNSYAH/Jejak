@@ -4,16 +4,18 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, CheckSquare, MapPin, Mic, X } from "lucide-react";
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
-import { validateLF05Proposal, type LF05ProposedProfile } from "../../engine/lib/lf05Validation";
+import { validateRelocationProfileProposal, type RelocationProfileProposal } from "../../engine/lib/relocationProfileInterpretationValidation";
 import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
 import { formatRupiah, transportModeLabels } from "../../engine/onboarding/demoData";
-import { STORY_DRAFT_KEY, type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
+import { draftKeys, type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
+import { readOnboardingDraft, writeOnboardingDraft } from "../../engine/onboarding/draftStorage";
+import { accountFetch, type AccountScope } from "../../engine/lib/accountIdentity";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
-import { applyLF05ExplicitDetails, applyLF05FieldEdit, getLF05ClarificationField, getLF05TargetCity, groundLF05Transport, parseLF05CommuteAnswer, type LF05ClarificationAnswer, type LF05FollowUpDetails } from "../../engine/lib/lf05FollowUp";
-import { getLF05TransportQuestion, parseLF05TransportAnswer } from "../../engine/lib/lf05Transport";
+import { applyProfileExplicitDetails, applyProfileFieldEdit, getProfileClarificationField, getProfileTargetCity, groundProfileTransport, parseProfileCommuteAnswer, type ProfileClarificationAnswer, type ProfileFollowUpDetails } from "../../engine/lib/relocationProfileInterpretationFollowUp";
+import { getProfileTransportQuestion, parseProfileTransportAnswer } from "../../engine/lib/relocationProfileInterpretationTransport";
 import { RadioChoices } from "./onboarding/FormControls";
 import type { MonthlyCostRange } from "../../engine/onboarding/livePreview";
 import ProfileFieldEditor, { editableProfileFields } from "./onboarding/ProfileFieldEditor";
@@ -38,7 +40,7 @@ type Draft = {
   story: string;
   office: OfficeChoice;
   transport: TransportChoice | null;
-  proposal?: LF05ProposedProfile | null;
+  proposal?: RelocationProfileProposal | null;
   clarificationAnswers?: Record<string, string>;
   explicitGoal?: RelocationGoal | null;
   analyzedInput?: string | null;
@@ -49,11 +51,12 @@ type Draft = {
 export type MapPoint = { longitude: number; latitude: number };
 
 type RelocationOnboardingProps = {
+  account: AccountScope;
   // The map previews the unsaved proposal in steps 2 and 3.
   step: StoryStep;
   onStepChange: (step: StoryStep) => void;
-  proposal: LF05ProposedProfile | null;
-  onProposalChange: (proposal: LF05ProposedProfile | null) => void;
+  proposal: RelocationProfileProposal | null;
+  onProposalChange: (proposal: RelocationProfileProposal | null) => void;
   savedProfile: StoredRelocationProfile | null;
   savedProfileLoaded: boolean;
   skipRestoredDraft?: boolean;
@@ -78,7 +81,6 @@ type RelocationOnboardingProps = {
   costLoading?: boolean;
 };
 
-// Profile fields in display order, with their labels.
 const profileFields: [field: string, label: string][] = [
   ["goal", "Tujuan"],
   ["target_occupations", "Pekerjaan"],
@@ -144,7 +146,7 @@ type ProfileDisplayRow = {
   priorityWeights?: Record<string, number>;
 };
 
-function getProfileRows(profile: LF05ProposedProfile): ProfileDisplayRow[] {
+function getProfileRows(profile: RelocationProfileProposal): ProfileDisplayRow[] {
   const rows: ProfileDisplayRow[] = [];
 
   for (const [field, label] of profileFields) {
@@ -212,16 +214,17 @@ function PriorityWeights({ weights }: { weights: Record<string, number> }) {
   );
 }
 
-function readDraft(): Draft | null {
+function readDraft(userId: string): Draft | null {
   try {
-    const saved = sessionStorage.getItem(STORY_DRAFT_KEY);
-    return saved ? (JSON.parse(saved) as Draft) : null;
+    const saved = readOnboardingDraft(userId, "story");
+    return isRecord(saved) ? saved as Draft : null;
   } catch {
     return null;
   }
 }
 
 export default function RelocationOnboarding({
+  account,
   step,
   onStepChange: setStep,
   proposal,
@@ -269,10 +272,10 @@ export default function RelocationOnboarding({
   const summaryRows = profileRows.filter((row) => ["goal", "destination_cities", "housing_budget", "commute_minutes"].includes(row.field))
     .map((row) => ({ ...row, compactValue: row.missing ? `${row.label} belum diisi` : formatProfileChip(row.field, proposal?.hard_constraints[row.field] ?? proposal?.soft_preferences[row.field]) }));
   const clarificationQuestions = proposal?.clarification_questions ?? [];
-  const officeQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "destination");
+  const officeQuestionIndex = clarificationQuestions.findIndex((question) => getProfileClarificationField(question) === "destination");
   const officeQuestion = clarificationQuestions[officeQuestionIndex];
-  const transportQuestionIndex = clarificationQuestions.findIndex((question) => getLF05ClarificationField(question) === "transport_mode");
-  const targetCity = getLF05TargetCity(proposal, story);
+  const transportQuestionIndex = clarificationQuestions.findIndex((question) => getProfileClarificationField(question) === "transport_mode");
+  const targetCity = getProfileTargetCity(proposal, story);
   const profileGoal = proposal ? getRelocationGoal(proposal) : null;
   const currentInput = followUpInputKey(clarificationAnswers, explicitGoal, transport, selectedOffice, mapPoint);
   const followUpDirty = proposal !== null && analyzedInput !== currentInput;
@@ -302,7 +305,8 @@ export default function RelocationOnboarding({
 
     const timer = window.setTimeout(() => {
       const alreadyOnboarded = !demoRequested && savedProfile !== null;
-      const draft = skipRestoredDraft ? null : readDraft();
+      const ownedDraft = readDraft(account.userId);
+      const draft = skipRestoredDraft ? null : ownedDraft;
 
       if (draft) {
         const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
@@ -316,13 +320,13 @@ export default function RelocationOnboarding({
         // Old drafts may contain a model-picked mode. Only restore user-supplied transport.
         let restoredProposal = draft.proposal ?? null;
         if (restoredProposal) {
-          const hadTransportQuestion = restoredProposal.clarification_questions.some((question) => getLF05ClarificationField(question) === "transport_mode");
-          const answer = Object.entries(draft.clarificationAnswers ?? {}).find(([question]) => getLF05ClarificationField(question) === "transport_mode")?.[1];
-          const mode = parseLF05TransportAnswer(draft.transport ?? "") ?? parseLF05TransportAnswer(answer ?? "");
-          restoredProposal = groundLF05Transport(restoredProposal, draft.story, mode ? { transport_mode: mode } : {});
-          const questions = restoredProposal.clarification_questions.filter((question) => getLF05ClarificationField(question) !== "transport_mode");
-          // Keep an answered radio visible until LF-05 processes this draft's follow-ups.
-          if (!restoredProposal.soft_preferences.transport_mode || (mode && hadTransportQuestion)) questions.push(getLF05TransportQuestion());
+          const hadTransportQuestion = restoredProposal.clarification_questions.some((question) => getProfileClarificationField(question) === "transport_mode");
+          const answer = Object.entries(draft.clarificationAnswers ?? {}).find(([question]) => getProfileClarificationField(question) === "transport_mode")?.[1];
+          const mode = parseProfileTransportAnswer(draft.transport ?? "") ?? parseProfileTransportAnswer(answer ?? "");
+          restoredProposal = groundProfileTransport(restoredProposal, draft.story, mode ? { transport_mode: mode } : {});
+          const questions = restoredProposal.clarification_questions.filter((question) => getProfileClarificationField(question) !== "transport_mode");
+          // Keep an answered radio visible until profile interpretation processes this draft's follow-ups.
+          if (!restoredProposal.soft_preferences.transport_mode || (mode && hadTransportQuestion)) questions.push(getProfileTransportQuestion());
           restoredProposal = { ...restoredProposal, clarification_questions: questions };
         }
         setProposal(restoredProposal);
@@ -349,7 +353,7 @@ export default function RelocationOnboarding({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep, skipRestoredDraft]);
+  }, [account, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep, skipRestoredDraft]);
 
   useEffect(() => {
     if (!storyOpenRequest) return;
@@ -360,13 +364,13 @@ export default function RelocationOnboarding({
   useEffect(() => {
     if (!hydrated) return;
     if (step === 0) {
-      try { if (!formSession && !skipRestoredDraft) sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Browser storage is optional. */ }
+      try { if (!formSession && !skipRestoredDraft) sessionStorage.removeItem(draftKeys(account.userId).story); } catch { /* Browser storage is optional. */ }
       return;
     }
 
     const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, prioritySuggestion };
-    try { sessionStorage.setItem(STORY_DRAFT_KEY, JSON.stringify(draft)); } catch { /* Saving to the backend remains available. */ }
-  }, [analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport, prioritySuggestion]);
+    try { writeOnboardingDraft(account.userId, "story", draft); } catch { /* Saving to the backend remains available. */ }
+  }, [account, analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport, prioritySuggestion]);
 
   useEffect(() => {
     const shouldShowDialog = step === 1 && formSession?.status !== "active";
@@ -390,7 +394,7 @@ export default function RelocationOnboarding({
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
   function dismiss() {
-    try { sessionStorage.removeItem(STORY_DRAFT_KEY); } catch { /* Closing works without browser storage. */ }
+    try { sessionStorage.removeItem(draftKeys(account.userId).story); } catch { /* Closing works without browser storage. */ }
     setStep(0);
     onMapPickingChange(false);
     const dialog = dialogRef.current;
@@ -413,11 +417,11 @@ export default function RelocationOnboarding({
     setStep(nextStep);
   }
 
-  // A review-step correction replaces LF-05's value; the server re-validates the proposal on save.
+  // A review-step correction replaces the interpreted value; the server re-validates the proposal on save.
   function saveFieldEdit(field: string, value: unknown) {
     if (!proposal) return;
     try {
-      setProposal(validateLF05Proposal(applyLF05FieldEdit(proposal, field, value), onboardingTaxonomy));
+      setProposal(validateRelocationProfileProposal(applyProfileFieldEdit(proposal, field, value), onboardingTaxonomy));
       if (field === "destination") {
         onOfficeChange("Belum tahu");
         onMapPointChange(null);
@@ -433,18 +437,18 @@ export default function RelocationOnboarding({
 
   function changePriority(key: Priority, value: number) {
     if (!proposal || !profileGoal || isSaving) return;
-    setProposal(validateLF05Proposal({ ...proposal,
+    setProposal(validateRelocationProfileProposal({ ...proposal,
       priority_weights: updateStoryPriority(proposal.priority_weights, profileGoal, key, value),
       inferred_fields: proposal.inferred_fields.filter((field) => field !== "priorities"),
     }, onboardingTaxonomy));
     setSaveError(null);
   }
 
-  function getFollowUpRequest(): { answers: LF05ClarificationAnswer[]; details: LF05FollowUpDetails } {
-    const details: LF05FollowUpDetails = {};
+  function getFollowUpRequest(): { answers: ProfileClarificationAnswer[]; details: ProfileFollowUpDetails } {
+    const details: ProfileFollowUpDetails = {};
     if (transport) details.transport_mode = ({ "Transport umum": "transit", Motor: "motorcycle", Mobil: "car" } as const)[transport];
     const answers = { ...clarificationAnswers };
-    const destinationAnswer = officeQuestion ? answers[officeQuestion] : Object.entries(answers).reverse().find(([question]) => getLF05ClarificationField(question) === "destination")?.[1];
+    const destinationAnswer = officeQuestion ? answers[officeQuestion] : Object.entries(answers).reverse().find(([question]) => getProfileClarificationField(question) === "destination")?.[1];
     if (selectedOffice === "Dipilih di peta" && mapPoint) {
       details.destination = { name: "Dipilih di peta", precision: "point", latitude: mapPoint.latitude, longitude: mapPoint.longitude };
     } else if (selectedOffice !== "Belum tahu" && selectedOffice !== "Dipilih di peta") {
@@ -456,9 +460,9 @@ export default function RelocationOnboarding({
     }
     if (officeQuestion && details.destination?.precision === "point") answers[officeQuestion] =
       `Lokasi kantor dipilih di peta: ${mapPoint!.latitude.toFixed(5)}, ${mapPoint!.longitude.toFixed(5)}`;
-    const boundAnswers: LF05ClarificationAnswer[] = Object.entries(answers).filter(([, answer]) => answer.trim()).map(([question, answer]) => {
-      if (getLF05ClarificationField(question) !== "commute_minutes") return { question, answer };
-      const minutes = parseLF05CommuteAnswer(answer);
+    const boundAnswers: ProfileClarificationAnswer[] = Object.entries(answers).filter(([, answer]) => answer.trim()).map(([question, answer]) => {
+      if (getProfileClarificationField(question) !== "commute_minutes") return { question, answer };
+      const minutes = parseProfileCommuteAnswer(answer);
       if (minutes === null) throw new Error("Isi waktu tempuh dengan 0–240 menit, misalnya 45.");
       details.commute_minutes = minutes;
       return { question, answer: `${minutes} menit`, field: "commute_minutes" };
@@ -468,7 +472,7 @@ export default function RelocationOnboarding({
 
   // `fresh` analyzes the story alone, ignoring step-2 state that has been reset but not yet re-rendered.
   async function requestProfile(followUp?: ReturnType<typeof getFollowUpRequest>, fresh = false) {
-    if (isSubmitting) return null;
+    if (isSubmitting || account.signal.aborted) return null;
     if (!story.trim()) {
       setRequestError("Ceritakan rencana pindahmu terlebih dahulu.");
       return null;
@@ -478,7 +482,7 @@ export default function RelocationOnboarding({
     setRequestError(null);
     try {
       const submitted = followUp ?? getFollowUpRequest();
-      const response = await fetch("/api/lf05", {
+      const { response, result } = await accountFetch(account, "/api/relocation-profile-interpretation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(125_000),
@@ -494,12 +498,11 @@ export default function RelocationOnboarding({
         setRequestError("Masuk untuk menganalisis rencanamu.");
         return null;
       }
-      const result: unknown = await response.json();
       if (!response.ok || !isRecord(result) || !isRecord(result.profile)) {
         throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "Gagal membaca rencana. Coba lagi.");
       }
 
-      const nextProposal = validateLF05Proposal(result.profile, onboardingTaxonomy);
+      const nextProposal = validateRelocationProfileProposal(result.profile, onboardingTaxonomy);
       setProposal(nextProposal);
       setPrioritySuggestion({ weights: nextProposal.priority_weights, inferred: nextProposal.inferred_fields.includes("priorities") });
       setAnalyzedInput(fresh ? followUpInputKey({}, null, null, "Belum tahu", null) : currentInput);
@@ -538,7 +541,7 @@ export default function RelocationOnboarding({
     try {
       const followUp = getFollowUpRequest();
       const unanswered = clarificationQuestions.find((question) => {
-        const field = getLF05ClarificationField(question);
+        const field = getProfileClarificationField(question);
         if (field === "goal") return !(explicitGoal ?? profileGoal);
         if (field === "destination" && followUp.details.destination) return false;
         if (field === "transport_mode") return !followUp.details.transport_mode;
@@ -548,9 +551,9 @@ export default function RelocationOnboarding({
         setRequestError(`Jawab dulu: ${unanswered}`);
         return;
       }
-      // Question presence, not a dirty flag, determines whether Next calls LF-05.
+      // Question presence, not a dirty flag, determines whether Next calls profile interpretation.
       const result = !proposal || clarificationQuestions.length ? await requestProfile(followUp)
-        : followUpDirty ? validateLF05Proposal(applyLF05ExplicitDetails(proposal, explicitGoal ?? undefined, followUp.details), onboardingTaxonomy) : proposal;
+        : followUpDirty ? validateRelocationProfileProposal(applyProfileExplicitDetails(proposal, explicitGoal ?? undefined, followUp.details), onboardingTaxonomy) : proposal;
       if (!result) return;
       if (result.clarification_questions.length) {
         setRequestError("Ada pertanyaan baru. Lengkapi dulu sebelum meninjau.");
@@ -579,7 +582,7 @@ export default function RelocationOnboarding({
         proposal,
         // Saving the reviewed summary confirms every inferred field, including backend-only ones like the sector.
         confirmed_fields: proposal.inferred_fields,
-      });
+      }, account);
       onSaveProfile(saved);
       dismiss();
     } catch (error) {
@@ -728,7 +731,7 @@ export default function RelocationOnboarding({
                         {!isOfficeQuestion && !isTransportQuestion && <div className="mt-2">
                           <label htmlFor={`clarification-${index}`} className="mb-1 block text-xs font-semibold">Jawabanmu</label>
                           <input id={`clarification-${index}`} name={`clarification-${index}`} aria-label={question} type="text" maxLength={1000}
-                            inputMode={getLF05ClarificationField(question) === "commute_minutes" ? "numeric" : "text"}
+                            inputMode={getProfileClarificationField(question) === "commute_minutes" ? "numeric" : "text"}
                             value={clarificationAnswers[question] ?? ""} onChange={(event) => answerClarification(question, event.target.value)}
                             className="input min-h-11 w-full border-ink/25 bg-base-100 text-base md:text-sm" />
                         </div>}
@@ -951,7 +954,6 @@ function ChoiceButton({ pressed, onClick, children }: { pressed: boolean; onClic
   );
 }
 
-// Errors that ask the user to sign in also offer the sign-in link.
 function RequestError({ error }: { error: string | null }) {
   if (!error) return null;
   return <>
@@ -974,7 +976,6 @@ function ReviewSummary({
   editing?: boolean;
   onEdit?: () => void;
 }) {
-  // Inferred values are highlighted in place instead of a separate confirmation list.
   return (
     <section className={`border-t-2 pt-1.5 ${inferred ? "-mx-2 rounded-b-lg border-primary bg-primary-tint px-2 pb-1.5" : "border-ink"}`}>
       <div className="flex items-center justify-between gap-2">

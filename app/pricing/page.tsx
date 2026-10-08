@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Header from "../components/Header";
-import BrandLogo from "../components/BrandLogo";
 import Footer from "../components/Footer";
 
 export const metadata: Metadata = {
@@ -8,7 +7,7 @@ export const metadata: Metadata = {
   description: "Lihat struktur paket Jejak. Rincian harga dan manfaat sedang disiapkan.",
 };
 
-type PlanId = "gratis" | "plus" | "pass";
+type PlanId = "gratis" | "jejak-pass" | "pass";
 
 type Plan = {
   id: PlanId;
@@ -21,9 +20,9 @@ type Plan = {
 
 // Isi harga, masa akses, dan daftar manfaat di sini saat model paket ditetapkan.
 const plans: Plan[] = [
-  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: [], recommended: false },
-  { id: "plus", name: "Plus", price: "Rp49.000", term: "/ bulan", benefits: [], recommended: true },
-  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: [], recommended: false },
+  { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: ["Akses selamanya", "Fitur dasar"], recommended: false },
+  { id: "jejak-pass", name: "Jejak Pass", price: "Rp29.900", term: "/ bulan", benefits: ["Akses AI", "Fitur utama"], recommended: true },
+  { id: "pass", name: "Pass Pindah", price: "", term: "", benefits: ["Sekali bayar", "Fitur lengkap"], recommended: false },
 ];
 
 type ComparisonGroup = {
@@ -32,7 +31,15 @@ type ComparisonGroup = {
 };
 
 // Tambahkan grup dan baris saat fitur tiap paket sudah diputuskan.
-const comparisonGroups: ComparisonGroup[] = [];
+const comparisonGroups: ComparisonGroup[] = [
+  {
+    title: "Fitur",
+    rows: [
+      { feature: "Akses", values: { gratis: "Selamanya", "jejak-pass": "Selamanya", pass: "Sekali bayar" } },
+      { feature: "Fitur", values: { gratis: "Dasar", "jejak-pass": "Utama", pass: "Lengkap" } },
+    ],
+  },
+];
 const faqItems: { question: string; answer: string }[] = [];
 
 export default function PricingPage() {

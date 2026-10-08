@@ -63,7 +63,6 @@ export function useSheetDrag(panelRef: RefObject<HTMLElement | null>) {
             delete panel.dataset.dragging;
             suppressClick.current = current.moved;
             if (!current.moved) return;
-            // Snap to whichever end is closer.
             const height = panel.getBoundingClientRect().height;
             settle(height - PEEK_HEIGHT < maxHeight() - height ? PEEK_HEIGHT : maxHeight());
         },
