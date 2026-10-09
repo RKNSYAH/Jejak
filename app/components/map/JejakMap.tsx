@@ -864,6 +864,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 onProposalChange={setStoryProposal}
                 savedProfile={profile.savedProfile}
                 savedProfileLoaded={profile.settled}
+                baseRevision={profile.savedProfile?.revision ?? savedProfileRevision}
                 skipRestoredDraft={!!confirmedProfile}
                 onSaveProfile={confirmStoryProfileSaved}
                 mapPoint={onboardingMapPoint}
@@ -912,7 +913,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 onMapPick={form.startPickingDestination} pickingDestination={form.pickingDestination}
                 selectedDistrictId={sampleSelectedId} onSelectDistrict={selectPreviewDistrict}
                 onFinish={async () => {
-                    const saved = await saveRelocationProfile({ form_answers: form.session!.answers }, identity);
+                    const saved = await saveRelocationProfile({ form_answers: form.session!.answers,
+                        base_revision: profile.savedProfile?.revision ?? savedProfileRevision }, identity);
                     confirmProfileSaved(saved);
                     setSampleSelectedId(null); setCategory("summary"); form.finish();
                 }} storageAvailable={form.storageAvailable} preview={activePreview ?? form.preview} />}

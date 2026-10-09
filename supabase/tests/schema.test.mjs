@@ -234,7 +234,7 @@ test('migration chain and database contracts', async (t) => {
       where id = $1`, [profile.id]), /immutable/);
   });
 
-  await t.test('confirmed onboarding profiles save as private, immutable revisions', async () => {
+  await t.test('confirmed profile saves are atomic, compare revisions, and reuse identical retries', async () => {
     const payload = {
       schema_version: 'relocation-profile-v1',
       hard_constraints: { monthly_budget: { amount: 6000000, currency: 'IDR', period: 'month' } },
@@ -243,25 +243,32 @@ test('migration chain and database contracts', async (t) => {
       taxonomy_version: '2026-09',
       contract_version: 'lf05-v2',
     };
-    const save = () => one(`select * from public.save_confirmed_relocation_profile(
-      $1, 'primary', $2::jsonb)`, [userA, JSON.stringify(payload)]);
+    const save = (expectedRevision, value = payload) => one(`select * from public.save_confirmed_relocation_profile(
+      $1, 'primary', $2::jsonb, $3)`, [userA, JSON.stringify(value), expectedRevision]);
 
     await asRole('anon', async () => {
-      await assert.rejects(save(), /permission denied/);
+      await assert.rejects(save(null), /permission denied/);
     });
 
     await db.exec('set role service_role');
     let first;
     try {
-      first = await save();
-      const second = await save();
+      first = await save(null);
+      const retry = await save(null);
       assert.equal(first.revision, 1);
+      assert.equal(retry.revision, 1);
+      assert.equal(retry.id, first.id);
+      const changedPayload = { ...payload, soft_preferences: { goal: 'study' } };
+      await assert.rejects(save(null, changedPayload), /PROFILE_REVISION_CONFLICT/);
+      const second = await save(first.revision, changedPayload);
       assert.equal(second.revision, 2);
+      assert.equal((await save(first.revision, changedPayload)).id, second.id);
+      await assert.rejects(save(first.revision, payload), /PROFILE_REVISION_CONFLICT/);
       assert.ok(first.confirmed_at);
       assert.ok(first.updated_at);
       await assert.rejects(db.query(`update public.relocation_profiles set profile = '{}' where id = $1`, [first.id]), /immutable/);
       await assert.rejects(db.query(`select * from public.save_confirmed_relocation_profile(
-        $1, 'primary', '{"schema_version":"relocation-profile-v1","hard_constraints":{},"soft_preferences":{},"priority_weights":{},"taxonomy_version":"2026-09","contract_version":"lf05-v2","story":"private"}'::jsonb)`, [userA]), /invalid confirmed relocation profile/);
+        $1, 'primary', '{"schema_version":"relocation-profile-v1","hard_constraints":{},"soft_preferences":{},"priority_weights":{},"taxonomy_version":"2026-09","contract_version":"lf05-v2","story":"private"}'::jsonb, 2)`, [userA]), /invalid confirmed relocation profile/);
     } finally {
       await db.exec('reset role');
     }

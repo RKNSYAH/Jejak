@@ -18,7 +18,7 @@ type Plan = {
   recommended: boolean;
 };
 
-// Isi harga, masa akses, dan daftar manfaat di sini saat model paket ditetapkan.
+// TODO: Placeholder plans. Fill in price, access term, and benefits once the pricing model is decided.
 const plans: Plan[] = [
   { id: "gratis", name: "Gratis", price: "Rp0", term: "", benefits: ["Akses selamanya", "Fitur dasar"], recommended: false },
   { id: "jejak-pass", name: "Jejak Pass", price: "Rp29.900", term: "/ bulan", benefits: ["Akses AI", "Fitur utama"], recommended: true },
@@ -30,7 +30,7 @@ type ComparisonGroup = {
   rows: { feature: string; values: Record<PlanId, string> }[];
 };
 
-// Tambahkan grup dan baris saat fitur tiap paket sudah diputuskan.
+// TODO: Placeholder comparison. Add groups and rows once each plan's features are decided.
 const comparisonGroups: ComparisonGroup[] = [
   {
     title: "Fitur",

@@ -93,7 +93,7 @@ function careerFields(evidence: Partial<Record<EvidenceType, StoredEvidence[]>>,
     const headcountRanges = headcounts.map((row) => isRecord(row.value) ? { minimum: Number(row.value.minimum), maximum: Number(row.value.maximum) } : null)
         .filter((value): value is { minimum: number; maximum: number } => value !== null && Number.isFinite(value.minimum) && Number.isFinite(value.maximum));
 
-    // Spec §10.2 and the database privacy check: no employment range from fewer than three contributors.
+    // docs/Jejak_Langflow_AI_Specification.md §10.2 and the database privacy check: no employment range from fewer than three contributors.
     let employment: Range = unavailable;
     if (headcountContributors >= MIN_EMPLOYMENT_CONTRIBUTORS && headcountRanges.length) {
         employment = {

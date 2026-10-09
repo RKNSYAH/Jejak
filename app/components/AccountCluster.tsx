@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import type { AccountSummary } from "../engine/controller/userServerController";
 import { headerClusterClass } from "./HeaderCluster";
 
-// Keep the reserved map-control space and desktop cluster width in sync.
+// MapControls reserves this width on its right edge.
 export const ACCOUNT_CLUSTER_WIDTH = 240;
 
 type Props = {

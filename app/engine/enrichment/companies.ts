@@ -34,7 +34,6 @@ type CompanyOffice = {
     sourceUrl: string;
 };
 
-// Discovered office addresses, grouped by company.
 export function officesByCompany(candidates: ZoneEvidenceCandidate[]): Map<string, CompanyOffice[]> {
     const offices = new Map<string, CompanyOffice[]>();
     for (const candidate of candidates) {

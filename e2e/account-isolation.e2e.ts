@@ -59,7 +59,8 @@ test("legacy unowned drafts are discarded rather than claimed by a signed-in use
 });
 
 test("another tab's login replaces a dirty A editor and stale A operations cannot modify B", async ({ context, page, baseURL }) => {
-    const saved = await page.request.post("/api/user/relocation-profile", { data: { form_answers: initialFormAnswers } });
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
+    const saved = await page.request.post("/api/user/relocation-profile", { data: { form_answers: initialFormAnswers, base_revision: null } });
     expect(saved.status()).toBe(201);
     await page.goto("/user");
     await page.getByRole("button", { name: "Ubah Batas sewa", exact: true }).click();
@@ -73,7 +74,7 @@ test("another tab's login replaces a dirty A editor and stale A operations canno
     await expect(page.locator("#housing-budget")).toHaveCount(0);
     for (const method of ["GET", "POST", "DELETE"]) {
         const response = await page.request.fetch("/api/user/relocation-profile", {
-            method, headers: headers(userA), ...(method === "POST" ? { data: { form_answers: initialFormAnswers } } : {}),
+            method, headers: headers(userA), ...(method === "POST" ? { data: { form_answers: initialFormAnswers, base_revision: null } } : {}),
         });
         expect(response.status()).toBe(409);
         expect((await response.json()).code).toBe("ACCOUNT_CHANGED");
@@ -132,7 +133,8 @@ test("a delayed A profile read cannot fill B's map or cache after a cross-tab sw
 });
 
 test("server-detected account switch reloads a dirty editor even before the auth broadcast", async ({ context, page, baseURL }) => {
-    expect((await page.request.post("/api/user/relocation-profile", { data: { form_answers: initialFormAnswers } })).status()).toBe(201);
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
+    expect((await page.request.post("/api/user/relocation-profile", { data: { form_answers: initialFormAnswers, base_revision: null } })).status()).toBe(201);
     await page.goto("/user");
     await page.getByRole("button", { name: "Ubah Batas sewa", exact: true }).click();
     await page.locator("#housing-budget").fill("1234567");

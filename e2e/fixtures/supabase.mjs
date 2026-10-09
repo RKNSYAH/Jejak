@@ -158,11 +158,11 @@ createServer(async (request, response) => {
             const body = await readBody(request);
             const rows = await database.transaction(async (tx) => {
                 await tx.exec("set local role service_role");
-                return (await tx.query("select * from public.save_confirmed_relocation_profile($1, $2, $3::jsonb)",
-                    [body.p_user_id, body.p_profile_name, JSON.stringify(body.p_profile)])).rows;
+                return (await tx.query("select * from public.save_confirmed_relocation_profile($1, $2, $3::jsonb, $4)",
+                    [body.p_user_id, body.p_profile_name, JSON.stringify(body.p_profile), body.p_expected_revision])).rows;
             });
             return send(200, rows);
-        } catch (error) { return send(400, { message: error.message }); }
+        } catch (error) { return send(400, { code: error.code ?? "P0001", message: error.message }); }
     }
     const deletedUser = users.find((owner) => url.pathname === `/auth/v1/admin/users/${owner.id}`);
     if (deletedUser && request.method === "DELETE") {

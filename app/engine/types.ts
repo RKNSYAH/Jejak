@@ -85,7 +85,7 @@ type MapCellFact = {
     evidence_type: RegionFact["evidence_type"];
     period_end: string | null;
     source: string;
-    // Buildings or listings behind the value; the database hides values below 3.
+    // Buildings or listings behind the value; the database hides values backed by fewer than 3.
     sample_size: number | null;
     limitations: string | null;
     is_sample: boolean;

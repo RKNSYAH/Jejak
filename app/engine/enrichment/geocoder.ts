@@ -154,6 +154,7 @@ function parseNominatimResult(item: unknown): GeocodeResult | null {
 
 // Nominatim allows one request per second per application; reserve slots across
 // every run in this process, not only within one run.
+// https://operations.osmfoundation.org/policies/nominatim/
 let nextRequestAt = 0;
 
 async function takeSlot(spacingMs: number, wait: (ms: number) => Promise<void>) {

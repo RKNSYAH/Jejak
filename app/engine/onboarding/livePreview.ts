@@ -30,8 +30,6 @@ export type PreviewInput = {
 
 const housingTypes: Exclude<Housing, "unsure">[] = ["kos", "apartment"];
 
-export const BUDGET_MARGIN = 0.1;
-
 // Only the best-ranked districts are highlighted while the form or story is still open.
 export const TOP_RANK_COUNT = 5;
 
@@ -51,7 +49,7 @@ function distanceToDestination(center: [number, number] | null, destination: [nu
 }
 
 function withinBudget(value: number, limit: number): boolean {
-    return value <= limit * (1 + BUDGET_MARGIN);
+    return value <= limit;
 }
 
 function amount(value: unknown): number | null {

@@ -26,7 +26,7 @@ const PROFILE_FIELDS = new Set([
     "departure_time", "extras", "over_budget", "active_mode",
 ]);
 const WEIGHT_FIELDS = new Set(["career", "housing", "commute", "education", "cost_of_living", "environment"]);
-// Decimal coordinates are not identity-number strings.
+// 16 digits = NIK/card number; the [\d.] guards skip the long fraction of a decimal coordinate.
 export const SENSITIVE_TEXT = /\b(nik|ktp|passport|paspor|religion|agama|ethnicity|etnis|diagnosis|alamat rumah|home address)\b|(?<![\d.])(?:\d[ -]?){16}(?![\d.])/iu;
 
 function validateBudget(value: unknown) {

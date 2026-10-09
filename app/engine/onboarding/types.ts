@@ -2,6 +2,7 @@ import type { RelocationGoal } from "../lib/relocationGoal";
 import type { RegionFact } from "../types";
 import type { CommuteEstimate, CommuteResponse } from "../routing/types";
 import type { PlanningReach, PlanningReachBand } from "./planningReach";
+import { StoryStep } from "@/app/components/map/RelocationOnboarding";
 
 // Legacy cleanup only; new drafts must use draftKeys(userId) and an owner envelope.
 export const FORM_DRAFT_KEY = "jejak:relocation-form:v1";
@@ -164,3 +165,11 @@ export type LiveOnboardingPreview = {
     planningReach: PlanningReach | null;
     preferences: LivePreviewPreferences;
 };
+
+export type OnboardingDraft = {
+    ownerId: string;
+    kind: "form" | "story";
+    status: "active" | "paused" | "skipped";
+    screen: StoryStep | "review"
+    payload: FormAnswers | StoryStep;
+}

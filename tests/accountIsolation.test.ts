@@ -45,7 +45,7 @@ test("profile reads/saves/deletes and account deletion reject stale or absent ex
             const headers = { "Content-Type": "application/json", ...(expected ? { [EXPECTED_USER_HEADER]: expected } : {}) };
             for (const [method, handler] of [["GET", GET], ["POST", POST], ["DELETE", DELETE], ["DELETE", deleteAccount]] as const) {
                 const response = await handler(new Request("http://localhost/api/user/relocation-profile", {
-                    method, headers, ...(method === "POST" ? { body: JSON.stringify({ form_answers: defaultAnswers }) } : {}),
+                    method, headers, ...(method === "POST" ? { body: JSON.stringify({ form_answers: defaultAnswers, base_revision: null }) } : {}),
                 }));
                 assert.equal(response.status, 409);
                 assert.equal((await response.json()).code, "ACCOUNT_CHANGED");

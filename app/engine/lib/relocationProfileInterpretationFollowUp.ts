@@ -132,6 +132,9 @@ export function applyProfileFieldEdit(proposal: RelocationProfileProposal, field
             soft.transport_mode = "active";
             soft.active_mode = value;
         }
+    } else if (field === "active_mode") {
+        soft.transport_mode = "active";
+        soft.active_mode = value;
     }
     return { ...proposal, hard_constraints: hard, soft_preferences: soft,
         inferred_fields: proposal.inferred_fields.filter((item) => item !== field && !(field === "transport_mode" && item === "active_mode")) };

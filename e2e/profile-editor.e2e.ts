@@ -9,6 +9,7 @@ const cacheKey = `jejak:relocation-profile:v1:${userId}`;
 const updatedRent = 2_000_000;
 
 async function seedProfile(page: import("@playwright/test").Page) {
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
     const response = await page.request.post("/api/user/relocation-profile", {
         data: { form_answers: {
             ...initialFormAnswers,
@@ -18,7 +19,7 @@ async function seedProfile(page: import("@playwright/test").Page) {
             maximumRent: 4_000_000,
             transport: "transit",
             weights: { opportunity: 50, affordability: 30, mobility: 20, environment: 0 },
-        } },
+        }, base_revision: null },
     });
     expect(response.status()).toBe(201);
     return (await response.json()).profile as StoredRelocationProfile;
@@ -345,7 +346,7 @@ test("stale revision keeps draft", async ({ page }) => {
     const competing = await page.request.post("/api/user/relocation-profile", { data: { form_answers: {
         ...initialFormAnswers, goal: "work", city: "jakarta-selatan", monthlyBudget: 6_000_000, maximumRent: 3_800_000,
         transport: "transit", weights: { opportunity: 50, affordability: 30, mobility: 20, environment: 0 },
-    } } });
+    }, base_revision: initial.revision } });
     expect(competing.status()).toBe(201);
     await page.getByRole("button", { name: "Simpan dan hitung ulang", exact: true }).click();
     await expect(page.getByRole("alert").filter({ hasText: "Profil berubah sejak terakhir dimuat" })).toBeVisible();

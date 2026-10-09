@@ -5,7 +5,7 @@ import type { RoutingPoint, SampleJourney, RouteStatus } from "./types";
 import { routerJson } from "./http";
 import { decodePolyline } from "./polyline";
 
-// OTP 2.10 GTFS GraphQL schema. Only the operator actually loaded (TJ buses).
+// OTP 2.10 GTFS GraphQL schema. Only the TransJakarta feed is loaded.
 export function transitQuery(origin: RoutingPoint, destination: RoutingPoint, departureAt: string): string {
     const coordinate = ([longitude, latitude]: RoutingPoint) => `location: { coordinate: { latitude: ${latitude}, longitude: ${longitude} } }`;
     return `query commute { planConnection(first: 3,

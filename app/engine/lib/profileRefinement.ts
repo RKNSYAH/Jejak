@@ -277,7 +277,7 @@ export function reconcileProfileRefinement(
             }
         }
     }
-    // Normalization centralizes legacy goal/budget placement while retaining all untouched draft slots.
+    // Normalize both sides so a goal or budget moved between hard/soft groups isn't counted as a model change.
     const normalized = normalizeRelocationProfileInputs(hard, soft, weightValues);
     const normalizedDraft = normalizeRelocationProfileInputs(draft.hard_constraints, draft.soft_preferences, draft.priority_weights);
     const changedByModel = new Set(getProfileChanges(normalizedDraft, normalized));

@@ -8,25 +8,30 @@ import { MoneyField } from "./FormControls";
 
 // Review-step fields the user can correct in place; priorities keep their own controls.
 export const editableProfileFields = new Set([
-    "goal", "target_occupations", "destination_cities", "housing_budget", "monthly_budget", "commute_minutes", "transport_mode", "destination",
+    "goal", "occupation", "target_occupations", "target_fields", "study_field", "education_level", "destination_cities",
+    "housing_budget", "monthly_budget", "housing_types", "commute_minutes", "transport_mode", "active_mode",
+    "departure_time", "destination", "over_budget",
 ]);
 
-function initialDraft(field: string, value: unknown): string | number {
+type EditorDraft = string | number | string[];
+
+function initialDraft(field: string, value: unknown): EditorDraft {
     if (field === "housing_budget" || field === "monthly_budget") return isRecord(value) && typeof value.amount === "number" ? value.amount : 0;
     if (field === "commute_minutes") return typeof value === "number" ? value : "";
     if (field === "destination") return isRecord(value) && typeof value.name === "string" ? value.name : "";
-    if (field === "target_occupations" || field === "destination_cities") {
-        const first = Array.isArray(value) ? value.find((item) => typeof item === "string") : null;
-        if (field === "destination_cities" && typeof first === "string") {
-            // Profile interpretation may return an area id or its label; the select works with labels.
-            return onboardingTaxonomy.areas?.find((area) => area.id === first || area.label === first)?.label ?? first;
-        }
-        return typeof first === "string" ? first : "";
+    if (field === "target_occupations" || field === "target_fields" || field === "destination_cities") {
+        const values = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+        return field === "destination_cities" ? values.map((item) =>
+            onboardingTaxonomy.areas?.find((area) => area.id === item || area.label === item)?.label ?? item) : values;
     }
+    if (field === "housing_types") return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
     return typeof value === "string" ? value : "";
 }
 
-function toProfileValue(field: string, draft: string | number): { value: unknown } | { error: string } {
+function toProfileValue(field: string, draft: EditorDraft): { value: unknown } | { error: string } {
+    if (["housing_types", "target_occupations", "target_fields", "destination_cities"].includes(field)) {
+        return { value: Array.isArray(draft) ? draft : [] };
+    }
     if (field === "housing_budget" || field === "monthly_budget") {
         const amount = Number(draft);
         return Number.isSafeInteger(amount) && amount > 0 && amount <= 1_000_000_000
@@ -44,16 +49,22 @@ function toProfileValue(field: string, draft: string | number): { value: unknown
         if (SENSITIVE_TEXT.test(text)) return { error: "Hapus data pribadi sensitif sebelum menyimpan." };
         return { value: { name: text, precision: "area" } };
     }
-    if (field === "target_occupations" || field === "destination_cities") return { value: [text] };
+    if (["occupation", "study_field", "education_level", "career_stage"].includes(field)) {
+        if (text.length > 200 || SENSITIVE_TEXT.test(text)) return { error: "Periksa isi dan hapus data pribadi sensitif." };
+    }
     return { value: text };
 }
 
 export default function ProfileFieldEditor({ field, label, value, onSave, onCancel }: {
     field: string; label: string; value: unknown; onSave: (value: unknown) => void; onCancel: () => void;
 }) {
-    const [draft, setDraft] = useState<string | number>(() => initialDraft(field, value));
+    const [draft, setDraft] = useState<EditorDraft>(() => initialDraft(field, value));
     const [error, setError] = useState<string | null>(null);
     const id = `profile-edit-${field}`;
+    const choices: [string, string][] | null = field === "housing_types" ? [["kos", "Kos"], ["apartment", "Apartemen"], ["house", "Rumah"]]
+        : field === "target_occupations" ? onboardingTaxonomy.occupations.map((item) => [item.id, item.label])
+        : field === "target_fields" ? onboardingTaxonomy.sectors.map((item) => [item.id, item.label])
+        : field === "destination_cities" ? (onboardingTaxonomy.areas ?? []).map((area) => [area.label, area.label]) : null;
     const select = (choices: [string, string][]) => <select id={id} value={String(draft)} onChange={(event) => setDraft(event.target.value)}
         className="select min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm">
         {!choices.some(([choice]) => choice === draft) && <option value="" disabled>Pilih</option>}
@@ -68,15 +79,29 @@ export default function ProfileFieldEditor({ field, label, value, onSave, onCanc
 
     return <div className="mt-1 space-y-2" data-hci-region="story-profile-field-editor">
         {field === "housing_budget" || field === "monthly_budget"
-            ? <MoneyField name={id} label={label} amount={Number(draft) || 0} onChange={setDraft} hint="Per bulan." error={error ?? undefined} />
+            ? <MoneyField name={id} label={label} amount={Number(draft) || 0} onChange={(amount) => setDraft(amount)} hint="Per bulan." error={error ?? undefined} />
+            : choices ? <fieldset className="space-y-1">
+                <legend className="sr-only">{label}</legend>
+                {choices.map(([option, optionLabel]) => {
+                    const selected = Array.isArray(draft) && draft.includes(option);
+                    return <label key={option} className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={selected} onChange={() => setDraft((current) => {
+                            const values = Array.isArray(current) ? current : [];
+                            return selected ? values.filter((item) => item !== option) : [...values, option];
+                        })} className="checkbox checkbox-primary" />
+                        {optionLabel}
+                    </label>;
+                })}
+            </fieldset>
             : <>
                 <label htmlFor={id} className="sr-only">{label}</label>
                 {field === "goal" ? select(Object.entries(relocationGoalLabels))
-                    : field === "target_occupations" ? select(onboardingTaxonomy.occupations.map((item) => [item.id, item.label]))
-                    : field === "destination_cities" ? select((onboardingTaxonomy.areas ?? []).map((area) => [area.label, area.label]))
                     : field === "transport_mode" ? select(Object.entries(transportModeLabels))
+                    : field === "active_mode" ? select([["walk", "Jalan kaki"], ["bicycle", "Sepeda · rute belum didukung"]])
+                    : field === "departure_time" ? select([["morning", "Pagi"], ["midday", "Siang"], ["evening", "Sore atau malam"], ["flexible", "Fleksibel"]])
+                    : field === "over_budget" ? select([["mark", "Tandai di atas batas"], ["hide", "Jangan tampilkan di atas batas"]])
                     : <input id={id} type={field === "commute_minutes" ? "number" : "text"} inputMode={field === "commute_minutes" ? "numeric" : undefined}
-                        min={field === "commute_minutes" ? 0 : undefined} max={field === "commute_minutes" ? 240 : undefined} value={draft}
+                        min={field === "commute_minutes" ? 0 : undefined} max={field === "commute_minutes" ? 240 : undefined} value={typeof draft === "string" || typeof draft === "number" ? draft : ""}
                         onChange={(event) => setDraft(event.target.value)} className="input min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm" />}
                 {error && <p role="alert" className="text-xs font-semibold text-error">{error}</p>}
             </>}

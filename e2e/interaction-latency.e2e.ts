@@ -4,10 +4,12 @@ import type { HciClick, HciClickBatch } from "../app/engine/types";
 import { stubZones } from "./fixtures/map";
 
 // INP thresholds for click to next frame: 200 ms or less is good, over 500 ms is poor.
+// https://web.dev/articles/inp
 // Single clicks can spike under software WebGL, so typical clicks must be good and none poor.
 const PAINT_GOOD_MS = 200;
 const PAINT_POOR_MS = 500;
 // A loaded result within 1 s keeps the user's flow of thought.
+// https://www.nngroup.com/articles/response-times-3-important-limits/
 const RESPONSE_BUDGET_MS = 1000;
 // Simulated API latency so response times cover a real loading state.
 const API_DELAY_MS = 300;
