@@ -24,7 +24,6 @@ const fields: { field: string; label: string; group: "limits" | "preferences"; a
     { field: "active_mode", label: "Moda aktif", group: "preferences" },
     { field: "departure_time", label: "Waktu berangkat", group: "preferences" },
     { field: "destination", label: "Lokasi tujuan", group: "preferences", always: true },
-    { field: "over_budget", label: "Pilihan di atas anggaran", group: "preferences" },
     { field: "career_stage", label: "Tahap karier", group: "preferences" },
     { field: "language_preferences", label: "Bahasa", group: "preferences" },
     { field: "deal_breakers", label: "Hal yang dihindari", group: "preferences" },
@@ -67,7 +66,6 @@ function formatValue(field: string, value: unknown): string {
     if (field === "transport_mode" && typeof value === "string") return transportModeLabels[value] ?? value;
     if (field === "active_mode") return value === "walk" ? "Jalan kaki" : value === "bicycle" ? "Sepeda" : String(value);
     if (field === "departure_time") return ({ morning: "Pagi", midday: "Siang", evening: "Sore atau malam", flexible: "Fleksibel" } as Record<string, string>)[String(value)] ?? String(value);
-    if (field === "over_budget") return value === "hide" ? "Jangan tampilkan" : "Tandai saja";
     if (Array.isArray(value)) return labelList(value, field);
     if (typeof value === "string" || typeof value === "number") return String(value);
     return "Belum diisi";
