@@ -36,12 +36,14 @@ export async function deleteRelocationProfile(userId: string): Promise<void> {
 export async function saveConfirmedRelocationProfile(
     userId: string,
     profile: PersistedRelocationProfile,
+    expectedRevision: number | null,
 ): Promise<StoredRelocationProfile> {
     const supabase = createAdminClient();
     const { data, error } = await supabase.rpc("save_confirmed_relocation_profile", {
         p_user_id: userId,
         p_profile_name: RELOCATION_PROFILE_NAME,
         p_profile: profile,
+        p_expected_revision: expectedRevision,
     });
 
     if (error) throw error;

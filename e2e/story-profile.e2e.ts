@@ -7,6 +7,61 @@ const fields = ["Tujuan", "Pekerjaan", "Kota tujuan", "Batas sewa", "Anggaran bu
 
 const reportedStory = "saya berencana pindah ke jakarta selatan untuk kerja sebagai software engineer punya budget 5jt per bulan 2jt untuk kos";
 const commuteQuestion = "Berapa lama waktu perjalanan sekali jalan yang masih bisa Anda terima (dalam menit)?";
+const userId = "11111111-1111-4111-8111-111111111111";
+const storyDraftKey = `jejak:relocation-onboarding:v2:${userId}`;
+const formDraftKey = `jejak:relocation-form:v2:${userId}`;
+
+test("pausing a story preserves clarification answers and resumes without reanalysis", async ({ page }) => {
+    await stubZones(page);
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
+    let analyses = 0;
+    page.on("request", (request) => {
+        if (new URL(request.url()).pathname === "/api/relocation-profile-interpretation") analyses++;
+    });
+
+    await page.goto("/map?onboarding=demo");
+    await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(reportedStory);
+    const initialAnalysis = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/relocation-profile-interpretation");
+    await page.getByRole("button", { name: "Baca rencanaku" }).click();
+    expect((await initialAnalysis).status()).toBe(200);
+
+    const followUp = page.locator('[data-hci-region="relocation-onboarding-step-2"]');
+    await page.getByRole("textbox", { name: commuteQuestion }).fill("45");
+    await page.getByRole("radio", { name: "Transport umum", exact: true }).check();
+    await followUp.getByRole("button", { name: "Lanjut nanti" }).click();
+    await expect(followUp).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Lengkapi profil", exact: true }).click();
+    await expect(followUp).toBeVisible();
+    await expect(page.getByRole("textbox", { name: commuteQuestion })).toHaveValue("45");
+    await expect(page.getByRole("radio", { name: "Transport umum", exact: true })).toBeChecked();
+    expect(analyses).toBe(1);
+});
+
+test("restarting a story clears its answers without deleting the form draft", async ({ page }) => {
+    await stubZones(page);
+    await page.addInitScript(({ formKey, ownerId }) => {
+        sessionStorage.setItem(formKey, JSON.stringify({ ownerId, draft: { preserved: true } }));
+    }, { formKey: formDraftKey, ownerId: userId });
+
+    await page.goto("/map?onboarding=demo");
+    await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill(reportedStory);
+    await page.getByRole("button", { name: "Baca rencanaku" }).click();
+    await page.getByRole("textbox", { name: commuteQuestion }).fill("45");
+
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.locator('[data-hci-region="relocation-onboarding-step-2"]')
+        .getByRole("button", { name: "Mulai ulang" }).click();
+
+    await expect(page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" })).toHaveValue("");
+    await expect.poll(() => page.evaluate(({ storyKey, formKey }) => ({
+        story: JSON.parse(sessionStorage.getItem(storyKey) ?? "null")?.draft,
+        form: JSON.parse(sessionStorage.getItem(formKey) ?? "null")?.draft,
+    }), { storyKey: storyDraftKey, formKey: formDraftKey })).toMatchObject({
+        story: { story: "", clarificationAnswers: {}, proposal: null },
+        form: { preserved: true },
+    });
+});
 
 test("unknown-budget story discards guessed car and requires an unselected transport radio", async ({ page }) => {
     await stubZones(page);
@@ -50,8 +105,8 @@ test("unknown-budget story discards guessed car and requires an unselected trans
     const processed = (await (await followUpResponse).json()).profile;
     expect(processed.soft_preferences.transport_mode).toBe("motorcycle");
     await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
-    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
-    await expect(page.getByRole("dialog").locator("section").filter({ has: page.getByRole("heading", { name: "Moda transportasi", exact: true }) })).toContainText("Motor");
+    await expect(page.getByRole("dialog").locator('[data-hci-region="profile-review-fields"] dl > div')
+        .filter({ hasText: "Moda transportasi" })).toContainText("Motor");
 });
 
 for (const [length, story] of [
@@ -116,8 +171,9 @@ test("inferred story goal is highlighted and failed saving keeps the review for 
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
     const save = page.getByRole("button", { name: "Selesai, buka peta" });
-    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
-    await expect(page.getByRole("dialog").locator("section").filter({ has: page.getByRole("heading", { name: "Tujuan", exact: true }) })).toContainText("disimpulkan");
+    const review = page.getByRole("dialog");
+    await expect(review.locator('[data-hci-region="profile-review-fields"] dl > div')
+        .filter({ hasText: /^Tujuan/ })).toContainText("Disimpulkan");
     await expect(save).toBeEnabled();
     let attempts = 0;
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
@@ -129,9 +185,12 @@ test("inferred story goal is highlighted and failed saving keeps the review for 
     await save.click();
     await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Profil belum tersimpan");
     await expect(save).toBeEnabled();
+    await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.draft?.story, storyDraftKey))
+        .toContain("Saya pindah untuk bekerja");
     await save.click();
     await expect(page.getByRole("dialog")).toBeHidden();
     expect(attempts).toBe(2);
+    await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.draft, storyDraftKey)).toBeNull();
     const backend = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
     expect(backend.profile.hard_constraints.goal).toBe("work");
 });
@@ -224,10 +283,12 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     expect(proposed.hard_constraints.commute_minutes).toBe(45);
     const review = page.getByRole("dialog");
     await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
-    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
     await expect(review).not.toContainText("Pertanyaan lanjutan");
-    for (const [label, value] of [["Waktu tempuh", "45 menit"], ["Anggaran bulanan", "Rp5.000.000"], ["Batas sewa", "Rp2.000.000"], ["Lokasi tujuan", "Jakarta Selatan"], ["Moda transportasi", "Transport umum"]]) {
-        await expect(review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) })).toContainText(value);
+    const profileField = (label: string) => review.locator('[data-hci-region="profile-review-fields"] dl > div')
+        .filter({ hasText: new RegExp(`^${label}`) });
+    await expect(profileField("Pilihan di atas anggaran")).toContainText("Default Jejak");
+    for (const [label, value] of [["Batas waktu tempuh", "45 menit"], ["Anggaran bulanan", "Rp5.000.000"], ["Batas sewa", "Rp2.000.000"], ["Lokasi tujuan", "Jakarta Selatan"], ["Moda transportasi", "Transport umum"]]) {
+        await expect(profileField(label)).toContainText(value);
     }
     await expect(review.getByRole("slider")).toHaveCount(4);
     expect(await review.getByRole("slider").evaluateAll((sliders) => sliders.reduce((sum, slider) => sum + Number((slider as HTMLInputElement).value), 0))).toBe(100);
@@ -237,33 +298,32 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await expect(cost).toContainText("sekitar Rp4.500.000 / bulan");
     await expect(cost).not.toContainText("Data contoh");
     // "Ubah" edits in place instead of sending the user back to an earlier step.
-    const card = (label: string) => review.locator("section").filter({ has: page.getByRole("heading", { name: label, exact: true }) });
+    const card = profileField;
     const save = page.getByRole("button", { name: "Selesai, buka peta" });
     await card("Batas sewa").getByRole("button", { name: "Ubah Batas sewa" }).click();
     await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     await expect(save).toBeDisabled();
     await card("Batas sewa").getByRole("textbox", { name: "Batas sewa" }).fill("3.000.000");
     await card("Batas sewa").getByRole("button", { name: "Simpan", exact: true }).click();
-    await expect(card("Batas sewa")).toContainText("Rp3.000.000 / bulan");
+    await expect(card("Batas sewa")).toContainText("Rp3.000.000 per bulan");
     await expect(card("Batas sewa")).not.toContainText("disimpulkan");
     await card("Anggaran bulanan").getByRole("button", { name: "Ubah Anggaran bulanan" }).click();
     await card("Anggaran bulanan").getByRole("textbox", { name: "Anggaran bulanan" }).fill("6.000.000");
     await card("Anggaran bulanan").getByRole("button", { name: "Simpan", exact: true }).click();
-    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 / bulan");
+    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 per bulan");
     await expect(cost).toContainText("Rp4.500.000 – Rp6.000.000 / bulan");
-    await card("Waktu tempuh").getByRole("button", { name: "Ubah Waktu tempuh" }).click();
-    await card("Waktu tempuh").getByRole("spinbutton", { name: "Waktu tempuh" }).fill("300");
-    await card("Waktu tempuh").getByRole("button", { name: "Simpan", exact: true }).click();
-    await expect(card("Waktu tempuh")).toContainText("Isi waktu tempuh 0–240 menit.");
-    await card("Waktu tempuh").getByRole("button", { name: "Batal", exact: true }).click();
-    await expect(card("Waktu tempuh")).toContainText("45 menit");
+    await card("Batas waktu tempuh").getByRole("button", { name: "Ubah Batas waktu tempuh" }).click();
+    await card("Batas waktu tempuh").getByRole("spinbutton", { name: "Batas waktu tempuh" }).fill("300");
+    await card("Batas waktu tempuh").getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card("Batas waktu tempuh")).toContainText("Isi waktu tempuh 0–240 menit.");
+    await card("Batas waktu tempuh").getByRole("button", { name: "Batal", exact: true }).click();
+    await expect(card("Batas waktu tempuh")).toContainText("45 menit");
     await expect(save).toBeEnabled();
     await page.getByRole("button", { name: "Kembali", exact: true }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await page.getByRole("button", { name: "Ubah profil", exact: true }).click();
-    await expect(card("Batas sewa")).toContainText("Rp3.000.000 / bulan");
-    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 / bulan");
-    await expect(card("Waktu tempuh")).toContainText("45 menit");
+    await expect(card("Batas sewa")).toContainText("Rp3.000.000 per bulan");
+    await expect(card("Anggaran bulanan")).toContainText("Rp6.000.000 per bulan");
+    await expect(card("Batas waktu tempuh")).toContainText("45 menit");
     await review.locator('[data-hci-region="story-review-priorities"]')
         .screenshot({ path: test.info().outputPath("story-priorities.png") });
     await review.getByRole("button", { name: "Benar", exact: true }).click();

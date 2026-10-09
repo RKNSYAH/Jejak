@@ -19,10 +19,10 @@ test("profile client returns only a valid server-saved profile", async (context)
         assert.equal(url, "/api/user/relocation-profile");
         assert.equal(init.method, "POST");
         assert.equal(new Headers(init.headers).get(EXPECTED_USER_HEADER), userId);
-        assert.deepEqual(JSON.parse(String(init.body)), { form_answers: defaultAnswers });
+        assert.deepEqual(JSON.parse(String(init.body)), { form_answers: defaultAnswers, base_revision: null });
         return Response.json({ user_id: userId, profile }, { status: 201 });
     });
-    assert.deepEqual(await saveRelocationProfile({ form_answers: defaultAnswers }, account), profile);
+    assert.deepEqual(await saveRelocationProfile({ form_answers: defaultAnswers, base_revision: null }, account), profile);
 });
 
 test("profile client refuses malformed, failed and unauthenticated saves", async (context) => {

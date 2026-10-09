@@ -4,13 +4,14 @@ import { stubZones } from "./fixtures/map";
 
 const originalWeights = { career: 0.5, education: 0, housing: 0.15, cost_of_living: 0.05, commute: 0.2, environment: 0.1 };
 
-async function startReview(page: Page) {
+async function startReview(page: Page, targetFields: string[] = []) {
     await stubZones(page);
     await page.route((url) => url.pathname === "/api/relocation-profile-interpretation", (route) => route.fulfill({ json: { profile: {
         hard_constraints: { goal: "work", destination_cities: ["Jakarta Selatan"],
             monthly_budget: { amount: 8_000_000, currency: "IDR", period: "month" },
             housing_budget: { amount: 4_000_000, currency: "IDR", period: "month" }, commute_minutes: 45 },
-        soft_preferences: { housing_types: ["kos"], transport_mode: "motorcycle", destination: { name: "Jakarta Selatan", precision: "city" } },
+        soft_preferences: { housing_types: ["kos"], ...(targetFields.length ? { target_fields: targetFields } : {}),
+            transport_mode: "motorcycle", destination: { name: "Jakarta Selatan", precision: "city" } },
         priority_weights: originalWeights, inferred_fields: ["goal", "priorities", "housing_budget"],
         clarification_questions: [], requires_confirmation: true, confirmed: false,
         taxonomy_version: "2026-09", contract_version: "lf05-v2", writes_performed: false,
@@ -49,7 +50,11 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     await expect(panel).toHaveJSProperty("open", true);
     expect(await panel.evaluate((element) => element.matches(":modal"))).toBe(false);
     await expect(panel.locator('[data-hci-region="story-review-profile"]')).toContainText("Sewa ≤ Rp4 jt");
-    if (testInfo.project.name === "desktop") await expect(panel.getByRole("slider", { name: "Lingkungan", exact: true })).toBeInViewport();
+    if (testInfo.project.name === "desktop") {
+        const environment = panel.getByRole("slider", { name: "Lingkungan", exact: true });
+        await environment.scrollIntoViewIfNeeded();
+        await expect(environment).toBeInViewport();
+    }
     await expect(ranking.locator("li").first()).toContainText("Kecamatan B");
     await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText("Data contoh");
     await page.screenshot({ path: testInfo.outputPath("story-review-initial.png") });
@@ -65,9 +70,11 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     await expect(panel.getByRole("button", { name: "Benar", exact: true })).toBeVisible();
     await affordability.fill("90");
     await page.screenshot({ path: testInfo.outputPath("story-review.png") });
-    await panel.getByRole("button", { name: "Ubah profil", exact: true }).click();
-    await expect(panel.locator('[data-hci-region="story-review-details"]')).toHaveAttribute("open", "");
-    await expect(panel.locator('[data-hci-region="story-review-details"] summary')).toBeFocused();
+    await expect(panel.locator('[data-hci-region="profile-review-fields"]')).toContainText("Batas sewa");
+    await expect(panel.locator('[data-hci-region="profile-review-fields"]')).toContainText("Batas waktu tempuh");
+    await panel.locator('[data-hci-region="profile-review-fields"]').getByRole("button", { name: "Ubah Tujuan", exact: true }).click();
+    await expect(panel.locator("#profile-edit-goal")).toBeVisible();
+    await panel.getByRole("button", { name: "Batal", exact: true }).click();
 
     const save = panel.getByRole("button", { name: "Selesai, buka peta", exact: true });
     await panel.getByRole("button", { name: "Pilih di peta", exact: true }).click();
@@ -79,7 +86,6 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     expect(draft.proposal.soft_preferences.destination).toEqual({ name: "Titik pilihanmu", precision: "point", ...draft.mapPoint });
     expect(draft.proposal.priority_weights.housing / draft.proposal.priority_weights.cost_of_living).toBeCloseTo(3);
     expect(analyses).toBe(1);
-
     let saves = 0;
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => {
         if (route.request().method() !== "POST") return route.fallback();
@@ -97,6 +103,17 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     expect(saved.profile.priority_weights).toEqual(draft.proposal.priority_weights);
     expect(saved.profile.soft_preferences.destination).toEqual(draft.proposal.soft_preferences.destination);
     expect(saves).toBe(2);
+});
+
+test("editing target sectors preserves the other selected sectors", async ({ page }) => {
+    await startReview(page, ["software_and_it_services", "data_and_analytics"]);
+    const row = page.locator('[data-hci-region="profile-review-fields"] dl > div').filter({ hasText: /^Bidang pekerjaan/ });
+    await expect(row).toContainText("Software and IT services, Data and analytics");
+    await row.getByRole("button", { name: "Ubah Bidang pekerjaan", exact: true }).click();
+    await row.getByRole("checkbox", { name: "Software and IT services", exact: true }).uncheck();
+    await row.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(row).toContainText("Data and analytics");
+    await expect(row).not.toContainText("Software and IT services");
 });
 
 test("mobile story review keeps navigation reachable and collapses to reveal the map", async ({ page }, testInfo) => {

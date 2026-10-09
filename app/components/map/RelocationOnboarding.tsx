@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, CheckSquare, MapPin, Mic, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckSquare, MapPin, Mic, RefreshCw, X } from "lucide-react";
 import { extractUserProfile, onboardingTaxonomy, onboardingTopics } from "../../engine/extractUserProfile";
 import { validateRelocationProfileProposal, type RelocationProfileProposal } from "../../engine/lib/relocationProfileInterpretationValidation";
-import type { StoredRelocationProfile } from "../../engine/lib/relocationProfile";
+import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
 import { formatRupiah, transportModeLabels } from "../../engine/onboarding/demoData";
-import { draftKeys, type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
+import { type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
 import { readOnboardingDraft, writeOnboardingDraft } from "../../engine/onboarding/draftStorage";
 import { accountFetch, type AccountScope } from "../../engine/lib/accountIdentity";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
@@ -18,7 +18,7 @@ import { applyProfileExplicitDetails, applyProfileFieldEdit, getProfileClarifica
 import { getProfileTransportQuestion, parseProfileTransportAnswer } from "../../engine/lib/relocationProfileInterpretationTransport";
 import { RadioChoices } from "./onboarding/FormControls";
 import type { MonthlyCostRange } from "../../engine/onboarding/livePreview";
-import ProfileFieldEditor, { editableProfileFields } from "./onboarding/ProfileFieldEditor";
+import ProfileReviewFields from "./onboarding/ProfileReviewFields";
 import StoryReviewPanel from "./onboarding/StoryReviewPanel";
 import { priorityKeys } from "../../engine/onboarding/preview";
 import { storyPriorityWeights, updateStoryPriority } from "../../engine/onboarding/storyPriorities";
@@ -59,6 +59,7 @@ type RelocationOnboardingProps = {
   onProposalChange: (proposal: RelocationProfileProposal | null) => void;
   savedProfile: StoredRelocationProfile | null;
   savedProfileLoaded: boolean;
+  baseRevision: number | null;
   skipRestoredDraft?: boolean;
   onSaveProfile: (profile: StoredRelocationProfile) => void;
   mapPoint: MapPoint | null;
@@ -109,6 +110,11 @@ function followUpInputKey(clarificationAnswers: Record<string, string>, explicit
 function formatWeight(key: string, weight: number) {
   return `${priorityLabels[key] ?? key} ${Math.round(weight * 100)}%`;
 }
+
+function removeDraftFromStorage(userId: string) {
+  try { writeOnboardingDraft(userId, "story", null); } catch { /* Browser storage is optional. */ }
+}
+
 
 function formatProfileValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return "Belum ada";
@@ -231,6 +237,7 @@ export default function RelocationOnboarding({
   onProposalChange: setProposal,
   savedProfile,
   savedProfileLoaded,
+  baseRevision,
   skipRestoredDraft = false,
   onSaveProfile,
   mapPoint,
@@ -252,8 +259,8 @@ export default function RelocationOnboarding({
   costLoading = false,
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const resumeStepRef = useRef<Exclude <Step, 0>>(1);
   const ignoreCloseRef = useRef(false);
-  const reviewSummaryRef = useRef<HTMLDetailsElement>(null);
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -268,6 +275,12 @@ export default function RelocationOnboarding({
   const [hydrated, setHydrated] = useState(false);
   const [prioritySuggestion, setPrioritySuggestion] = useState<Draft["prioritySuggestion"]>(null);
   const extractedProfile = extractUserProfile(story);
+  const reviewProfile: PersistedRelocationProfile | null = proposal ? (() => {
+    try { return normalizeRelocationProfileInputs(proposal.hard_constraints, proposal.soft_preferences, proposal.priority_weights); }
+    catch { return null; }
+  })() : null;
+  const providedProfileFields = proposal ? [...Object.entries(proposal.hard_constraints), ...Object.entries(proposal.soft_preferences)]
+    .filter(([, value]) => value !== null && value !== undefined).map(([field]) => field) : [];
   const profileRows = proposal ? getProfileRows(proposal) : [];
   const summaryRows = profileRows.filter((row) => ["goal", "destination_cities", "housing_budget", "commute_minutes"].includes(row.field))
     .map((row) => ({ ...row, compactValue: row.missing ? `${row.label} belum diisi` : formatProfileChip(row.field, proposal?.hard_constraints[row.field] ?? proposal?.soft_preferences[row.field]) }));
@@ -284,7 +297,7 @@ export default function RelocationOnboarding({
   const prioritiesInferred = proposal?.inferred_fields.includes("priorities") ?? false;
   const opportunityLabel = profileGoal === "study" ? "Pendidikan" : profileGoal === "both" ? "Karier & pendidikan" : "Karier";
   const reviewPriorityLabels = { opportunity: opportunityLabel, affordability: "Keterjangkauan", mobility: "Mobilitas", environment: "Lingkungan" };
-  const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Data belum tersedia" };
+const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Belum memengaruhi urutan" };
   const destination = proposal?.hard_constraints.destination ?? proposal?.soft_preferences.destination;
   const hasSpecificDestination = isRecord(destination) && destination.precision !== "city";
   const destinationLabel = profileGoal === "study" ? "Kampus" : profileGoal === "both" ? "Tujuan" : "Kantor";
@@ -293,6 +306,28 @@ export default function RelocationOnboarding({
     setClarificationAnswers((current) => ({ ...current, [question]: answer }));
     setRequestError(null);
     setSaveError(null);
+  }
+
+  function clearStoryDraft() {
+    removeDraftFromStorage(account.userId);
+    resumeStepRef.current = 1;
+
+    setStory("");
+    setProposal(null);
+    resetFollowUps();
+    setEditingField(null);
+    setEditError(null);
+    setRequestError(null);
+    setSaveError(null);
+  }
+
+  function restartStory() {
+    if (isSubmitting || isSaving) return;
+    if (!window.confirm("Hapus draf cerita dan mulai ulang?")) return;
+
+    clearStoryDraft();
+    onMapPickingChange(false);
+    setStep(1);
   }
 
   useEffect(() => {
@@ -311,7 +346,8 @@ export default function RelocationOnboarding({
       if (draft) {
         const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
         // Restored map selections may need reanalysis before another confirmation.
-        setStep(keepMap ? 0 : draft.step === 3 ? 2 : draft.step);
+        resumeStepRef.current = draft.step === 3 ? 2 : draft.step;
+        setStep(keepMap ? 0 : resumeStepRef.current);
         setStory(draft.story);
         onOfficeChange(draft.office);
         if (draft.mapPoint && Number.isFinite(draft.mapPoint.latitude) && Math.abs(draft.mapPoint.latitude) <= 90 &&
@@ -356,21 +392,48 @@ export default function RelocationOnboarding({
   }, [account, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep, skipRestoredDraft]);
 
   useEffect(() => {
-    if (!storyOpenRequest) return;
-    const timer = window.setTimeout(() => setStep(1), 0);
-    return () => window.clearTimeout(timer);
-  }, [setStep, storyOpenRequest]);
+  if (!hydrated || !storyOpenRequest) return;
+
+  const timer = window.setTimeout(() => {
+    setStep(resumeStepRef.current);
+  }, 0);
+
+  return () => window.clearTimeout(timer);
+}, [hydrated, setStep, storyOpenRequest]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    if (step === 0) {
-      try { if (!formSession && !skipRestoredDraft) sessionStorage.removeItem(draftKeys(account.userId).story); } catch { /* Browser storage is optional. */ }
-      return;
+    if (!hydrated || step === 0) return;
+    const draft: Draft = {
+      step,
+      story,
+      office: selectedOffice,
+      transport,
+      proposal,
+      clarificationAnswers,
+      explicitGoal,
+      analyzedInput,
+      mapPoint,
+      prioritySuggestion,
     }
+    try {
+      writeOnboardingDraft(account.userId, "story", draft);
+    } catch {
 
-    const draft: Draft = { step, story, office: selectedOffice, transport, proposal, clarificationAnswers, explicitGoal, analyzedInput, mapPoint, prioritySuggestion };
-    try { writeOnboardingDraft(account.userId, "story", draft); } catch { /* Saving to the backend remains available. */ }
-  }, [account, analyzedInput, clarificationAnswers, explicitGoal, formSession, hydrated, mapPoint, proposal, selectedOffice, skipRestoredDraft, step, story, transport, prioritySuggestion]);
+    }
+  }, [
+  account,
+  analyzedInput,
+  clarificationAnswers,
+  explicitGoal,
+  hydrated,
+  mapPoint,
+  prioritySuggestion,
+  proposal,
+  selectedOffice,
+  step,
+  story,
+  transport,
+])
 
   useEffect(() => {
     const shouldShowDialog = step === 1 && formSession?.status !== "active";
@@ -393,15 +456,27 @@ export default function RelocationOnboarding({
 
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
-  function dismiss() {
-    try { sessionStorage.removeItem(draftKeys(account.userId).story); } catch { /* Closing works without browser storage. */ }
-    setStep(0);
-    onMapPickingChange(false);
+  function closePanel(){
+    setStep(0)
+    onMapPickingChange(false)
+
     const dialog = dialogRef.current;
     if (dialog?.open) {
       ignoreCloseRef.current = true;
       dialog.close();
     }
+  }
+
+  function dismiss() {
+    if(isSubmitting || isSaving) return;
+    if(editingField !== null) {
+      setEditError("Simpan atau batalkan dulu perubahan sebelum menutup.");
+      return
+    }
+   if (step !== 0 ){
+      resumeStepRef.current = step;
+    }
+    closePanel();
   }
 
   function handleDialogClose() {
@@ -580,11 +655,12 @@ export default function RelocationOnboarding({
     try {
       const saved = await saveRelocationProfile({
         proposal,
-        // Saving the reviewed summary confirms every inferred field, including backend-only ones like the sector.
+        base_revision: baseRevision,
         confirmed_fields: proposal.inferred_fields,
       }, account);
       onSaveProfile(saved);
-      dismiss();
+      clearStoryDraft();
+      closePanel();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Coba lagi.");
     } finally {
@@ -620,8 +696,8 @@ export default function RelocationOnboarding({
               <h1 id="onboarding-step-two-title" className="font-sans text-2xl font-bold leading-tight text-ink md:text-[1.75rem]">
                 Ini yang kami tangkap
               </h1>
-              <button type="button" disabled={isSubmitting} onClick={() => goToStep(1)} className="btn btn-ghost btn-xs min-h-9 shrink-0 px-1 text-primary underline">
-                Ubah cerita
+              <button type="button" disabled={isSubmitting} onClick={restartStory} className="btn btn-ghost btn-xs min-h-9 shrink-0 px-1 text-primary underline">
+                Mulai ulang
               </button>
             </div>
 
@@ -827,8 +903,11 @@ export default function RelocationOnboarding({
 
             <footer className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-4">
               <div className="flex items-center gap-2">
-                <button type="button" disabled={isSubmitting} onClick={() => { onOpenForm(); setStep(0); }} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
+                <button type="button" disabled={isSubmitting} onClick={() => { dismiss(); onOpenForm(); }} className="btn btn-outline btn-neutral min-h-11 rounded-xl px-3">
                   <CheckSquare aria-hidden="true" className="size-4" /> Isi formulir
+                </button>
+                <button type="button" disabled={isSubmitting || isSaving} onClick={restartStory} className="btn btn-ghost min-h-11 rounded-xl px-3">
+                  <RefreshCw aria-hidden="true" className="size-4" /> Mulai ulang
                 </button>
                 <p className="hidden max-w-32 text-[11px] leading-snug text-ink-muted sm:block">Jangan tulis NIK, alamat rumah, atau data kesehatan.</p>
               </div>
@@ -854,12 +933,6 @@ export default function RelocationOnboarding({
           <div className="flex items-center justify-between gap-2">
             <h2 className="hidden text-xs font-semibold md:block">Profil dari ceritamu</h2>
             <p className="min-w-0 text-xs md:hidden">{summaryRows.filter((row) => row.field !== "destination_cities").map((row) => row.compactValue).join(" · ")}</p>
-            <button type="button" onClick={() => {
-              const details = reviewSummaryRef.current;
-              if (!details) return;
-              details.open = true;
-              details.querySelector("summary")?.focus();
-            }} aria-label="Ubah profil" className="btn btn-ghost min-h-11 px-1 text-xs text-primary underline">Ubah</button>
           </div>
           <div className="hidden flex-wrap gap-1.5 text-xs md:flex">
             {summaryRows.map((row) => <span key={row.field} className={`badge h-auto min-h-6 whitespace-normal py-1 ${row.missing ? "badge-outline" : "badge-neutral"}`}>{row.compactValue}</span>)}
@@ -898,17 +971,10 @@ export default function RelocationOnboarding({
           </div>
           <p id="story-weight-help" className="sr-only">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
         </section>}
-        <details ref={reviewSummaryRef} className="mt-2 border-t border-rule text-xs" data-hci-region="story-review-details">
-          <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Tinjau detail profil</summary>
-          <div className="grid gap-3">
-            {profileRows.filter((row) => !row.priorityWeights).map((row) => <ReviewSummary key={row.key} title={row.label} inferred={row.inferred && !row.missing}
-              editing={editingField === row.field} onEdit={editableProfileFields.has(row.field) ? () => { setEditError(null); setEditingField(row.field); } : undefined}>
-              {editingField === row.field && proposal ? <ProfileFieldEditor key={row.field} field={row.field} label={row.label}
-                value={proposal.hard_constraints[row.field] ?? proposal.soft_preferences[row.field]} onSave={(value) => saveFieldEdit(row.field, value)} onCancel={() => setEditingField(null)} /> : row.value}
-            </ReviewSummary>)}
-          </div>
-          {editError && <p role="alert" className="mt-2 text-sm font-semibold text-error">{editError}</p>}
-        </details>
+        {reviewProfile && proposal && <ProfileReviewFields profile={reviewProfile} inferredFields={proposal.inferred_fields}
+          providedFields={providedProfileFields} includePriorities={false} sourceLabel="Dari ceritamu"
+          editingField={editingField} onEdit={(field) => { setEditError(null); setEditingField(field); }}
+          onSave={saveFieldEdit} onCancelEdit={() => setEditingField(null)} editError={editError} />}
         {preview?.available && onSelectDistrict && <details className="mt-2 border-t border-rule text-xs md:hidden" data-hci-region="onboarding-accessible-results">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
           <ul className="space-y-1" aria-label="Kecamatan dalam pratinjau">
@@ -939,7 +1005,7 @@ function StepHeader({ step, onSkip, className = "", disabled = false, compact = 
         </span>
       </div>
       <button type="button" disabled={disabled} onClick={onSkip} className="btn btn-ghost btn-xs min-h-11 shrink-0 gap-1 px-1 text-ink">
-        {compact ? "Lewati" : "Lewati untuk sekarang"} <X aria-hidden="true" className="size-3.5" />
+        Lanjut nanti <X aria-hidden="true" className="size-3.5" />
       </button>
     </header>
   );
@@ -960,32 +1026,4 @@ function RequestError({ error }: { error: string | null }) {
     <p role="alert" className="mt-3 text-sm font-semibold text-error">{error}</p>
     {error.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk melanjutkan</Link>}
   </>;
-}
-
-
-function ReviewSummary({
-  title,
-  children,
-  inferred = false,
-  editing = false,
-  onEdit,
-}: {
-  title: string;
-  children: React.ReactNode;
-  inferred?: boolean;
-  editing?: boolean;
-  onEdit?: () => void;
-}) {
-  return (
-    <section className={`border-t-2 pt-1.5 ${inferred ? "-mx-2 rounded-b-lg border-primary bg-primary-tint px-2 pb-1.5" : "border-ink"}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-baseline gap-1.5">
-          <h2 className="text-sm font-semibold text-ink">{title}</h2>
-          {inferred && <span className="text-xs text-ink-muted">· disimpulkan</span>}
-        </div>
-        {onEdit && !editing && <button type="button" onClick={onEdit} aria-label={`Ubah ${title}`} className="btn btn-ghost btn-xs min-h-9 px-1 text-primary underline">Ubah</button>}
-      </div>
-      <div className="text-xs leading-relaxed text-ink">{children}</div>
-    </section>
-  );
 }

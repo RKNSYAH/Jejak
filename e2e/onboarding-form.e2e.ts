@@ -3,6 +3,7 @@ import { test } from "./fixtures/auth";
 import { stubZones } from "./fixtures/map";
 
 async function startForm(page: Page, savedProfile: Record<string, unknown> | null = null, beforeOpen?: () => Promise<void>) {
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.request().method() === "GET"
         ? route.fulfill({ json: { user_id: "11111111-1111-4111-8111-111111111111", profile: savedProfile } }) : route.fallback());
     await stubZones(page);
@@ -67,9 +68,11 @@ test("mobile form sheet shrinks by tap or drag so the map shows, and the info ba
 test("form uses database-shaped evidence, saves a map-picked destination, and keeps map/list selection aligned", async ({ page }, testInfo) => {
     const liveCalls: string[] = [];
     const errors: string[] = [];
+    let profileSaves = 0;
     const viewport = page.viewportSize();
     const mobile = (viewport?.width ?? 1280) < 768;
     page.on("request", (request) => { if (/\/api\/(zones|geometry|heatmap|relocation-profile-interpretation)/.test(request.url())) liveCalls.push(request.url()); });
+    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/user/relocation-profile" && request.method() === "POST") profileSaves++; });
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error" && /layers\.onboarding|Source.*onboarding/.test(message.text())) errors.push(message.text()); });
     await startForm(page);
@@ -111,6 +114,13 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await expect(career).toHaveValue("65");
     expect(await page.locator('input[type="range"]').evaluateAll((inputs) => inputs.reduce((sum, input) => sum + Number((input as HTMLInputElement).value), 0))).toBe(100);
     await page.screenshot({ path: testInfo.outputPath("step-4.png") });
+    await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
+    const review = page.locator('[data-hci-region="onboarding-form-review"]');
+    await expect(review).toBeVisible();
+    await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Pekerjaan atau bidang karier");
+    await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Anggaran bulanan");
+    await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Belum dinilai");
+    expect(profileSaves).toBe(0);
     const saveResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
     await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
     const response = await saveResponse;
@@ -141,7 +151,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await resultCard.click();
     const detail = page.getByRole("region", { name: "Data Kecamatan A" });
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText("Survei hunian fixture");
+    await expect(detail.getByRole("link", { name: "Sumber" }).first()).toBeVisible();
     if (!mobile) {
         await separator.press("Home");
         const marker = page.locator(".maplibregl-marker button").filter({ hasText: "Kecamatan A" });
@@ -154,6 +164,25 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
     await page.getByRole("button", { name: "Sesuaikan rencana" }).click();
     await expect(page.getByRole("heading", { name: "Apa yang paling penting untukmu?" })).toBeVisible();
+});
+
+test("form review edits return to the matching step and back without saving", async ({ page }) => {
+    let profileSaves = 0;
+    page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/user/relocation-profile" && request.method() === "POST") profileSaves++; });
+    await startForm(page);
+    await page.getByLabel("Pekerjaan", { exact: true }).fill("Data analyst");
+    for (let step = 1; step < 4; step++) await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
+    const review = page.locator('[data-hci-region="onboarding-form-review"]');
+    await review.getByRole("button", { name: "Ubah Batas sewa", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Berapa batas yang realistis?" })).toBeVisible();
+    await page.getByLabel("Batas sewa per bulan", { exact: true }).fill("1.800.000");
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await page.getByRole("button", { name: "Kembali ke tinjauan", exact: true }).click();
+    await expect(review).toContainText("Rp1.800.000 per bulan");
+    await expect(review).toContainText("Data analyst");
+    expect(profileSaves).toBe(0);
 });
 
 test("costs stay outside the collapsed list and removed optional questions are absent", async ({ page }) => {
@@ -245,6 +274,7 @@ test("failed form save keeps inputs and allows a real backend retry", async ({ p
         return route.fallback();
     });
     const save = page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true });
+    await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
     await save.click();
     await expect(page.locator(".onboarding-form-panel").getByRole("alert")).toContainText("Profil belum tersimpan");
     await expect(page.locator(".onboarding-form-panel")).toBeVisible();

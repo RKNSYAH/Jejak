@@ -98,6 +98,18 @@ test("missing city costs do not score rent as a complete monthly-budget estimate
     assert.equal(preview.ranked.length, 0);
 });
 
+test("unsupported environment weight does not change district ranking", () => {
+    const rank = (environment: number) => evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 100, mobility: 0, environment: 0 },
+        priorityWeights: { career: 0, education: 0, housing: 1 - environment, cost_of_living: 0, commute: 0, environment },
+    }, 4, { cities, areas, destinations: [] }).ranked.map(({ district, score }) => [district.zone_id, score]);
+
+    assert.deepEqual(rank(0.5), rank(0));
+});
+
 test("a sourced zero company count remains observed evidence rather than missing data", () => {
     const withCompanyCounts = areas.map((area, index) => ({
         ...area,
@@ -191,7 +203,7 @@ test("saved priority weights reorder districts without a destination", () => {
     assert.equal(topFor({ career: 0.2, housing: 1 }), "jakarta-selatan-a");
 });
 
-test("districts up to 10% over the rent limit stay eligible", () => {
+test("rent and monthly-cost limits are strict", () => {
     const withRent = (value: number) => ({ ...areas[0], facts: [{ ...areas[0].facts[0], value }] }) satisfies OnboardingArea;
     const evaluate = (rent: number) => evaluateLiveOnboarding({
         goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: 2_000_000,
@@ -203,15 +215,21 @@ test("districts up to 10% over the rent limit stay eligible", () => {
     const within = evaluate(2_000_000);
     assert.equal(within.eligible, true);
 
-    for (const rent of [2_100_000, 2_200_000]) {
-        const near = evaluate(rent);
-        assert.equal(near.eligible, true);
-        assert.ok(near.reasons.includes("Sewa dalam batasmu"));
+    for (const rent of [2_000_001, 2_100_000, 2_200_000]) {
+        const over = evaluate(rent);
+        assert.equal(over.eligible, false);
+        assert.ok(over.exclusions.includes("Sewa di atas batasmu"));
     }
 
-    const over = evaluate(2_200_001);
-    assert.equal(over.eligible, false);
-    assert.ok(over.exclusions.includes("Sewa di atas batasmu"));
+    const monthlyCostPreview = (budget: number) => evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: budget, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: "transit", commuteMinutes: 45, overBudget: "mark",
+        weights: { opportunity: 40, affordability: 30, mobility: 20, environment: 10 },
+    }, 2, { cities, areas: [areas[0]], destinations: [] }).districts[0];
+
+    assert.equal(monthlyCostPreview(4_800_000).eligible, true);
+    assert.equal(monthlyCostPreview(4_799_999).eligible, false);
 });
 
 test("monthly cost range covers districts within the budget, widened to whole Rp500.000 steps", () => {

@@ -14,7 +14,8 @@ export function roadOptions(mode: Exclude<Transport, "transit">) {
 
 // Explicit planning allowance at the two endpoints, never at every road node/stop.
 export function roadOverhead(mode: Transport): number { return mode === "active" ? 0 : 120; }
-// Pinned 3.9 parser uses meters here. Do not silently snap a lake/island probe 35 km away.
+// Valhalla 3.9 reads these in meters. Its default search_cutoff (35 km) would snap a
+// probe in a lake or on an island to a distant road.
 const location = ([lon, lat]: RoutingPoint) => ({ lon, lat, radius: 20, search_cutoff: 100, rank_candidates: true });
 
 export async function roadMatrix(url: string, version: string, origins: RoutingPoint[], destination: RoutingPoint,

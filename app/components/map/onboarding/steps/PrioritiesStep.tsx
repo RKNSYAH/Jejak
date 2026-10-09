@@ -5,7 +5,7 @@ import type { StepProps } from "./PurposeStep";
 export default function PrioritiesStep({ answers, onChange }: StepProps) {
     const opportunityLabel = answers.goal === "study" ? "Pendidikan" : answers.goal === "both" ? "Karier & pendidikan" : "Karier";
     const labels = { opportunity: opportunityLabel, affordability: "Keterjangkauan", mobility: "Mobilitas", environment: "Lingkungan" };
-    const hints = { opportunity: answers.goal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Ruang hijau, fasilitas" };
+    const hints = { opportunity: answers.goal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Belum memengaruhi urutan" };
     return <div className="space-y-6">
         <div>
             <div className="divide-y divide-rule border-y border-rule">

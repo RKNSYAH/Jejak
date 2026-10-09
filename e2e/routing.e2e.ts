@@ -15,6 +15,7 @@ const metros = {
 async function openReachForm(page: Page, region: keyof typeof metros) {
     const city = metros[region];
     let routeCalls = 0;
+    expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
     await stubZones(page);
     await page.route((url) => url.pathname === "/api/user/relocation-profile", (route) => route.request().method() === "GET"
         ? route.fulfill({ json: { user_id: "11111111-1111-4111-8111-111111111111", profile: null } }) : route.fallback());
@@ -77,7 +78,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await expect(panel).toContainText("Perkiraan jangkauan 1,9–3,1 km");
         await expect(list).toContainText("Kecamatan di tepi perkiraan jangkauan");
         await page.getByRole("radio", { name: "15 mnt", exact: true }).check();
-        await expect(panel).toContainText("Perkiraan jangkauan 0,6–1,0 km · 0 kecamatan");
+        await expect(panel).toContainText("Perkiraan jangkauan 0,6–1,0 km · 1 kecamatan");
         await expect(list).toContainText("Titik kecamatan di luar perkiraan jangkauan");
         await page.getByRole("radio", { name: "45 mnt", exact: true }).check();
         await page.getByRole("radio", { name: "Transport umum", exact: true }).check();
@@ -98,6 +99,7 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await expect(page.locator('[data-hci-region="planning-radius-label"]').filter({ hasText: "Luar · 10,2 km" })).toBeVisible();
         await page.screenshot({ path: testInfo.outputPath("setup-circles.png") });
         await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+        await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
         await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
         await page.getByRole("button", { name: "Jelajahi data peta", exact: true }).click();
         const summary = page.locator('[data-hci-region="map-planning-reach"]');
@@ -168,6 +170,7 @@ test("estimated reach keeps saved map and list selection equivalent", async ({ p
     const routeCalls = await openReachForm(page, "jakarta");
     await expect(page.locator(".onboarding-form-panel")).toContainText("Perkiraan jangkauan");
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
     await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     const separator = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });

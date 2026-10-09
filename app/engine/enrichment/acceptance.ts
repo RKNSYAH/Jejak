@@ -77,7 +77,7 @@ const precisionScore: Record<Precision, number> = {
     building: 1, street: 0.85, neighborhood: 0.7, district: 0.55, city: 0.3, region: 0.15, unknown: 0,
 };
 
-// MVP of spec §15: extractor confidence substitutes for per-record coverage.
+// MVP of docs/Jejak_Langflow_AI_Specification.md §15: extractor confidence substitutes for per-record coverage.
 export function publishedConfidence(candidate: ZoneEvidenceCandidate, precision: Precision, agreed: boolean, now: Date): number {
     const observedAt = Date.parse(candidate.publishedAt ?? candidate.retrievedAt);
     const ageDays = (now.getTime() - observedAt) / 86_400_000;

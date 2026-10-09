@@ -25,7 +25,8 @@ export function useAccountIdentity(userId: string) {
     useEffect(() => {
         const { data: { subscription } } = createClient().auth.onAuthStateChange((event, session) => {
             if (account.signal.aborted || session?.user.id === userId) return;
-            account.invalidate(false); // Invalidate before React/navigation.
+            // Abort the old account's requests and clear its profile now; the redirect waits for a re-render.
+            account.invalidate(false);
             const { pathname, search, hash } = window.location;
             const next = `${pathname}${search}${hash}`;
             const signedOutPath = `/login?${new URLSearchParams({ status: "signed-out", next: authDestination(next) })}`;

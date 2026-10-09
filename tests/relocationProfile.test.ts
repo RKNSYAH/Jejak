@@ -98,18 +98,25 @@ test("story profiles cannot be saved without a determined goal or with conflicti
   const missing = { ...proposal, soft_preferences: {}, inferred_fields: [] };
   assert.throws(() => buildPersistedRelocationProfile(missing, []), /PROFILE_GOAL_REQUIRED/);
   assert.throws(() => buildPersistedRelocationProfile({ ...proposal, hard_constraints: { goal: "study" } }, proposal.inferred_fields), /INVALID_PROFILE_GOAL/);
-  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ proposal: missing, confirmed_fields: [] })));
+  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ proposal: missing, confirmed_fields: [], base_revision: null })));
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /Tentukan tujuan/);
 });
 
 test("profile endpoint rejects mixed paths and unauthorized valid forms", async () => {
-  const mixed = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers, proposal, confirmed_fields: [] })));
-  const invalid = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: { ...defaultAnswers, monthlyBudget: 0 } })));
-  const anonymous = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers })));
+  const mixed = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers, proposal, confirmed_fields: [], base_revision: null })));
+  const invalid = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: { ...defaultAnswers, monthlyBudget: 0 }, base_revision: null })));
+  const anonymous = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers, base_revision: null })));
   assert.equal(mixed.status, 400);
   assert.equal(invalid.status, 400);
   assert.equal(anonymous.status, 401);
+});
+
+test("profile saves require an explicit expected revision", async () => {
+  const missing = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers })));
+  const invalid = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ form_answers: defaultAnswers, base_revision: 0 })));
+  assert.equal(missing.status, 400);
+  assert.equal(invalid.status, 400);
 });
 
 test("profile saving reads the owned confirmed database row before reporting success", async (context) => {
@@ -130,6 +137,7 @@ test("profile saving reads the owned confirmed database row before reporting suc
       const body = JSON.parse(String(init?.body));
       assert.equal(body.p_user_id, userId);
       assert.deepEqual(body.p_profile, input);
+      assert.equal(body.p_expected_revision, null);
       return Response.json([{ id: stored.id, revision: stored.revision }]);
     }
     assert.equal(url.searchParams.get("user_id"), `eq.${userId}`);
@@ -138,11 +146,11 @@ test("profile saving reads the owned confirmed database row before reporting suc
     return Response.json(verificationRow);
   });
   try {
-    const result = await saveConfirmedRelocationProfile(userId, input);
+    const result = await saveConfirmedRelocationProfile(userId, input, null);
     assert.deepEqual(result, { ...stored, id: "42" });
     assert.equal(calls.length, 2);
     verificationRow = null;
-    await assert.rejects(saveConfirmedRelocationProfile(userId, input), /Saved profile could not be verified/);
+    await assert.rejects(saveConfirmedRelocationProfile(userId, input, null), /Saved profile could not be verified/);
   } finally {
     if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = previousUrl;
     if (previousKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = previousKey;
@@ -193,7 +201,7 @@ test("profile persistence requires confirmation for every inferred field exactly
 });
 
 test("profile endpoint refuses to save before inferred fields are confirmed", async () => {
-  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ proposal, confirmed_fields: ["goal"] })));
+  const response = await POST(postJson("/api/user/relocation-profile", JSON.stringify({ proposal, confirmed_fields: ["goal"], base_revision: null })));
 
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /Konfirmasi semua kesimpulan/);
