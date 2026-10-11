@@ -57,7 +57,7 @@ export async function stubZones(page: Page, zones: unknown[] = [], isSample = fa
 // Opens the map in demo onboarding and skips the story dialog.
 export async function openDemoMap(page: Page) {
     await page.goto("/map?onboarding=demo");
-    await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
+    await page.getByRole("button", { name: /Lewati untuk sekarang|Lanjut nanti/ }).click();
 }
 
 export async function confirmProfile(page: Page) {

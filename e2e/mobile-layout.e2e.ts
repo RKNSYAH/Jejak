@@ -38,7 +38,7 @@ test("short mobile map clears controls when discovery opens", async ({ page }) =
     await stubZones(page);
     await page.setViewportSize({ width: 320, height: 420 });
     await openDemoMap(page);
-    const sheetHandle = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
+    const sheetHandle = page.getByRole("separator");
     await expect(page.getByRole("button", { name: /Bangunan 3D/ })).toBeVisible();
     await sheetHandle.press("End");
     await expect(page.locator('[data-hci-region="map-chat"]')).toBeHidden();

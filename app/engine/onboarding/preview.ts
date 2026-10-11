@@ -43,7 +43,7 @@ export function getSavedResults(preview: LiveOnboardingPreview | null, loading: 
 export function suggestWeights(answers: FormAnswers): Weights {
     const raw: Weights = {
         opportunity: answers.goal === "both" ? 45 : 40,
-        affordability: 30 + (answers.overBudget === "hide" ? 10 : 0) + (answers.monthlyBudget < 4_000_000 ? 10 : 0),
+        affordability: 30 + (answers.monthlyBudget < 4_000_000 ? 10 : 0),
         mobility: 20 + { 15: 15, 30: 8, 45: 0, 60: -8 }[answers.commuteMinutes] + (answers.transport === "active" ? 5 : 0) +
             (answers.destinationPoint || answers.destinationId ? 5 : 0),
         environment: 10,

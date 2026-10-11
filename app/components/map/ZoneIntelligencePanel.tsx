@@ -42,6 +42,13 @@ const detailLenses = [
   { category: "mobility", label: "Mobilitas", icon: Route },
 ] satisfies { category: MapCategory; label: string; icon: typeof Briefcase }[];
 
+const evidenceTypeLabels = {
+  observed: "Teramati",
+  estimated: "Estimasi",
+  derived: "Turunan",
+  unavailable: "Tidak tersedia",
+} as const;
+
 const sourceBrands: Record<string, string> = {
   "bps.go.id": "BPS",
   "mamikos.com": "Mamikos",
@@ -197,16 +204,30 @@ function PanelContent({ zoneName, cityName, details, category, recommendation, d
           {isSample && <p className="mb-4"><span className="badge badge-neutral badge-sm font-semibold">Data contoh</span></p>}
           {!loading && !facts.length && !campuses.length && <p className="text-sm text-ink-muted">Belum ada data {mapCategories[category].panelLabel.toLowerCase()} untuk kecamatan ini.</p>}
           {metricRows.length > 0 && <dl className="grid gap-3">
-            {metricRows.map(({ metric, fact }) => (
-              <div key={metric} className="card border border-rule p-4 shadow-sm">
+            {metricRows.map(({ metric, fact }) => {
+              const confidence = fact?.confidence;
+              const validConfidence = typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1;
+              return <div key={metric} className="card border border-rule p-4 shadow-sm">
                 <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
                 <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{fact ? formatFactValue(fact) : loading ? "Memuat…" : "Belum tersedia"}</dd>
                 {fact && <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>}
                 {fact?.source_url && <dd className="mt-1 text-xs text-ink-muted">
                   <a className="link link-hover" href={fact.source_url} target="_blank" rel="noreferrer">{shortSourceLabel(fact)}</a>
                 </dd>}
-              </div>
-            ))}
+                {fact && <dd className="mt-1">
+                  <details className="text-xs text-ink-muted">
+                    <summary className="min-h-11 cursor-pointer py-3 font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">Tentang data ini</summary>
+                    <dl className="space-y-1 pb-2">
+                      <div className="flex gap-1"><dt>Jenis:</dt><dd>{evidenceTypeLabels[fact.evidence_type]}</dd></div>
+                      {fact.geographic_level === "zone" && <div className="flex gap-1"><dt>Cakupan:</dt><dd>Kecamatan</dd></div>}
+                      {fact.freshness && <div className="flex gap-1"><dt>Pembaruan:</dt><dd>{fact.freshness === "fresh" ? "Data terbaru" : "Perlu diperbarui"}{fact.retrieved_at ? ` · ${fact.retrieved_at.slice(0, 10)}` : ""}</dd></div>}
+                      {validConfidence && <div className="flex gap-1"><dt>Skor keyakinan sumber Jejak:</dt><dd>{Math.round(confidence * 100)}/100</dd></div>}
+                      {fact.limitations && <div><dt className="font-semibold">Batasan</dt><dd>{fact.limitations}</dd></div>}
+                    </dl>
+                  </details>
+                </dd>}
+              </div>;
+            })}
           </dl>}
           {campuses.length > 0 && <section className="mt-6" aria-labelledby={`${idPrefix}-campuses`}>
             <h3 id={`${idPrefix}-campuses`} className="font-sans text-lg font-bold">Kampus</h3>

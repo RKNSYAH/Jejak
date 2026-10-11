@@ -2,12 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RegionFact, ZoneDetailResult, ZoneGeometry } from "../app/engine/types";
+import type { ZoneSummary } from "../app/engine/types";
+import type { LiveDistrictRecommendation } from "../app/engine/onboarding/types";
 import { getMapMetricConfig } from "../app/components/map/mapMetrics";
 import { createZoneLayerData } from "../app/components/map/zoneLayerData";
 import { getMetricRange, getZoneFillLayer } from "../app/components/map/zoneLayers";
 import { getZoneMapData } from "../app/engine/lib/zoneApi";
 import MapLegend from "../app/components/map/MapLegend";
 import ZoneIntelligencePanel from "../app/components/map/ZoneIntelligencePanel";
+import MapBottomSheet from "../app/components/map/MapBottomSheet";
 
 function count(metric: string, value: number, overrides: Partial<RegionFact> = {}): RegionFact {
     return { metric, value, unit: "count", source: "Direktori pendidikan", source_url: "https://example.test/pendidikan",
@@ -75,16 +78,23 @@ test("education panel always shows both cards, retaining zero separately from mi
     }
 });
 
-test("education cards avoid source text dumps while retaining a source link and period", () => {
+test("education cards disclose evidence qualifiers without dumping source text", () => {
     const html = panel({ is_sample: true, places: [], facts: [count("schools", 51, {
         source: "Kota Jakarta Selatan Dalam Angka 2026, Tables 4.1.3, 4.1.5; Workbook 06_institutions + 07_campuses",
         is_sample: true, limitations: "Cakupan terbatas dengan metodologi panjang", evidence_type: "estimated",
+        geographic_level: "zone", freshness: "stale", confidence: 0.72, retrieved_at: "2026-10-01T12:00:00Z",
     })] });
     assert.match(html, /Data contoh/);
     assert.match(html, /2025-12-31/);
     assert.match(html, /href="https:\/\/example.test\/pendidikan"/);
     assert.match(html, />Sumber<\/a>/);
-    assert.doesNotMatch(html, /Kota Jakarta Selatan Dalam Angka|metodologi panjang/);
+    assert.match(html, /Tentang data ini/);
+    assert.match(html, /Jenis:<\/dt><dd>Estimasi/);
+    assert.match(html, /Cakupan:<\/dt><dd>Kecamatan/);
+    assert.match(html, /Perlu diperbarui · 2026-10-01/);
+    assert.match(html, /Skor keyakinan sumber Jejak:<\/dt><dd>72\/100/);
+    assert.match(html, /Batasan<\/dt><dd>Cakupan terbatas dengan metodologi panjang/);
+    assert.doesNotMatch(html, /Kota Jakarta Selatan Dalam Angka/);
     const loading = panel(null, true);
     assert.match(loading, /Memuat…/);
     assert.doesNotMatch(loading, /Belum tersedia/);
@@ -176,6 +186,27 @@ test("education legend uses the selected measure for its heading, source, scale,
     assert.match(html, /2024-12-31/);
     assert.match(html, /Data contoh/);
     assert.doesNotMatch(html, /Survei sekolah|2025-12-31/);
+});
+
+test("discovery list repeats the selected thematic metric and labels missing values", () => {
+    const zones: ZoneSummary[] = ["ada", "kosong"].map((id) => ({
+        zone_id: id, zone_name: id, city_id: "jakarta", city_name: "Jakarta", is_sample: false,
+        average_monthly_wage_idr: null, median_monthly_rent_idr: null, population: null, wage_to_rent_ratio: null,
+    }));
+    const recommendations = zones.map((zone, index): LiveDistrictRecommendation => ({
+        district: {
+            ...zone, center: null, facts: index ? [count("schools", 4)] : [count("universities", 2)],
+            campuses: [], transit_stop_count: 0, living_cost: null,
+        },
+        rent: null, rentFact: null, monthlyCost: null, commuteMinutes: null, commuteEstimate: null,
+        distanceKm: null, reachCoverage: null, financialEligible: null, reachBand: "unknown", beyondReach: false,
+        eligible: null, exclusions: [], unknowns: [], warnings: [], reasons: [], score: null, rank: null,
+    }));
+    const html = renderToStaticMarkup(<MapBottomSheet zones={zones} recommendations={recommendations}
+        onSelect={() => {}} onStateChange={() => {}} onHeightChange={() => {}} ref={null}
+        category="education" educationMetric="universities" />);
+    assert.match(html, /Universitas: 2/);
+    assert.match(html, /Universitas: Data belum tersedia/);
 });
 
 test("education counts survive the browser API as recorded, including zero", async (context) => {

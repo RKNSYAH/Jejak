@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import MapView, { AttributionControl, Layer, Marker, Popup, Source, type MapMouseEvent, type MapRef } from "react-map-gl/maplibre";
 import * as maplibregl from "maplibre-gl";
@@ -24,16 +25,13 @@ import { getCityMetroArea, getMetroArea, getMetroCityIds, isMetroCity } from "@/
 import MapChatComposer from "./MapChatComposer";
 import MapLegend from "./MapLegend";
 import MapZoomControls from "./MapZoomControls";
-import ZoneIntelligencePanel from "./ZoneIntelligencePanel";
 import MapBottomSheet, { SHEET_MIN_HEIGHT, type MapBottomSheetHandle, type MapBottomSheetState } from "./MapBottomSheet";
 import RelocationOnboarding, { type MapPoint, type OfficeChoice, type StoryStep } from "./RelocationOnboarding";
 import BrandLogo from "../BrandLogo";
-import RelocationFormOnboarding from "./onboarding/RelocationFormOnboarding";
 import OnboardingMapLayers, { ONBOARDING_FILL_ID } from "./onboarding/OnboardingMapLayers";
 import PlanningReachLayers from "./PlanningReachLayers";
 import PlanningDistrictLayers, { PLANNING_DISTRICT_FILL_ID } from "./PlanningDistrictLayers";
 import PlanningReachSummary from "./PlanningReachSummary";
-import OnboardingPreview from "./onboarding/OnboardingPreview";
 import { useFormOnboarding } from "./onboarding/useFormOnboarding";
 import { useOnboardingGeometry } from "./onboarding/useOnboardingGeometry";
 import { useSavedRelocationProfile } from "./onboarding/useSavedRelocationProfile";
@@ -52,6 +50,10 @@ import { validateRelocationProfileProposal } from "@/app/engine/lib/relocationPr
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
 import { useAccountIdentity } from "@/app/engine/lib/useAccountIdentity";
 import { getSavedResults } from "@/app/engine/onboarding/preview";
+
+const ZoneIntelligencePanel = dynamic(() => import("./ZoneIntelligencePanel"));
+const RelocationFormOnboarding = dynamic(() => import("./onboarding/RelocationFormOnboarding"));
+const OnboardingPreview = dynamic(() => import("./onboarding/OnboardingPreview"));
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -187,7 +189,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 ? !storyDraftActive && !storyReviewActive
                 : formCompleted,
             goal: preferences.goal,
-            overBudget: preferences.overBudget,
             destinationId: preferences.destinationId,
             destinationPoint: preferences.destinationPoint,
         };
@@ -756,7 +757,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                     <span className="pointer-events-none flex size-6 items-center justify-center rounded-full border-2 border-base-100 bg-primary shadow-overlay"><span className="size-2 rounded-full bg-base-100" /></span>
                 </Marker>}
                 {prototypeActive && !resultsUnavailable && mapContext && activePreview && <OnboardingMapLayers context={mapContext} preview={activePreview}
-                    geometry={onboardingGeometry.geometry} mapRef={mapRef} mapLoaded={mapStyleReady} category={category}
+                    geometry={onboardingGeometry.geometry} category={category}
                     onDestination={(destination) => form.update(destination
                         ? { destinationId: destination.id, destinationName: destination.name, destinationPoint: destination.center }
                         : { destinationId: null, destinationName: null, destinationPoint: null })}
@@ -913,6 +914,8 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 cityShortlist={!onboardingActive ? cityShortlist : undefined}
                 selectedCityId={explorationCityId}
                 onSelectCity={selectExplorationCity}
+                category={category}
+                educationMetric={educationMetric}
                 onSelect={selectZone}
                 onStateChange={handleBottomSheetStateChange}
                 onHeightChange={handleSheetHeightChange}

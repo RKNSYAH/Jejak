@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getAuthenticatedClaims } from "../../engine/controller/userServerController";
+import { getAuthenticatedIdentity } from "../../engine/controller/userServerController";
 import Footer from "../Footer";
 import Header from "../Header";
 import ArrowRightIcon from "./ArrowRightIcon";
@@ -24,8 +24,8 @@ const highlights = [
 ];
 
 export default async function LandingPage() {
-    const claims = await getAuthenticatedClaims();
-    const startHref = claims ? "/map" : "/login";
+    const identity = await getAuthenticatedIdentity();
+    const startHref = identity ? "/map" : "/login";
 
     return (
         <div className="relative flex min-h-[100dvh] flex-col bg-base-100 text-ink">
@@ -49,7 +49,7 @@ export default async function LandingPage() {
                                 Mulai Jejakmu
                                 <ArrowRightIcon aria-hidden="true" className="size-5" />
                             </Link>
-                            {!claims && (
+                            {!identity && (
                                 <p className="flex flex-wrap items-center justify-center gap-x-1 font-body text-sm text-on-ink md:justify-start">
                                     Sudah punya akun?
                                     <Link

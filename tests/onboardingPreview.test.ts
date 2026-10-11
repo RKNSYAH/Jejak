@@ -26,6 +26,7 @@ test("suggested priorities follow earlier answers, sum to 100, and leave user-ed
     assert.deepEqual(suggestWeights(initialFormAnswers), defaultWeights);
     const tight = { ...initialFormAnswers, monthlyBudget: 3_000_000, overBudget: "hide" as const, commuteMinutes: 15 as const };
     const suggested = suggestWeights(tight);
+    assert.deepEqual(suggestWeights({ ...initialFormAnswers, overBudget: "hide" }), suggestWeights(initialFormAnswers));
     assert.equal(priorityKeys.reduce((sum, key) => sum + suggested[key], 0), 100);
     assert.ok(suggested.affordability > defaultWeights.affordability && suggested.mobility > defaultWeights.mobility);
     assert.ok(suggestWeights({ ...initialFormAnswers, commuteMinutes: 60 }).mobility < defaultWeights.mobility);

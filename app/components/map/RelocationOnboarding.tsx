@@ -8,7 +8,7 @@ import { validateRelocationProfileProposal, type RelocationProfileProposal } fro
 import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
-import { formatProfileValue, formatRupiah, housingLabels, priorityLabels } from "../../engine/onboarding/demoData";
+import { formatProfileValue, housingLabels, priorityLabels } from "../../engine/onboarding/demoData";
 import { type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
 import { readOnboardingDraft, readOnboardingDraftRecord, writeOnboardingDraft } from "../../engine/onboarding/draftStorage";
 import { fetchOnboardingDraft, persistOnboardingDraft, removeOnboardingDraft } from "../../engine/onboarding/draftApi";
@@ -24,6 +24,7 @@ import StoryReviewPanel from "./onboarding/StoryReviewPanel";
 import { priorityKeys } from "../../engine/onboarding/preview";
 import { storyPriorityWeights, updateStoryPriority } from "../../engine/onboarding/storyPriorities";
 import DistrictListItem from "./onboarding/DistrictListItem";
+import MonthlyCostSummary from "./onboarding/MonthlyCostSummary";
 import { visiblePreviewDistricts } from "../../engine/onboarding/visibleDistricts";
 import { formatProfileChip } from "../../engine/onboarding/profileConfirmation";
 import ProfileConfirmDialog from "./onboarding/ProfileConfirmDialog";
@@ -243,6 +244,7 @@ export default function RelocationOnboarding({
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [remoteDraft, setRemoteDraft] = useState<Awaited<ReturnType<typeof fetchOnboardingDraft>>>();
   const [prioritySuggestion, setPrioritySuggestion] = useState<Draft["prioritySuggestion"]>(null);
   const [profileFieldsOpen, setProfileFieldsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -305,18 +307,26 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
   }
 
   useEffect(() => {
-    if (hydrated || !formReady || !savedProfileLoaded) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetchOnboardingDraft(account, "story").then((draft) => {
+        if (active) setRemoteDraft(draft);
+      }).catch(() => {
+        if (active) setRemoteDraft(null);
+      });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [account]);
+
+  useEffect(() => {
+    if (hydrated || !formReady || !savedProfileLoaded || remoteDraft === undefined) return;
 
     const params = new URLSearchParams(window.location.search);
     const demoRequested = params.get("onboarding") === "demo";
     const requested = params.get("welcome") === "1" || demoRequested;
     const timer = window.setTimeout(() => {
-      void (async () => {
       const alreadyOnboarded = !demoRequested && (savedProfile !== null || savedProfileLoadFailed);
       const localDraft = readDraft(account.userId);
-      let remoteDraft = null;
-      try { remoteDraft = await fetchOnboardingDraft(account, "story"); }
-      catch { /* Keep onboarding available when the account draft service is unavailable. */ }
       const localRecord = readOnboardingDraftRecord(account.userId, "story");
       const ownedDraft = remoteDraft && (!localRecord?.updatedAt || Date.parse(remoteDraft.updatedAt) > Date.parse(localRecord.updatedAt))
         ? isRecord(remoteDraft.draft) ? remoteDraft.draft as Draft : null
@@ -371,11 +381,10 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
       }
 
       setHydrated(true);
-      })();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [account, baseRevision, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoadFailed, savedProfileLoaded, setProposal, setStep]);
+  }, [account, baseRevision, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, remoteDraft, savedProfile, savedProfileLoadFailed, savedProfileLoaded, setProposal, setStep]);
 
   useEffect(() => {
   if (!hydrated || !storyOpenRequest) return;
@@ -1016,12 +1025,7 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
               selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
           </ul>
         </details>}
-        {(costEstimate || costLoading || preview?.available) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-3 border-t border-rule pt-3">
-          <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan di daerah rekomendasi</h2>
-          <p className="mt-0.5 font-sans text-lg font-bold tabular-nums">{costLoading ? "Menghitung…" : !costEstimate ? "Belum ada kecamatan rekomendasi dengan data biaya lengkap"
-            : `sekitar Rp${formatRupiah(costEstimate.average)} / bulan`}</p>
-          {costEstimate && <p className="mt-1 text-xs text-ink-muted">Rata-rata total sewa kecamatan + biaya hidup kota{costEstimate.is_sample && <span className="badge badge-neutral badge-xs ml-2">Data contoh</span>}</p>}
-        </section>}
+        {(costEstimate || costLoading || preview?.available) && <MonthlyCostSummary estimate={costEstimate ?? null} loading={!!costLoading} />}
         {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
         {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
       </StoryReviewPanel>}

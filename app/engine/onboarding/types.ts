@@ -152,7 +152,6 @@ export type LivePreviewMapContext = {
     step: FormStep;
     completed: boolean;
     goal: RelocationGoal;
-    overBudget: "mark" | "hide";
     destinationId: string | null;
     destinationPoint: [number, number] | null;
 };

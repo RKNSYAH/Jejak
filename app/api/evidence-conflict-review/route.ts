@@ -1,5 +1,5 @@
 import { reviewEvidenceConflict } from "@/app/engine/controller/conflictReviewController";
-import { getAuthenticatedClaims } from "@/app/engine/controller/userServerController";
+import { getAuthenticatedIdentity } from "@/app/engine/controller/userServerController";
 import { readJsonBody } from "@/app/engine/lib/http";
 import { flowErrorResponse, isLangflowConfigured, type FlowErrorMessages } from "@/app/engine/lib/langflow";
 import { validateEvidenceConflictReviewInput } from "@/app/engine/lib/evidenceConflictReviewValidation";
@@ -19,8 +19,8 @@ export async function POST(request: Request) {
     }
 
     // Conflict review can fall back to Gemini, so only signed-in users can run it.
-    const claims = await getAuthenticatedClaims().catch(() => null);
-    if (!claims) return Response.json({ error: "Masuk terlebih dahulu untuk meninjau konflik bukti.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
+    const identity = await getAuthenticatedIdentity().catch(() => null);
+    if (!identity) return Response.json({ error: "Masuk terlebih dahulu untuk meninjau konflik bukti.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
 
     if (!isLangflowConfigured()) {
         const [error, status] = flowErrors.config;

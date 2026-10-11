@@ -14,7 +14,7 @@ test("mark keeps fitting, excluded, and unknown districts available", () => {
     assert.deepEqual(visiblePreviewDistricts(preview("mark")).map((item) => item.eligible), [true, false, null]);
 });
 
-test("hide removes known exclusions, not unknown evidence", () => {
-    assert.deepEqual(visiblePreviewDistricts(preview("hide")).map((item) => item.eligible), [true, null]);
+test("legacy hide preference no longer removes over-budget districts", () => {
+    assert.deepEqual(visiblePreviewDistricts(preview("hide")).map((item) => item.eligible), [true, false, null]);
     assert.equal(visiblePreviewDistricts(preview("hide"), false).length, 3);
 });

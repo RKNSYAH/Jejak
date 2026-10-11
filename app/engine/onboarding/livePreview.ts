@@ -311,6 +311,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const unknowns: string[] = [];
         const warnings: string[] = [];
         const reasons: string[] = [];
+        let budgetExceeded = false;
         if (answers.goal !== "study") {
             if (answers.occupation || answers.targetOccupations?.length) unknowns.push("Kecocokan pekerjaan belum tersedia");
             if (answers.careerStage) unknowns.push("Data tahap karier belum tersedia");
@@ -336,14 +337,18 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
             }
             if (answers.monthlyBudget !== null) {
                 if (!area.living_cost || monthlyCost === null) unknowns.push("Biaya hidup kota belum tersedia");
-                else if (!withinBudget(monthlyCost, answers.monthlyBudget)) exclusions.push("Perkiraan biaya bulanan di atas anggaran");
+                else if (!withinBudget(monthlyCost, answers.monthlyBudget)) {
+                    // Keep known overruns in the affordability comparison instead of excluding them.
+                    budgetExceeded = true;
+                    warnings.push("Perkiraan biaya bulanan di atas anggaran");
+                }
                 else reasons.push("Perkiraan biaya bulanan dalam anggaran");
             }
         }
 
         const financiallyConstrained = answers.maximumRent !== null || answers.monthlyBudget !== null;
         const financialUnknown = unknowns.some((item) => /sewa|biaya hidup/i.test(item));
-        const financialEligible = step < 2 || !financiallyConstrained ? null : exclusions.length ? false : financialUnknown ? null : true;
+        const financialEligible = step < 2 || !financiallyConstrained ? null : budgetExceeded ? false : financialUnknown ? null : true;
         const affordable = financiallyConstrained && financialEligible === true;
         const commuteEstimate = byId.get(area.zone_id) ?? null;
         const routeKnown = commuteEstimate?.status === "ok" && commuteEstimate.minutes !== null &&
@@ -370,7 +375,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
             } else reasons.push("Perjalanan titik sampel sesuai estimasi");
         }
         const constrained = (step >= 2 && financiallyConstrained) || (step >= 3 && answers.commuteMinutes !== null);
-        const eligible = !constrained ? null : exclusions.length ? false : financialUnknown ||
+        const eligible = !constrained ? null : exclusions.length || budgetExceeded ? false : financialUnknown ||
             (step >= 3 && answers.commuteMinutes !== null && commuteUnknown) ? null : true;
         if (rent !== null && rentFact) reasons.unshift(`Rata-rata sewa Rp${Math.round(rent).toLocaleString("id-ID")} · ${rentFact.source}`);
         if (typeof area.park_count === "number" && typeof area.public_facility_count === "number") {
@@ -388,7 +393,8 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         };
     });
 
-    const rankable = raw.map((item) => hasHousingStatistics(item) && item.eligible !== false);
+    // Budget overruns remain rankable; hard exclusions such as commute limits do not.
+    const rankable = raw.map((item) => hasHousingStatistics(item) && item.exclusions.length === 0);
     const affordability = rankPercentile(raw.map((item) => item.affordabilityRaw), rankable);
     // ponytail: mapped park and facility points per km² from public_places. Replace with OSM green area and
     // walking access to parks once the OSM extraction pipeline runs.
@@ -443,7 +449,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
     });
 
     // Estimated reach coverage affects mobility scoring only when route evidence is unavailable. Reach never hard-excludes a district.
-    const ranked = districts.filter((item) => hasHousingStatistics(item) && item.eligible !== false && item.score !== null)
+    const ranked = districts.filter((item, index) => rankable[index] && item.score !== null)
         .sort((a, b) => Number(a.beyondReach) - Number(b.beyondReach) || (b.score ?? 0) - (a.score ?? 0) || a.district.zone_id.localeCompare(b.district.zone_id));
     ranked.forEach((item, index) => { item.rank = index + 1; });
     return {

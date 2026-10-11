@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getAuthenticatedClaims } from "../engine/controller/userServerController";
+import { getAuthenticatedIdentity } from "../engine/controller/userServerController";
 import { authDestination } from "../engine/lib/authDestination";
 import LoginForm from "./LoginForm";
 
@@ -13,11 +13,11 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const params = await searchParams;
   const mode = params.mode === "signup" || params.mode === "reset" || params.mode === "forgot" ? params.mode : "login";
   const next = authDestination(typeof params.next === "string" ? params.next : null);
-  const claims = await getAuthenticatedClaims().catch(() => null);
+  const identity = await getAuthenticatedIdentity().catch(() => null);
 
   if (mode === "reset") {
-    if (!claims) redirect("/login?mode=forgot&error=reset");
-  } else if (claims) {
+    if (!identity) redirect("/login?mode=forgot&error=reset");
+  } else if (identity) {
     redirect(next);
   }
 

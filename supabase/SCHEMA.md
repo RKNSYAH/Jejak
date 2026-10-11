@@ -469,7 +469,7 @@ separate work.
 | Shortlists | Own rows, CRUD | CRUD |
 | Subscription plans | Read | CRUD |
 | Subscriptions | Own rows, read-only | CRUD |
-| Click telemetry | Insert only | Dashboard reads |
+| Click telemetry | No direct browser access | Server ingestion, capped at 500 clicks per client IP per hour |
 | Legacy prototype tables/RPCs | None | Compatibility only |
 
 All active tables have RLS. Browser ownership policies use
@@ -555,6 +555,7 @@ they are not the new write/read path.
 | `20260930120000` | Sheet-shaped static data tables, catalog sheet columns, and static-data API reads |
 | `20260930130000` | Widen source labels to `varchar(255)` and retain full names through read RPCs |
 | `20261001100106` | Research identities/unknowns, structured citations, private audit, estimated scenarios, safe unclassified features and district child-place reads; authorized all-row baseline imported separately from the schema-only file |
+| `20261011183525` | Remove direct browser telemetry writes; add a service-only hourly click budget with hashed IP keys and 24-hour budget retention |
 
 The three `202609260...` files were renamed from `20260926_*`, which sorted after
 every later `20260926hhmmss_*` file and shared one version. If the hosted project

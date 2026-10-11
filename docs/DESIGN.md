@@ -5,15 +5,18 @@ description: "A structured, asymmetric, map-first interface for comparing cities
 colors:
   primary: "#006AD8"
   secondary: "#5F84B1"
-  tertiary: "#FFF9F9"
-  ink: "#21297C"
   accent: "#9ED9EB"
-  neutral: "rgba(33, 41, 124, 0.72)"
+  base-100: "#FFF9F9"
+  base-content: "#21297C"
+  neutral: "#21297C"
+  ink: "#21297C"
+  ink-muted: "rgba(33, 41, 124, 0.72)"
+  rule: "rgba(33, 41, 124, 0.14)"
   surface: "rgba(255, 249, 249, 0.96)"
 typography:
   h1:
     fontFamily: "Urbanist"
-    fontSize: "clamp(2rem, 4vw, 2.75rem)"
+    fontSize: "clamp(2.25rem, 5vw, 3.5rem)"
     fontWeight: 700
   body-md:
     fontFamily: "Source Sans 3"
@@ -34,7 +37,7 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.tertiary}"
+    textColor: "{colors.base-100}"
     rounded: "{rounded.md}"
     padding: "12px 16px"
 ---
@@ -45,15 +48,17 @@ JEJAK, formerly Opportunity Atlas, helps people decide where to move for study, 
 
 The interface is a relocation guide built around an interactive map, not a conventional analytics dashboard. The map is the main workspace. Panels explain what is visible, help the user compare options, and expose the evidence behind estimates. A city summary provides context, while local-area data supports the actual relocation decision.
 
-The product should feel personal without becoming playful, data-rich without crowding the map, and credible without resembling a government portal. AI operates in the background to gather and structure current evidence. The interface should foreground useful findings, their source coverage, freshness, and uncertainty instead of promoting AI as a visual feature.
+The product should feel personal without becoming playful, data-rich without crowding the map, and credible without resembling a government portal. The public landing uses a photographic hero and warm surfaces; the signed-in map stays compact and map-first. AI operates in the background to gather and structure current evidence. The interface should foreground useful findings, their source coverage, freshness, and uncertainty instead of promoting AI as a visual feature.
 
 JEJAK applies Swiss-style grid discipline to a contemporary geospatial product. Shared alignment, controlled asymmetry, strong type hierarchy, and deliberate negative space organize the interface. The map stays fluid and exploratory, while controls, panels, labels, and evidence follow a strict spacing system.
 
-- Density: 4/10 - Focused
+The current interface consists of the public landing and account pages, onboarding over the map, the map workspace, and profile editing. Standalone city shortlists, comparison, saved plans, and other journeys below are product direction, not a reason to add routes or controls before they exist.
 
-- Variance: 5/10 - Controlled asymmetry
+- Density: Focused; detail is progressively disclosed
 
-- Motion: 3/10 - Subtle
+- Variance: Controlled asymmetry, with the map remaining the largest surface
+
+- Motion: Subtle, functional transitions only
 
 - **Style:** Map-first, structured, asymmetric, typographic, personalized, evidence-backed
 
@@ -61,7 +66,7 @@ JEJAK applies Swiss-style grid discipline to a contemporary geospatial product. 
 
 - **Era:** Contemporary geospatial product
 
-- **Light/Dark:** Full light theme for MVP / dark theme planned
+- **Light/Dark:** Light theme for the current MVP; no dark-theme toggle is shipped
 
 ## Colors
 
@@ -89,6 +94,8 @@ The brand palette and data-visualization palette have different roles. For quant
 
 Priority charts reuse the five existing Jejak palette colors: career uses Sapphire (`primary`), housing Glaucous (`secondary`), commute Cobalt (`neutral`), education Frosted Blue (`accent`), and living costs Snow (`base-100`). Runtime aliases (`--color-priority-*`) keep each category's color fixed regardless of weight. Outline Snow segments and legend swatches so light fills remain visible. Each category retains a labeled legend swatch, including at 0%; bar widths represent the actual weights without minimum widths.
 
+The map's district choropleths use the Frosted Blue-to-Sapphire sequential scale. Additive H3 density layers use the existing warm yellow-to-red ramp to distinguish density from per-area values; pair it with a labeled legend and the selected district's summary. Treat this as a data-encoding palette, not an extension of the brand palette.
+
 ## Typography
 
 - **Display / Brand:** [Urbanist](https://fonts.google.com/specimen/Urbanist) - Weights 600 and 700. Used for the wordmark, page titles, city and zone names, section headings, and large metrics.
@@ -102,7 +109,8 @@ Load both fonts via `next/font/google` — not a bare `<link>` to the Google Fon
 
 Scale:
 
-- Hero / major screen title: `clamp(2rem, 4vw, 2.75rem)`
+- Landing hero: `clamp(2.25rem, 5vw, 3.5rem)`
+- Application / panel title: `1.5rem` to `1.75rem`
 - City or zone title: `1.625rem` to `2.125rem`
 - Section heading: `1.25rem` to `1.5rem`
 - Large metric: `1.75rem` to `2.5rem`
@@ -119,24 +127,24 @@ Typography establishes hierarchy before containers or decoration. Use size, weig
 
 - **Primary canvas:** A full-screen MapLibre map beneath compact navigation and controls. The map remains visible and understandable during exploration.
 - **Spatial grid:** Use an 8px base unit and a 12-column desktop grid. Search, map tools, legends, panel edges, attribution, and map controls align to shared grid lines.
-- **Asymmetric composition:** Give the map 70% to 75% of the desktop width and the detail surface 25% to 30%. The screen can feel visually uneven, but every element must follow the grid.
+- **Asymmetric composition:** Keep the full-screen map as the canvas. The selected-zone desktop panel overlays the right edge at a fixed `400px` width; it does not resize. The screen can feel visually uneven, but controls and panels align to the spacing system.
 - **Information hierarchy:** User profile and goals lead to a city shortlist, then a city summary, then detailed local zones, companies, housing, transport, and evidence.
 - **Progressive disclosure:** Show a short summary first, relevant metrics second, map evidence third, and source or methodology details on demand.
 - **Surface limit:** Show no more than two substantial information surfaces at once, excluding navigation and compact map controls.
-- **Desktop:** Place the search field below the header at the upper left of the map. Put the horizontal layer toolbar on the same baseline to its right. Show the selected city, zone, company, or evidence panel on the right. Substantial overlays should cover no more than about 45% of the viewport in total.
-- **Tablet:** Show one main panel at a time, with filters and layers available through a compact drawer or segmented control.
-- **Mobile:** Use a bottom sheet over the map. Implement it with a native `<dialog>` element positioned at the bottom of the viewport — this gives focus trapping, `Escape` dismissal, and `::backdrop` for the scrim at no extra cost. Do not use a manually toggled visibility class on a plain `<div>`. Use `max-h-[60dvh]` (not `60vh`) so the sheet is not clipped by mobile browser chrome. Provide a list or table alternative for findings that cannot be understood through the map alone.
+- **Desktop:** Group the brand, region picker, and district search in a compact upper-left header; stack the horizontally scrollable category lenses below it. Keep map utilities at the lower right and offset them around the fixed-width detail panel. The discovery sheet remains anchored along the bottom edge.
+- **Tablet:** Preserve the full map canvas and compact overlay controls. Let the category row scroll when it does not fit.
+- **Mobile:** Keep search and account controls in the top row and category lenses in a horizontally scrollable second row. The discovery sheet is a non-modal map companion, not a dialog: it has collapsed, center, and expanded states, uses up to `60dvh`, and remains available while a zone is selected. Center state presents a horizontal card row; expanded state uses a responsive grid. The separate zone-detail sheet is a native modal `<dialog>` at up to `60dvh`, with Escape and backdrop dismissal. Keep these distinct roles separate. The discovery list also exposes the selected district metric and its missing-data state.
 - **Map detail:** City-level recommendations open to local zone polygons, heatmaps, company and campus bubbles, housing clusters, transport access, and commute bands. Do not present a whole city as the final answer.
 - **Responsive breakpoint:** Multi-column content collapses below `768px`. Avoid horizontal overflow and preserve a minimum 44 by 44 pixel touch target.
 - **z-index contract:** map (0) / map data (10) / controls (100) / panels (200) / modal (300) / toast (500).
-- **Viewport height:** Use `min-h-[100dvh]` for the application shell. Do not use `h-screen` for full-height map layouts. Extend this to all height-constrained surfaces: bottom sheets use `max-h-[60dvh]`, drawers use `max-h-[100dvh]`.
-- **Responsive components:** Panel-internal layouts (zone detail grid, city summary columns, evidence rows) should use CSS Container Queries (`@container`) rather than viewport media queries, so they adapt to their container width regardless of screen size. Reserve `@media` breakpoints for page-level layout changes only.
+- **Viewport height:** Use dynamic viewport units for full-height and height-constrained surfaces. The discovery sheet uses up to `60dvh` on mobile and `72dvh` on desktop; the mobile detail sheet uses up to `60dvh`.
+- **Responsive components:** Use container queries for layouts that respond to a panel or sheet's available width, as the discovery cards do. Use viewport breakpoints for page-level changes such as desktop panels versus mobile sheets.
 
 Implementation defaults:
 
 - Navigation height: `56px` to `64px`
 - Compact control width: `280px` to `340px`
-- Detail panel width: `360px` to `420px`
+- Desktop detail panel width: `400px` fixed
 - Panel padding: `20px` to `24px`
 - Card gap: `12px` to `16px`
 - Control height: `40px` to `44px`
@@ -156,9 +164,9 @@ Depth should separate map controls and information panels without making every e
 - **Entry animations:** Fade plus a small translate of `8px` to `12px`. Avoid large slides over the map.
 - **Hover states:** Subtle border, tint, or elevation change over `150ms` to `200ms`.
 - **Panel transitions:** Fade and short translate only. Preserve the user's map position.
-- **Functional motion:** Animate geographic transitions, selection, resizing, layer changes, or panel relationships. Do not animate static content for decoration.
+- **Functional motion:** Animate geographic transitions, selection, layer changes, or panel relationships. Do not animate static content for decoration.
 - **Performance:** Animate transform and opacity. Avoid layout-triggering animation on map-heavy screens.
-- **Accessibility:** Respect `prefers-reduced-motion` and provide an immediate transition mode. Apply a blanket CSS override (`animation-duration: 0.01ms; transition-duration: 0.01ms`) inside `@media (prefers-reduced-motion: reduce)` for all CSS-driven motion. This does not reach MapLibre's internal animation engine — JS-driven motion (flyTo, easeTo, panel entry) must also be gated by reading `window.matchMedia('(prefers-reduced-motion: reduce)').matches` at runtime and passing `{ animate: false }` to MapLibre calls accordingly.
+- **Accessibility:** Respect `prefers-reduced-motion`. Disable non-essential CSS animation and transitions under the reduced-motion preference, and gate JavaScript-driven motion such as MapLibre `flyTo` and `easeTo` so it runs immediately instead.
 
 ## Shapes
 
@@ -176,19 +184,19 @@ Avoid excessive pill-shaped controls and avoid fully rounded content cards. Shap
 - **Primary Button:** Sapphire fill, Snow text, `12px` radius, and weight 600. Hover uses a modest darkening or border change. Active state uses a subtle `translateY(1px)`. No glow.
 - **Secondary / Ghost Button:** Base surface with a navy or muted border. Hover with a navy border inverts to an ink fill with On Ink text. Maintain a visible keyboard focus ring.
 - **Cards and Panels:** Base or panel surface, clear heading hierarchy, `1px` rule, and restrained shadow. Group information through alignment, whitespace, and dividers before introducing another card. A panel explains the map; it should not become a second dashboard.
-- **Metric Cards:** In a zone detail panel, each metric sits in its own card, with the label, value, evidence state, source, freshness, confidence, source link, and limitations together. Use a `1px` rule border, `16px` padding, a `12px` gap between cards, and no dividers between them. Cards are stacked in a single column. Keep them flat inside, with no nested cards and no separate containers for the evidence lines. Headings, campus lists, and explanatory copy stay outside cards.
+- **Metric Cards:** The summary panel may use a compact three-column fact row. Thematic detail views use one flat card per metric, with its label, value, sample status, period, and concise source link. Keep cards in one column with a `1px` rule border, `16px` padding, and a `12px` gap. A native disclosure within the card may reveal evidence type, geographic scope, retrieval freshness, source confidence, and limitations when those values exist; do not invent unavailable qualifiers or style disclosures as nested cards. Confidence is Jejak's evidence-quality score, not a statistical probability. Headings, campus lists, and explanatory copy stay outside cards.
 - **Inputs:** Label above the field, visible border, primary-blue focus ring, and error text below. Do not use floating labels. Onboarding questions should explain how each answer changes recommendations.
 - **Navigation:** Compact and visually quiet. Active destinations use a primary indicator and weight 600. Keep the header free of the destination search field so the map command area remains spatially connected to the map.
-- **Search and Layer Controls:** Place the floating destination search below the header at the upper left. Put Peta, Pekerjaan, Kampus, Transportasi, Kos, Commute, and Legenda in one horizontal toolbar to its right. Both surfaces use a warm off-white translucent background, a quiet border, and the same baseline.
-- **Map Controls:** Group related controls, label unfamiliar icons, and keep zoom, layer, search, locate, and reset actions consistent. Use Lucide icons with text where recognition is uncertain. Keep large legends collapsed behind the Legenda control when the layer definition remains available on demand. Implement the Legenda panel and any other on-demand disclosure panel using the native Popover API (`popover` attribute + `popovertarget`) rather than manually toggled visibility classes — this provides light-dismiss, focus management, and `::backdrop` for free. The Popover API is Baseline Widely Available as of 2024.
-- **Resizable Detail Panel:** The desktop detail panel attaches to the right edge. Place two short vertical grip lines at the center of its left boundary to show that users can resize it. Implement resizing with the Pointer Events API (`pointermove` + `setPointerCapture`) rather than CSS `resize` — this handles mouse, touch, and stylus with a single handler and allows full visual control of the grip. CSS `resize` is not keyboard-operable. Keyboard support (arrow keys adjusting width when the grip is focused) must be implemented explicitly via `keydown` handlers. Expose the grip's purpose with `aria-label="Resize panel"` and `role="separator"` with `aria-valuenow`, `aria-valuemin`, and `aria-valuemax`.
+- **Search and Category Controls:** Keep region selection and district search in the compact map header. Place Ringkasan, Pekerjaan, Pendidikan, Hunian, and Mobilitas in a horizontally scrollable category row beneath it. On small screens, the row stays horizontally scrollable rather than wrapping into another toolbar.
+- **Map Controls:** Group related controls, give icon-only controls accessible names, and keep zoom, legend, 3D, search, region selection, and reset actions consistent. Keep the legend collapsed behind the Legenda control while its metric, unit, period, range, and coverage remain available on demand. Use native disclosure or Popover API behavior where it fits the interaction; do not require one implementation mechanism for every overlay.
+- **Fixed Detail Panel:** The desktop panel attaches to the right edge at a fixed `400px` width, with a restrained border and overlay shadow. Do not add a resize grip or CSS `resize`; the current layout intentionally keeps map controls and panel offset predictable. On mobile, show zone detail in a native modal dialog, separate from the persistent discovery sheet underneath.
 - **Zone Polygons:** Use primary-blue outlines and translucent fills. Hover strengthens the border. Selection persists with a stronger border or tint, and the selected zone gets an ink casing beneath the primary outline so it stays legible over the basemap. Saved zones also need an icon or pattern so color is not the only cue.
 - **Heatmaps:** Every heatmap must show the measure, unit, period, source coverage, and legend. Never label a layer simply as “opportunity.”
 - **Bubbles / Points:** Bubble size represents one declared measure only. A company count, employee estimate, vacancy count, rent cluster, campus, or transit point must be visually distinguishable. Imprecise locations must not appear as exact building coordinates.
 - **Commute Bands:** Distance and travel time are separate concepts. Label bands such as `<5 km` and `<10 km` clearly, and do not imply they equal a specific journey duration without routing evidence.
 - **City Summary:** Provides orientation, top matching reasons, trade-offs, broad cost range, and data freshness. It must lead users toward local exploration rather than act as the final recommendation.
 - **Zone Detail:** Shows career or study relevance, observed openings, employer clusters, wage evidence, housing cost, access, commute fit, and confidence. This is the main actionable surface.
-- **Evidence States:** Mark values as `Observed`, `Estimated`, `Derived`, or `Unavailable`. Keep the label, source count, freshness, and confidence near the value they qualify. Distinguish states with ink fill versus ink outline and the label text, not with additional hues.
+- **Evidence States:** Mark values as observed, estimated, derived, or unavailable in Indonesian. Keep sample status, period, and source link visible with the value; place evidence type, geographic scope, retrieval freshness, confidence score, and limitations in a keyboard-accessible disclosure. Display only fields supplied by the data. Do not present confidence as a calibrated probability. Distinguish states with label text and ink treatments, not with color alone.
 - **AI Activity:** Use task language such as “Checking current hiring evidence” or “Updated from four sources.” Do not use a robot mascot or a permanent chatbot panel.
 - **Loading:** Prefer skeletons shaped like the destination component using the daisyUI `skeleton` component as the base primitive. Set `aria-busy="true"` on the loading region and `aria-label="Loading…"` so screen readers announce the state. Use CSS `@keyframes` shimmer on `background-position` rather than JS animation for performance. Layer loading should not block map navigation.
 - **Empty States:** Explain what is missing, why it matters, and the next available action. Do not invent a number to fill a gap.
@@ -202,10 +210,10 @@ Avoid excessive pill-shaped controls and avoid fully rounded content cards. Shap
 - Do use typography, whitespace, and dividers before adding containers.
 - Do lead from city context to zone-level detail.
 - Do personalize the hierarchy around the user's study field, career goal, budget, housing needs, transport mode, and commute tolerance.
-- Do expose sources, coverage, freshness, uncertainty, and methodology near generated findings.
+- Do expose available sources, coverage, freshness, uncertainty, and limitations near generated findings; do not invent source counts or confidence where none is provided.
 - Do keep observed facts distinct from estimates and model-derived conclusions.
-- Do use direct, evidence-grounded language such as “12 active IT openings observed across 4 monitored sources.”
-- Do provide keyboard focus, screen-reader labels, strong contrast, and a list or table alternative to visual map layers.
+- Do use direct, evidence-grounded language such as “12 active IT openings observed across 4 monitored sources” only when the count and source total are computed from the evidence.
+- Do provide keyboard focus, screen-reader labels, strong contrast, and the selected district metric with its availability status in the discovery list as a non-map alternative.
 - Do provide legends and units for every quantitative layer.
 - Do preserve at least a 44 by 44 pixel target for touch controls.
 - Do use one consistent icon family, preferably Lucide.
