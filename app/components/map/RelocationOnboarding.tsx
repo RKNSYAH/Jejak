@@ -8,16 +8,17 @@ import { validateRelocationProfileProposal, type RelocationProfileProposal } fro
 import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../../engine/lib/relocationProfile";
 import { handleAuthFailure } from "../../engine/lib/authRedirect";
 import { isRecord } from "../../engine/lib/zoneGeometry";
-import { formatRupiah, transportModeLabels } from "../../engine/onboarding/demoData";
+import { formatProfileValue, formatRupiah, housingLabels, priorityLabels } from "../../engine/onboarding/demoData";
 import { type FormSession, type LiveOnboardingPreview, type Priority } from "../../engine/onboarding/types";
-import { readOnboardingDraft, writeOnboardingDraft } from "../../engine/onboarding/draftStorage";
+import { readOnboardingDraft, readOnboardingDraftRecord, writeOnboardingDraft } from "../../engine/onboarding/draftStorage";
+import { fetchOnboardingDraft, persistOnboardingDraft, removeOnboardingDraft } from "../../engine/onboarding/draftApi";
 import { accountFetch, type AccountScope } from "../../engine/lib/accountIdentity";
 import { getRelocationGoal, relocationGoalLabels, type RelocationGoal } from "../../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../../engine/lib/relocationProfileApi";
-import { applyProfileExplicitDetails, applyProfileFieldEdit, getProfileClarificationField, getProfileTargetCity, groundProfileTransport, parseProfileCommuteAnswer, type ProfileClarificationAnswer, type ProfileFollowUpDetails } from "../../engine/lib/relocationProfileInterpretationFollowUp";
+import { applyProfileExplicitDetails, applyProfileFieldEdit, getProfileClarificationField, getProfileTargetCity, groundProfileTransport, parseProfileCommuteAnswer, profileHousingChoices, type ProfileClarificationAnswer, type ProfileFollowUpDetails } from "../../engine/lib/relocationProfileInterpretationFollowUp";
 import { getProfileTransportQuestion, parseProfileTransportAnswer } from "../../engine/lib/relocationProfileInterpretationTransport";
 import { RadioChoices } from "./onboarding/FormControls";
-import type { MonthlyCostRange } from "../../engine/onboarding/livePreview";
+import type { MonthlyCostEstimate } from "../../engine/onboarding/livePreview";
 import ProfileReviewFields from "./onboarding/ProfileReviewFields";
 import StoryReviewPanel from "./onboarding/StoryReviewPanel";
 import { priorityKeys } from "../../engine/onboarding/preview";
@@ -37,6 +38,7 @@ type Step = StoryStep;
 
 type Draft = {
   step: Exclude<Step, 0>;
+  baseRevision?: number | null;
   story: string;
   office: OfficeChoice;
   transport: TransportChoice | null;
@@ -59,8 +61,8 @@ type RelocationOnboardingProps = {
   onProposalChange: (proposal: RelocationProfileProposal | null) => void;
   savedProfile: StoredRelocationProfile | null;
   savedProfileLoaded: boolean;
+  savedProfileLoadFailed?: boolean;
   baseRevision: number | null;
-  skipRestoredDraft?: boolean;
   onSaveProfile: (profile: StoredRelocationProfile) => void;
   mapPoint: MapPoint | null;
   onMapPointChange: (point: MapPoint | null) => void;
@@ -72,13 +74,13 @@ type RelocationOnboardingProps = {
   selectedDistrictId?: string | null;
   onSelectDistrict?: (id: string) => void;
   onOnboardingActiveChange: (active: boolean) => void;
+  onStoryDraftAvailabilityChange: (available: boolean) => void;
   formSession: FormSession | null;
   formReady: boolean;
   storyOpenRequest: number;
   onOpenForm: () => void;
-  // Estimated monthly spending across the target city's districts, shown on the review step.
-  costRange?: MonthlyCostRange | null;
-  costCityName?: string | null;
+  // Estimated spending across recommended districts, shown on the review step.
+  costEstimate?: MonthlyCostEstimate | null;
   costLoading?: boolean;
 };
 
@@ -87,20 +89,12 @@ const profileFields: [field: string, label: string][] = [
   ["target_occupations", "Pekerjaan"],
   ["destination_cities", "Kota tujuan"],
   ["housing_budget", "Batas sewa"],
+  ["housing_types", "Jenis hunian"],
   ["monthly_budget", "Anggaran bulanan"],
   ["commute_minutes", "Waktu tempuh"],
   ["transport_mode", "Moda transportasi"],
   ["destination", "Lokasi tujuan"],
 ];
-
-const priorityLabels: Record<string, string> = {
-  career: "Karier",
-  housing: "Biaya hunian",
-  commute: "Waktu tempuh",
-  education: "Pendidikan",
-  cost_of_living: "Biaya hidup",
-  environment: "Lingkungan",
-};
 
 function followUpInputKey(clarificationAnswers: Record<string, string>, explicitGoal: RelocationGoal | null,
   transport: TransportChoice | null, selectedOffice: string, mapPoint: MapPoint | null) {
@@ -116,29 +110,19 @@ function removeDraftFromStorage(userId: string) {
 }
 
 
-function formatProfileValue(field: string, value: unknown): string {
-  if (value === null || value === undefined) return "Belum ada";
-  if (Array.isArray(value) && value.length === 0) return "Belum ada";
-  if ((field === "monthly_budget" || field === "housing_budget") && isRecord(value) && typeof value.amount === "number") {
-    return `Rp${formatRupiah(value.amount)} / bulan`;
+function formatProfileChip(field: string, profile: RelocationProfileProposal, destinationLabel: string) {
+  const soft = profile.soft_preferences;
+  const value = profile.hard_constraints[field] ?? soft[field];
+  if (field === "goal") {
+    const job = typeof soft.occupation === "string" && soft.occupation.trim() ? soft.occupation.trim()
+      : Array.isArray(soft.target_occupations) && soft.target_occupations.length ? formatProfileValue("target_occupations", soft.target_occupations) : null;
+    return job ? `${formatProfileValue(field, value)} · ${job}` : formatProfileValue(field, value);
   }
-  if (field === "commute_minutes" && typeof value === "number") return `${value} menit`;
-  if (field === "goal" && typeof value === "string") {
-    return relocationGoalLabels[value as RelocationGoal] ?? value;
+  if (field === "housing_budget" && isRecord(value) && typeof value.amount === "number") {
+    const types = Array.isArray(soft.housing_types) ? soft.housing_types.filter((type) => type !== "unsure") : [];
+    return `${types.length === 1 ? formatProfileValue("housing_types", types) : "Sewa"} ≤ Rp${compactMoney.format(value.amount)}`;
   }
-  if (field === "transport_mode" && typeof value === "string") return transportModeLabels[value] ?? value;
-  if (field === "destination" && isRecord(value) && typeof value.name === "string") return value.name;
-  if (field === "target_occupations" && Array.isArray(value)) {
-    return value.map((id) => onboardingTaxonomy.occupations.find((item) => item.id === id)?.label ?? String(id)).join(", ");
-  }
-  if (Array.isArray(value)) return value.map(String).join(", ");
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  return "Belum ada";
-}
-
-function formatProfileChip(field: string, value: unknown) {
-  if (field === "housing_budget" && isRecord(value) && typeof value.amount === "number") return `Sewa ≤ Rp${compactMoney.format(value.amount)}`;
-  if (field === "commute_minutes" && typeof value === "number") return `≤ ${value} mnt`;
+  if (field === "commute_minutes" && typeof value === "number") return `≤ ${value} mnt ke ${destinationLabel.toLowerCase()}`;
   return formatProfileValue(field, value);
 }
 
@@ -237,8 +221,8 @@ export default function RelocationOnboarding({
   onProposalChange: setProposal,
   savedProfile,
   savedProfileLoaded,
+  savedProfileLoadFailed = false,
   baseRevision,
-  skipRestoredDraft = false,
   onSaveProfile,
   mapPoint,
   onMapPointChange,
@@ -250,16 +234,17 @@ export default function RelocationOnboarding({
   selectedDistrictId = null,
   onSelectDistrict,
   onOnboardingActiveChange,
+  onStoryDraftAvailabilityChange,
   formSession,
   formReady,
   storyOpenRequest,
   onOpenForm,
-  costRange = null,
-  costCityName = null,
+  costEstimate = null,
   costLoading = false,
 }: RelocationOnboardingProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const resumeStepRef = useRef<Exclude <Step, 0>>(1);
+  const draftBaseRevisionRef = useRef<number | null | undefined>(undefined);
   const ignoreCloseRef = useRef(false);
   const [story, setStory] = useState("");
   const [transport, setTransport] = useState<TransportChoice | null>(null);
@@ -274,6 +259,7 @@ export default function RelocationOnboarding({
   const [editError, setEditError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [prioritySuggestion, setPrioritySuggestion] = useState<Draft["prioritySuggestion"]>(null);
+  const [profileFieldsOpen, setProfileFieldsOpen] = useState(false);
   const extractedProfile = extractUserProfile(story);
   const reviewProfile: PersistedRelocationProfile | null = proposal ? (() => {
     try { return normalizeRelocationProfileInputs(proposal.hard_constraints, proposal.soft_preferences, proposal.priority_weights); }
@@ -282,8 +268,6 @@ export default function RelocationOnboarding({
   const providedProfileFields = proposal ? [...Object.entries(proposal.hard_constraints), ...Object.entries(proposal.soft_preferences)]
     .filter(([, value]) => value !== null && value !== undefined).map(([field]) => field) : [];
   const profileRows = proposal ? getProfileRows(proposal) : [];
-  const summaryRows = profileRows.filter((row) => ["goal", "destination_cities", "housing_budget", "commute_minutes"].includes(row.field))
-    .map((row) => ({ ...row, compactValue: row.missing ? `${row.label} belum diisi` : formatProfileChip(row.field, proposal?.hard_constraints[row.field] ?? proposal?.soft_preferences[row.field]) }));
   const clarificationQuestions = proposal?.clarification_questions ?? [];
   const officeQuestionIndex = clarificationQuestions.findIndex((question) => getProfileClarificationField(question) === "destination");
   const officeQuestion = clarificationQuestions[officeQuestionIndex];
@@ -297,10 +281,13 @@ export default function RelocationOnboarding({
   const prioritiesInferred = proposal?.inferred_fields.includes("priorities") ?? false;
   const opportunityLabel = profileGoal === "study" ? "Pendidikan" : profileGoal === "both" ? "Karier & pendidikan" : "Karier";
   const reviewPriorityLabels = { opportunity: opportunityLabel, affordability: "Keterjangkauan", mobility: "Mobilitas", environment: "Lingkungan" };
-const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Belum memengaruhi urutan" };
+const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan bidang studi" : "Kantor dan peluang karier", affordability: "Sewa dan biaya hidup", mobility: "Waktu tempuh, akses transport", environment: "Ruang hijau, fasilitas" };
   const destination = proposal?.hard_constraints.destination ?? proposal?.soft_preferences.destination;
   const hasSpecificDestination = isRecord(destination) && destination.precision !== "city";
   const destinationLabel = profileGoal === "study" ? "Kampus" : profileGoal === "both" ? "Tujuan" : "Kantor";
+  const summaryRows = profileRows.filter((row) => ["goal", "destination_cities", "housing_budget", "commute_minutes"].includes(row.field))
+    .map((row) => ({ ...row, compactValue: row.missing || !proposal ? `${row.label} belum diisi` : formatProfileChip(row.field, proposal, destinationLabel) }));
+  const topPriority = priorityKeys.reduce((best, key) => reviewWeights[key] > reviewWeights[best] ? key : best);
 
   function answerClarification(question: string, answer: string) {
     setClarificationAnswers((current) => ({ ...current, [question]: answer }));
@@ -326,25 +313,34 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     if (!window.confirm("Hapus draf cerita dan mulai ulang?")) return;
 
     clearStoryDraft();
+    draftBaseRevisionRef.current = baseRevision;
     onMapPickingChange(false);
     setStep(1);
   }
 
   useEffect(() => {
-    if (hydrated || !formReady) return;
+    if (hydrated || !formReady || !savedProfileLoaded) return;
 
     const params = new URLSearchParams(window.location.search);
     const demoRequested = params.get("onboarding") === "demo";
     const requested = params.get("welcome") === "1" || demoRequested;
-    if (requested && !savedProfileLoaded) return;
-
     const timer = window.setTimeout(() => {
-      const alreadyOnboarded = !demoRequested && savedProfile !== null;
-      const ownedDraft = readDraft(account.userId);
-      const draft = skipRestoredDraft ? null : ownedDraft;
+      void (async () => {
+      const alreadyOnboarded = !demoRequested && (savedProfile !== null || savedProfileLoadFailed);
+      const localDraft = readDraft(account.userId);
+      let remoteDraft = null;
+      try { remoteDraft = await fetchOnboardingDraft(account, "story"); }
+      catch { /* Keep onboarding available when the account draft service is unavailable. */ }
+      const localRecord = readOnboardingDraftRecord(account.userId, "story");
+      const ownedDraft = remoteDraft && (!localRecord?.updatedAt || Date.parse(remoteDraft.updatedAt) > Date.parse(localRecord.updatedAt))
+        ? isRecord(remoteDraft.draft) ? remoteDraft.draft as Draft : null
+        : localDraft;
+      const draft = ownedDraft;
 
       if (draft) {
-        const keepMap = formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
+        draftBaseRevisionRef.current = Number.isSafeInteger(draft.baseRevision) && Number(draft.baseRevision) > 0
+          ? Number(draft.baseRevision) : null;
+        const keepMap = alreadyOnboarded || formSession && (formSession.status === "active" || formSession.status === "completed" || (!requested && formSession.status === "skipped"));
         // Restored map selections may need reanalysis before another confirmation.
         resumeStepRef.current = draft.step === 3 ? 2 : draft.step;
         setStep(keepMap ? 0 : resumeStepRef.current);
@@ -371,7 +367,10 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
         setAnalyzedInput(draft.analyzedInput ?? null);
         setPrioritySuggestion(draft.prioritySuggestion ?? null);
       } else if (requested && !alreadyOnboarded && formSession?.status !== "active" && formSession?.status !== "completed") {
+        draftBaseRevisionRef.current = baseRevision;
         setStep(1);
+      } else {
+        draftBaseRevisionRef.current = baseRevision;
       }
 
       if (params.has("welcome") || params.has("onboarding")) {
@@ -386,10 +385,11 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
       }
 
       setHydrated(true);
+      })();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [account, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoaded, setProposal, setStep, skipRestoredDraft]);
+  }, [account, baseRevision, formReady, formSession, hydrated, onMapPointChange, onOfficeChange, savedProfile, savedProfileLoadFailed, savedProfileLoaded, setProposal, setStep]);
 
   useEffect(() => {
   if (!hydrated || !storyOpenRequest) return;
@@ -405,6 +405,7 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     if (!hydrated || step === 0) return;
     const draft: Draft = {
       step,
+      baseRevision: draftBaseRevisionRef.current === undefined ? baseRevision : draftBaseRevisionRef.current,
       story,
       office: selectedOffice,
       transport,
@@ -420,9 +421,12 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     } catch {
 
     }
+    const timer = window.setTimeout(() => { void persistOnboardingDraft(account, "story", draft).catch(() => undefined); }, 300);
+    return () => window.clearTimeout(timer);
   }, [
-  account,
-  analyzedInput,
+    account,
+    analyzedInput,
+    baseRevision,
   clarificationAnswers,
   explicitGoal,
   hydrated,
@@ -454,6 +458,10 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     onOnboardingActiveChange(!hydrated || step > 0 || formSession?.status === "active");
   }, [formSession, hydrated, onOnboardingActiveChange, step]);
 
+  useEffect(() => {
+    onStoryDraftAvailabilityChange(hydrated && (story.trim().length > 0 || proposal !== null));
+  }, [hydrated, onStoryDraftAvailabilityChange, proposal, story]);
+
   useEffect(() => () => onMapPickingChange(false), [onMapPickingChange]);
 
   function closePanel(){
@@ -467,14 +475,33 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     }
   }
 
+  function persistStoryDraft(draftStep: Exclude<Step, 0>) {
+    const draft: Draft = {
+      step: draftStep,
+      baseRevision: draftBaseRevisionRef.current === undefined ? baseRevision : draftBaseRevisionRef.current,
+      story,
+      office: selectedOffice,
+      transport,
+      proposal,
+      clarificationAnswers,
+      explicitGoal,
+      analyzedInput,
+      mapPoint,
+      prioritySuggestion,
+    };
+    try { writeOnboardingDraft(account.userId, "story", draft); } catch { /* The map remains usable without browser storage. */ }
+    void persistOnboardingDraft(account, "story", draft).catch(() => undefined);
+  }
+
   function dismiss() {
     if(isSubmitting || isSaving) return;
     if(editingField !== null) {
       setEditError("Simpan atau batalkan dulu perubahan sebelum menutup.");
       return
     }
-   if (step !== 0 ){
+    if (step !== 0 ){
       resumeStepRef.current = step;
+      persistStoryDraft(step);
     }
     closePanel();
   }
@@ -655,11 +682,12 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     try {
       const saved = await saveRelocationProfile({
         proposal,
-        base_revision: baseRevision,
+        base_revision: draftBaseRevisionRef.current === undefined ? baseRevision : draftBaseRevisionRef.current,
         confirmed_fields: proposal.inferred_fields,
       }, account);
       onSaveProfile(saved);
       clearStoryDraft();
+      void removeOnboardingDraft(account, "story").catch(() => undefined);
       closePanel();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Profil belum tersimpan. Coba lagi.");
@@ -770,10 +798,11 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
                   {clarificationQuestions.map((question, index) => {
                     const isOfficeQuestion = index === officeQuestionIndex;
                     const isTransportQuestion = index === transportQuestionIndex;
+                    const isHousingQuestion = getProfileClarificationField(question) === "housing_types";
 
                     return (
                       <section key={`${index}:${question}`} className="rounded-lg bg-base-200/50 px-2.5 py-2">
-                        {!isTransportQuestion && <h2 className="text-sm font-semibold leading-relaxed text-ink">{question}</h2>}
+                        {!isTransportQuestion && !isHousingQuestion && <h2 className="text-sm font-semibold leading-relaxed text-ink">{question}</h2>}
                         {isOfficeQuestion && (
                           <>
                             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -804,7 +833,14 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
                               onChange={(option) => { if (option) { setTransport(option); answerClarification(question, option); } }} />
                           </div>
                         )}
-                        {!isOfficeQuestion && !isTransportQuestion && <div className="mt-2">
+                        {isHousingQuestion && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <RadioChoices name="story-housing" label={question} value={clarificationAnswers[question] ?? ""}
+                              choices={profileHousingChoices.map((type) => ({ value: housingLabels[type], label: housingLabels[type] }))}
+                              onChange={(option) => answerClarification(question, option)} />
+                          </div>
+                        )}
+                        {!isOfficeQuestion && !isTransportQuestion && !isHousingQuestion && <div className="mt-2">
                           <label htmlFor={`clarification-${index}`} className="mb-1 block text-xs font-semibold">Jawabanmu</label>
                           <input id={`clarification-${index}`} name={`clarification-${index}`} aria-label={question} type="text" maxLength={1000}
                             inputMode={getProfileClarificationField(question) === "commute_minutes" ? "numeric" : "text"}
@@ -920,7 +956,7 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
 
       </dialog>
       {step === 3 && <StoryReviewPanel saving={isSaving} onDismiss={dismiss} onSubmit={() => void saveProfile()}
-        header={<StepHeader step={3} onSkip={dismiss} disabled={isSaving} compact className="px-5 pb-2 pt-1 md:pt-4" />}
+        header={<StepHeader step={3} title="Tinjau dan prioritas" onSkip={dismiss} disabled={isSaving} compact className="px-5 pb-2 pt-1 md:pt-4" />}
         footer={<>
           <button type="button" disabled={isSaving} aria-label="Kembali" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-12 rounded-xl px-3">
             <ArrowLeft aria-hidden="true" className="size-4" /><span className="hidden md:inline">Kembali</span>
@@ -929,30 +965,39 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
             {isSaving ? "Menyimpan profil…" : "Selesai, buka peta"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
           </button>
         </>}>
-        <section aria-label="Profil dari ceritamu" data-hci-region="story-review-profile" className="mt-4 rounded-xl border border-ink/25 px-3 py-2">
+        <section aria-label="Profil dari ceritamu" data-hci-region="story-review-profile" className="mt-4 rounded-xl border border-ink/25 px-3 py-2 md:px-4 md:py-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="hidden text-xs font-semibold md:block">Profil dari ceritamu</h2>
+            <h2 className="hidden text-sm font-semibold md:block">Profil dari ceritamu</h2>
             <p className="min-w-0 text-xs md:hidden">{summaryRows.filter((row) => row.field !== "destination_cities").map((row) => row.compactValue).join(" · ")}</p>
+            <button type="button" aria-label="Ubah profil" aria-expanded={profileFieldsOpen} aria-controls="story-profile-fields"
+              onClick={() => { setProfileFieldsOpen(!profileFieldsOpen); setEditingField(null); }}
+              className="btn btn-ghost min-h-11 shrink-0 px-1 text-xs text-primary underline">Ubah</button>
           </div>
           <div className="hidden flex-wrap gap-1.5 text-xs md:flex">
-            {summaryRows.map((row) => <span key={row.field} className={`badge h-auto min-h-6 whitespace-normal py-1 ${row.missing ? "badge-outline" : "badge-neutral"}`}>{row.compactValue}</span>)}
+            {summaryRows.map((row) => <span key={row.field} className={`badge h-auto min-h-7 whitespace-normal px-2.5 py-1 font-semibold ${row.missing ? "badge-outline" : "badge-neutral"}`}>{row.compactValue}</span>)}
           </div>
-          <div className="mt-2 flex items-center justify-between gap-2 border-t border-rule pt-1 text-xs">
-            <p className="min-w-0 text-ink-muted">{destinationLabel} <strong className="text-ink">{hasSpecificDestination ? formatProfileValue("destination", destination) : "belum dipilih"}</strong></p>
-            <button type="button" aria-pressed={mapPicking} onClick={() => onMapPickingChange(!mapPicking)} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-primary underline">
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-rule pt-2 text-sm">
+            <p className="min-w-0 text-ink-muted">Lokasi {destinationLabel.toLowerCase()} · <strong className="text-ink">{hasSpecificDestination ? formatProfileValue("destination", destination) : "belum dipilih"}</strong></p>
+            <button type="button" aria-pressed={mapPicking} onClick={() => onMapPickingChange(!mapPicking)} className="btn btn-outline btn-neutral min-h-11 shrink-0 gap-1.5 rounded-lg px-3 text-xs">
               <MapPin aria-hidden="true" className="size-3.5" />{mapPicking ? "Batal pilih" : "Pilih di peta"}
             </button>
           </div>
           {mapPicking && <p role="status" className="pb-1 text-xs text-primary">Klik lokasi tujuanmu di peta.</p>}
         </section>
+        {reviewProfile && proposal && profileFieldsOpen && <div id="story-profile-fields" className="mt-3">
+          <ProfileReviewFields profile={reviewProfile} inferredFields={proposal.inferred_fields}
+            providedFields={providedProfileFields} includePriorities={false} sourceLabel="Dari ceritamu"
+            editingField={editingField} onEdit={(field) => { setEditError(null); setEditingField(field); }}
+            onSave={saveFieldEdit} onCancelEdit={() => setEditingField(null)} editError={editError} />
+        </div>}
         {proposal && <section aria-label="Prioritas" data-hci-region="story-review-priorities" className="mt-3">
-          <div className="flex min-h-11 items-center justify-between gap-2 text-xs">
-            <p className="flex flex-wrap items-center gap-1.5">{prioritiesInferred ? <><span className="badge badge-outline badge-xs">Disimpulkan</span>Bobot dari ceritamu</> : "Bobot pilihanmu"}</p>
+          <div className="flex min-h-11 items-center justify-between gap-2 border-b border-rule pb-2 text-xs">
+            <p className="flex flex-wrap items-center gap-1.5">{prioritiesInferred ? <><span className="badge badge-outline badge-xs">Disimpulkan</span>{reviewPriorityLabels[topPriority]} {reviewWeights[topPriority]}% dari ceritamu</> : "Bobot pilihanmu"}</p>
             {prioritiesInferred && <button type="button" onClick={() => setProposal({ ...proposal, inferred_fields: proposal.inferred_fields.filter((field) => field !== "priorities") })} className="btn btn-outline btn-neutral min-h-11 gap-1 px-2 text-xs"><Check aria-hidden="true" className="size-3.5" />Benar</button>}
           </div>
           <div className="divide-y divide-rule">
             {priorityKeys.map((key) => <div key={key} className="grid grid-cols-[minmax(0,1fr)_3rem] gap-x-3 py-2 md:@min-[23rem]:grid-cols-[7rem_minmax(0,1fr)_3rem] md:@min-[23rem]:items-center">
-              <div className="min-w-0"><label htmlFor={`story-weight-${key}`} className="text-sm font-semibold">{reviewPriorityLabels[key]}</label><p className={`mt-0.5 text-xs leading-snug text-ink-muted ${key === "environment" ? "" : "hidden md:block"}`}>{reviewPriorityHints[key]}</p></div>
+              <div className="min-w-0"><label htmlFor={`story-weight-${key}`} className="text-sm font-semibold">{reviewPriorityLabels[key]}</label><p className="mt-0.5 hidden text-xs leading-snug text-ink-muted md:block">{reviewPriorityHints[key]}</p></div>
               <input id={`story-weight-${key}`} name={`story-weight-${key}`} type="range" min={0} max={100} step={1} value={reviewWeights[key]}
                 aria-valuetext={`${reviewWeights[key]} persen`} aria-describedby="story-weight-help" className="story-priority-range range range-primary range-xs col-span-2 min-h-11 w-full md:@min-[23rem]:col-span-1 md:@min-[23rem]:col-start-2 md:@min-[23rem]:row-start-1"
                 style={{ "--range-value": `${reviewWeights[key]}%` } as CSSProperties}
@@ -971,10 +1016,6 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
           </div>
           <p id="story-weight-help" className="sr-only">Bobot lain menyesuaikan otomatis agar total tetap 100%.</p>
         </section>}
-        {reviewProfile && proposal && <ProfileReviewFields profile={reviewProfile} inferredFields={proposal.inferred_fields}
-          providedFields={providedProfileFields} includePriorities={false} sourceLabel="Dari ceritamu"
-          editingField={editingField} onEdit={(field) => { setEditError(null); setEditingField(field); }}
-          onSave={saveFieldEdit} onCancelEdit={() => setEditingField(null)} editError={editError} />}
         {preview?.available && onSelectDistrict && <details className="mt-2 border-t border-rule text-xs md:hidden" data-hci-region="onboarding-accessible-results">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
           <ul className="space-y-1" aria-label="Kecamatan dalam pratinjau">
@@ -982,11 +1023,11 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
               selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
           </ul>
         </details>}
-        {(costRange || costLoading) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-3 border-t border-rule pt-3">
-          <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan{costCityName ? ` · ${costCityName}` : ""}</h2>
-          <p className="mt-0.5 font-sans text-lg font-bold tabular-nums">{!costRange ? "Menghitung…" : costRange.high === null ? `mulai Rp${formatRupiah(costRange.low)} / bulan`
-            : costRange.low === costRange.high ? `sekitar Rp${formatRupiah(costRange.low)} / bulan` : `Rp${formatRupiah(costRange.low)} – Rp${formatRupiah(costRange.high)} / bulan`}</p>
-          {costRange && <p className="mt-1 text-xs text-ink-muted">{costRange.high === null ? "Belum ada kecamatan yang masuk anggaranmu" : "Sewa + biaya hidup"}{costRange.is_sample && <span className="badge badge-neutral badge-xs ml-2">Data contoh</span>}</p>}
+        {(costEstimate || costLoading || preview?.available) && <section aria-labelledby="story-cost-title" data-hci-region="story-cost-estimate" className="mt-3 border-t border-rule pt-3">
+          <h2 id="story-cost-title" className="text-xs text-ink-muted">Perkiraan biaya bulanan di daerah rekomendasi</h2>
+          <p className="mt-0.5 font-sans text-lg font-bold tabular-nums">{costLoading ? "Menghitung…" : !costEstimate ? "Belum ada kecamatan rekomendasi dengan data biaya lengkap"
+            : `sekitar Rp${formatRupiah(costEstimate.average)} / bulan`}</p>
+          {costEstimate && <p className="mt-1 text-xs text-ink-muted">Rata-rata total sewa kecamatan + biaya hidup kota{costEstimate.is_sample && <span className="badge badge-neutral badge-xs ml-2">Data contoh</span>}</p>}
         </section>}
         {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
         {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
@@ -995,12 +1036,12 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
   );
 }
 
-function StepHeader({ step, onSkip, className = "", disabled = false, compact = false }: { step: 1 | 2 | 3; onSkip: () => void; className?: string; disabled?: boolean; compact?: boolean }) {
+function StepHeader({ step, title, onSkip, className = "", disabled = false, compact = false }: { step: 1 | 2 | 3; title?: string; onSkip: () => void; className?: string; disabled?: boolean; compact?: boolean }) {
   return (
     <header className={`flex shrink-0 flex-wrap items-center justify-between gap-3 text-xs font-semibold text-ink ${className}`}>
-      <div className="flex items-center gap-3">
-        <span>{compact ? <><span className="hidden md:inline">Langkah </span>{step} dari 3</> : `Langkah ${step} dari 3`}</span>
-        <span className="flex w-20 gap-1" aria-hidden="true">
+      <div className="flex items-center gap-2">
+        <span>{compact ? <><span className="hidden md:inline">Langkah </span>{step} dari 3</> : `Langkah ${step} dari 3`}{title && <span className="hidden md:inline"> · {title}</span>}</span>
+        <span className="flex w-16 gap-1" aria-hidden="true">
           {[1, 2, 3].map((bar) => <span key={bar} className={`h-0.75 flex-1 rounded-full ${bar <= step ? "bg-primary" : "bg-base-300"}`} />)}
         </span>
       </div>

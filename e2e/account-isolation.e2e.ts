@@ -26,11 +26,18 @@ test("expiry keeps A's owned form/story drafts but B cannot restore them", async
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await page.getByLabel("Pekerjaan", { exact: true }).fill("Private engineer A");
     const readDrafts = () => page.evaluate((id) => ({
-        form: JSON.parse(sessionStorage.getItem(`jejak:relocation-form:v2:${id}`)!),
-        story: JSON.parse(sessionStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!),
+        form: JSON.parse(localStorage.getItem(`jejak:relocation-form:v2:${id}`)!),
+        story: JSON.parse(localStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!),
     }), userA);
     await expect.poll(async () => (await readDrafts()).form?.draft.answers.occupation).toBe("Private engineer A");
     expect((await readDrafts()).story.draft.story).toBe("Private relocation plan A");
+    const readServerDraft = async (kind: "form" | "story") => {
+        const response = await page.request.get(`/api/user/onboarding-drafts?kind=${kind}`, { headers: headers(userA) });
+        expect(response.status()).toBe(200);
+        return (await response.json()).saved?.draft;
+    };
+    await expect.poll(async () => (await readServerDraft("form"))?.answers.occupation).toBe("Private engineer A");
+    await expect.poll(async () => (await readServerDraft("story"))?.story).toBe("Private relocation plan A");
     await broadcastSession(page, "TOKEN_REFRESHED");
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Private engineer A");
     await context.clearCookies();
@@ -95,11 +102,11 @@ test("mounted map exits on sign-out and keeps its owned drafts for same-account 
     await stubZones(page);
     await page.goto("/map?onboarding=demo");
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Resume my own story");
-    await expect.poll(() => page.evaluate((id) => JSON.parse(sessionStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!).draft.story, userA)).toBe("Resume my own story");
+    await expect.poll(() => page.evaluate((id) => JSON.parse(localStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!).draft.story, userA)).toBe("Resume my own story");
     await broadcastSession(page, "SIGNED_OUT");
     await expect(page).toHaveURL(/\/login\?/);
     await expect(page.locator('[data-hci-region="map"]')).toHaveCount(0);
-    expect(await page.evaluate((id) => JSON.parse(sessionStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!).ownerId, userA)).toBe(userA);
+    expect(await page.evaluate((id) => JSON.parse(localStorage.getItem(`jejak:relocation-onboarding:v2:${id}`)!).ownerId, userA)).toBe(userA);
 });
 
 test("a delayed A profile read cannot fill B's map or cache after a cross-tab switch", async ({ context, page, baseURL }) => {
@@ -151,4 +158,21 @@ test("server-detected account switch reloads a dirty editor even before the auth
     await expect(page.getByRole("heading", { name: "Belum ada profil relokasi", exact: true })).toBeVisible();
     expect((await (await page.request.get("/api/user/relocation-profile", { headers: headers(userB) })).json()).profile).toBeNull();
     expect(await page.evaluate((id) => localStorage.getItem(`jejak:relocation-profile:v1:${id}`), userA)).toBeNull();
+});
+
+test("undecided saved profile can choose a supported city and see its districts", async ({ page }) => {
+    await stubZones(page);
+    await page.request.delete("/api/user/relocation-profile");
+    const answers = { ...initialFormAnswers, city: "unsure" as const };
+    const saved = await page.request.post("/api/user/relocation-profile", { data: { form_answers: answers, base_revision: null } });
+    expect(saved.status()).toBe(201);
+
+    await page.goto("/map");
+    await expect(page.getByText("Pilih kota dari daftar untuk melihat kecamatannya", { exact: false })).toBeVisible();
+    const sheet = page.getByRole("separator");
+    await sheet.focus();
+    await sheet.press("End");
+    await page.getByLabel("Kota untuk dijelajahi").selectOption("bandung-kota");
+    await expect(page.getByRole("button", { name: /Kecamatan Bandung/ })).toBeVisible();
+    expect(await page.getByLabel("Kota untuk dijelajahi").inputValue()).toBe("bandung-kota");
 });

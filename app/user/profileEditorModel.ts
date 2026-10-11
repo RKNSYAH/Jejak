@@ -1,9 +1,14 @@
 import type { PersistedRelocationProfile } from "../engine/lib/relocationProfile";
+import { formatProfileValue } from "../engine/onboarding/demoData";
 
 export type PriorityKey = "career" | "education" | "cost" | "mobility" | "environment";
 export type ProfilePriorityWeights = Record<PriorityKey, number>;
 export type AmountParseResult = { valid: true; value: number | null } | { valid: false; value: null };
 export type ProfileChange = { key: string; before: string; after: string };
+
+export const priorityNames: Record<PriorityKey, string> = {
+    career: "Karier", education: "Pendidikan", cost: "Biaya hidup", mobility: "Mobilitas", environment: "Lingkungan",
+};
 
 const CHANGE_LABELS: Record<string, string> = {
     goal: "Tujuan", destination_cities: "Kota tujuan", target_fields: "Bidang kerja", target_occupations: "Pekerjaan",
@@ -98,20 +103,6 @@ export function parseAmount(raw: string, maximum = 1_000_000_000): AmountParseRe
         : { valid: false, value: null };
 }
 
-export function formatProfileValue(value: unknown): string {
-    if (value === null || value === undefined || value === "" || Array.isArray(value) && value.length === 0) return "Belum diisi";
-    if (value && typeof value === "object" && "amount" in value && typeof value.amount === "number") {
-        return `Rp${new Intl.NumberFormat("id-ID").format(value.amount)} / bulan`;
-    }
-    if (Array.isArray(value)) return value.map(String).join(", ");
-    if (typeof value === "object") {
-        const record = value as Record<string, unknown>;
-        if (typeof record.name === "string") return record.name;
-        return JSON.stringify(value);
-    }
-    return String(value);
-}
-
 export function summarizeProfileChanges(
     before: PersistedRelocationProfile | null,
     after: PersistedRelocationProfile | null,
@@ -124,20 +115,16 @@ export function summarizeProfileChanges(
         const keys = new Set([...Object.keys(before[group]), ...Object.keys(after[group])]);
         for (const key of keys) {
             if (profileFieldsDiffer({ value: before[group][key] }, { value: after[group][key] })) {
-                changes.push({ key: CHANGE_LABELS[key] ?? key.replaceAll("_", " "), before: formatProfileValue(before[group][key]), after: formatProfileValue(after[group][key]) });
+                changes.push({ key: CHANGE_LABELS[key] ?? key.replaceAll("_", " "), before: formatProfileValue(key, before[group][key]), after: formatProfileValue(key, after[group][key]) });
             }
         }
     }
     if (profileFieldsDiffer(before.priority_weights, after.priority_weights)) {
         const toPriorityLine = (profile: PersistedRelocationProfile) => Object.entries(displayedWeights(profile, includeEnvironment))
-            .map(([key, value]) => `${priorityLabel(key)} ${value}%`).join(" · ");
+            .map(([key, value]) => `${priorityNames[key as PriorityKey]} ${value}%`).join(" · ");
         changes.push({ key: "Prioritas", before: toPriorityLine(before), after: toPriorityLine(after) });
     }
     return { count: changes.length, details: changes.slice(0, maximum) };
-}
-
-function priorityLabel(key: string): string {
-    return ({ career: "Karier", education: "Pendidikan", cost: "Biaya", mobility: "Mobilitas", environment: "Lingkungan" } as Record<string, string>)[key] ?? key;
 }
 
 export function profileStory(profile: PersistedRelocationProfile, catalog: { city_id: string; city_name: string }[] = []): string {

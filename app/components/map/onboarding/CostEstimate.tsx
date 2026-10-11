@@ -48,7 +48,7 @@ export default function CostEstimate({ preview, selectedDistrictId, onSelectDist
                 <dd className="mt-1 text-xs text-ink-muted">Sewa kecamatan + biaya hidup kota</dd>
             </div>
         </dl>
-        {selected && selected.financialEligible !== true && <p className="mt-3 text-sm font-semibold">
-            {selected.financialEligible === false ? selected.exclusions.filter((reason) => /sewa|biaya bulanan/i.test(reason)).join(" · ") : "Batas biaya belum terverifikasi"}</p>}
+        {selected && (selected.warnings.length > 0 || selected.financialEligible !== true) && <p className="mt-3 text-sm font-semibold">
+            {selected.warnings[0] ?? (selected.financialEligible === false ? selected.exclusions.filter((reason) => /sewa|biaya bulanan/i.test(reason)).join(" · ") : "Batas biaya belum terverifikasi")}</p>}
     </section>;
 }

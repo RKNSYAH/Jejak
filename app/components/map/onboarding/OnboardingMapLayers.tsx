@@ -5,21 +5,25 @@ import { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
 import { Check } from "lucide-react";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import type { FilterSpecification } from "maplibre-gl";
-import { hasHousingStatistics, isLiveRecommendationSample, isTopRanked, onboardingCategoryValue } from "@/app/engine/onboarding/livePreview";
+import { hasHousingStatistics, isLiveRecommendationSample, isTopRanked, labeledDistrictIds, onboardingCategoryValue, scoreRange } from "@/app/engine/onboarding/livePreview";
 import type { LiveOnboardingPreview, LivePreviewMapContext, OnboardingCampus } from "@/app/engine/onboarding/types";
 import type { MapCategory, ZoneGeometry } from "@/app/engine/types";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
+import { planningCoverageLabel } from "@/app/engine/onboarding/planningReach";
 import PlanningReachLayers from "../PlanningReachLayers";
 
 export const ONBOARDING_FILL_ID = "onboarding-district-fill";
 const HATCH_IMAGE = "onboarding-over-limit-hatch";
 
-// `preliminary` is the lighter outlined badge used until the profile is saved; the saved ranking is solid.
-function DistrictLabel({ item, rank, preliminary = false }: { item: LiveOnboardingPreview["districts"][number]; rank: number | null; preliminary?: boolean }) {
-    return <div className="pointer-events-none flex flex-col items-center gap-1 text-center font-sans text-sm font-bold leading-tight text-ink [text-shadow:0_1px_2px_var(--color-base-100),0_-1px_2px_var(--color-base-100)]">
-        {rank !== null && <span className={`flex size-7 items-center justify-center rounded-full border-2 font-body text-sm shadow-overlay ${preliminary ? "border-primary bg-base-100 text-ink" : "border-base-100 bg-primary text-primary-content"}`}>{rank}</span>}
-        <span className="max-w-28">{item.district.zone_name}</span>
-    </div>;
+// Ranked districts show their score; the top three, matching the ranking panel, also carry their rank.
+function DistrictLabel({ item, selected }: { item: LiveOnboardingPreview["districts"][number]; selected: boolean }) {
+    const ranked = item.rank !== null && item.score !== null;
+    const podium = ranked && isTopRanked(item) && item.rank! <= 3;
+    return <span className={`pointer-events-none flex items-center gap-1.5 whitespace-nowrap rounded-md border border-rule bg-base-100 py-1 font-body text-xs leading-none shadow-overlay ${podium ? "pl-1 pr-2" : "px-2"} ${ranked ? "text-ink" : "text-ink-muted"} ${selected ? "ring-2 ring-primary" : ""}`}>
+        {podium && <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-content">{item.rank}</span>}
+        <span className={podium ? "font-semibold" : undefined}>{item.district.zone_name}</span>
+        {ranked && <span className="font-semibold tabular-nums">{item.score}</span>}
+    </span>;
 }
 
 // Campuses are dots, so a zoomed-out metro stays readable; the name shows on hover or focus. The chosen
@@ -68,7 +72,7 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
     }, [mapLoaded, mapRef]);
 
     const districtData = useMemo<FeatureCollection<Polygon | MultiPolygon, {
-        zone_id: string; eligible: boolean | null; value: number | null; is_sample: boolean; reach_band: string; top: boolean;
+        zone_id: string; eligible: boolean | null; value: number | null; score: number | null; is_sample: boolean; reach_band: string; top: boolean;
     }>>(() => {
         const byId = new Map(preview.districts.map((item) => [item.district.zone_id, item]));
         const hasBudgetCriteria = preview.preferences.monthlyBudget !== null || preview.preferences.maximumRent !== null;
@@ -79,6 +83,7 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
                 ...feature.properties,
                 eligible: hasBudgetCriteria ? item.eligible : null,
                 value: onboardingCategoryValue(item, category),
+                score: item.rank !== null ? item.score : null,
                 is_sample: isLiveRecommendationSample(item),
                 reach_band: item.reachBand,
                 top: isTopRanked(item),
@@ -92,6 +97,8 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
     }, [districtData]);
     const bands = useMemo(() => valueRange && valueRange[0] === valueRange[1] ? [valueRange[0], valueRange[0] + 1] as const : valueRange, [valueRange]);
     const showFilled = step >= 2;
+    const scores = scoreRange(preview);
+    const scoreFill = showFilled && scores && (category === null || category === "summary") ? scores : null;
     const showPlanningFill = step >= 3 && !!preview.planningReach && !preview.commute && (category === null || category === "summary" || category === "mobility");
     // While setup is open, only the top-ranked districts stand out so a wide metro doesn't light up all at once.
     const emphasizeTop = showFilled && !completed && preview.ranked.length > 0;
@@ -104,6 +111,8 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
             geometry: { type: "Point" as const, coordinates: sample.origin },
         })) ?? []),
     }), [preview, step]);
+    // The selected district keeps its bubble even outside the labeled set.
+    const labeled = useMemo(() => preview.ranked.length ? labeledDistrictIds(preview) : null, [preview]);
     const planningPoints = useMemo(() => ({ type: "FeatureCollection" as const, features:
         visiblePreviewDistricts(preview, step >= 2).flatMap((item) => item.district.center ? [{
             type: "Feature" as const, properties: { band: item.reachBand },
@@ -115,12 +124,15 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
         <Source id="onboarding-districts" type="geojson" data={districtData}>
             <Layer id={ONBOARDING_FILL_ID} type="fill" beforeId="building-3d" filter={eligibleFilter}
                 paint={{
-                    "fill-color": showPlanningFill ? ["case", ["==", ["get", "reach_band"], "near"], "#006AD8", ["==", ["get", "reach_band"], "edge"], "#9ED9EB", "#DCE3EC"]
+                    "fill-color": scoreFill ? ["case", ["==", ["get", "score"], null], "#DCE3EC", ["interpolate", ["linear"], ["get", "score"],
+                        scoreFill.low, "#9ED9EB", Math.max(scoreFill.high, scoreFill.low + 1), "#006AD8"]]
+                        : showPlanningFill ? ["case", ["==", ["get", "reach_band"], "near"], "#006AD8", ["==", ["get", "reach_band"], "edge"], "#9ED9EB", "#DCE3EC"]
                         : completed && category !== "summary" && category !== null && bands
                         ? ["case", ["==", ["get", "value"], null], "#DCE3EC", ["interpolate", ["linear"], ["get", "value"], bands[0], category === "mobility" ? "#006AD8" : "#9ED9EB", bands[1], category === "mobility" ? "#9ED9EB" : "#006AD8"]]
                         : emphasizeTop ? ["case", ["==", ["get", "top"], true], "#006AD8", ["==", ["get", "eligible"], null], "#DCE3EC", "#006AD8"]
                         : ["case", ["==", ["get", "eligible"], null], "#DCE3EC", "#006AD8"],
-                    "fill-opacity": showPlanningFill ? ["case", ["==", ["get", "reach_band"], "near"], 0.28, ["==", ["get", "reach_band"], "edge"], 0.18, 0.04]
+                    "fill-opacity": scoreFill ? ["case", ["==", ["get", "score"], null], 0.06, 0.45]
+                        : showPlanningFill ? ["case", ["==", ["get", "reach_band"], "near"], 0.28, ["==", ["get", "reach_band"], "edge"], 0.18, 0.04]
                         : !showFilled ? 0 : emphasizeTop
                         ? ["case", ["==", ["get", "top"], true], 0.36, ["==", ["get", "eligible"], true], 0.1, ["==", ["get", "eligible"], false], 0.06, 0.08]
                         : ["case", ["==", ["get", "eligible"], true], 0.22, ["==", ["get", "eligible"], false], 0.08, 0.14],
@@ -158,12 +170,13 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
                 paint={{ "line-color": "#FFF9F9", "line-width": 2, "line-dasharray": [1, 2] }} />
         </Source>}
         {/* Best-ranked last, so its badge draws over neighbouring labels. */}
-        {[...visiblePreviewDistricts(preview, showFilled)].reverse().flatMap((item) => item.district.center ? [<Marker key={item.district.zone_id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
+        {[...visiblePreviewDistricts(preview, showFilled)].reverse().flatMap((item) => item.district.center &&
+            (!labeled || labeled.has(item.district.zone_id) || item.district.zone_id === selectedDistrictId) ? [<Marker key={item.district.zone_id} longitude={item.district.center[0]} latitude={item.district.center[1]} anchor="center">
             {completed ? <button type="button" aria-disabled={!hasHousingStatistics(item)}
-                aria-label={`${item.district.zone_name}${item.rank ? `, peringkat ${item.rank}` : item.eligible === false ? ", di luar batas" : ", belum terverifikasi"}${hasHousingStatistics(item) ? "" : ", sewa belum tersedia"}`}
+                aria-label={`${item.district.zone_name}${item.rank ? `, skor ${item.score}` : item.eligible === false ? ", di luar batas" : ", belum terverifikasi"}${item.warnings.length ? `, ${item.warnings.join(", ")}` : ""}${planningCoverageLabel(item.reachCoverage) ? `, ${planningCoverageLabel(item.reachCoverage)}` : ""}${hasHousingStatistics(item) ? "" : ", sewa belum tersedia"}`}
                 onClick={(event) => { event.stopPropagation(); if (hasHousingStatistics(item)) onSelectDistrict(item.district.zone_id); }}
-                className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} rank={item.rank} /></button>
-                : <DistrictLabel item={item} rank={emphasizeTop && isTopRanked(item) ? item.rank : null} preliminary />}
+                className="min-h-11 min-w-11 rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary"><DistrictLabel item={item} selected={item.district.zone_id === selectedDistrictId} /></button>
+                : <DistrictLabel item={item} selected={item.district.zone_id === selectedDistrictId} />}
         </Marker>] : [])}
         {(step === 1 || step === 3) && context.goal !== "work" && preview.destinations.map((item) => <DestinationMarker
             key={item.id} item={item} selected={context.destinationId === item.id}

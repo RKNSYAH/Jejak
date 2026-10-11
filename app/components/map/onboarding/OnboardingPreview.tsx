@@ -5,7 +5,7 @@ import type { MapCategory } from "@/app/engine/types";
 import DistrictListItem from "./DistrictListItem";
 import { getCityAreaName } from "@/app/engine/lib/metroArea";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
-import { TOP_RANK_COUNT, isTopRanked } from "@/app/engine/onboarding/livePreview";
+import { TOP_RANK_COUNT, isTopRanked, scoreRange } from "@/app/engine/onboarding/livePreview";
 import CommuteSummary from "./CommuteSummary";
 
 const categoryHints: Record<MapCategory, string> = {
@@ -27,6 +27,11 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
     commuteLoading?: boolean; commuteError?: string | null; onRetryCommute?: () => void;
 }) {
     const [listOpen, setListOpen] = useState(false);
+    // The ranking before the latest change, so rows can say how far they moved.
+    const order = preview.ranked.map((item) => item.district.zone_id).join("|");
+    const [orders, setOrders] = useState({ current: order, previous: order });
+    if (orders.current !== order) setOrders({ current: order, previous: orders.current });
+    const previousOrder = orders.previous.split("|");
     const completed = session ? session.status === "completed" : (completedOverride ?? true);
     const step = session ? displayStep(session) : (stepOverride ?? 4);
     const areaName = preview.city ? getCityAreaName(preview.city) : null;
@@ -58,30 +63,46 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
     }
 
     if (proposal && step === 4 && !completed) {
-        return <section data-hci-region="onboarding-preview" aria-label="Urutan kecamatan saat ini"
-            className="absolute left-3 top-3 z-100 w-[min(25rem,calc(100%-1.5rem))] rounded-xl border border-rule bg-panel-surface px-3 py-2 font-body text-ink shadow-overlay md:bottom-4 md:left-4 md:top-auto md:w-[min(20rem,calc(100%-29rem))] md:p-3">
+        const scores = scoreRange(preview);
+        const listed = visiblePreviewDistricts(preview, true);
+        return <section data-hci-region="onboarding-preview" aria-labelledby="onboarding-ranking-title"
+            className="absolute left-3 top-3 z-100 w-[min(25rem,calc(100%-1.5rem))] rounded-xl border border-rule bg-panel-surface px-3 py-2 font-body text-ink shadow-overlay md:bottom-4 md:left-4 md:top-auto md:w-[min(22rem,calc(100%-29rem))] md:p-4">
             <div className="flex items-center justify-between gap-2">
-                <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Urutan teratas saat ini</h2>
+                <h2 id="onboarding-ranking-title" className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted md:text-xs">Urutan kecocokan</h2>
+                {preview.is_sample && <span className="badge badge-neutral badge-sm shrink-0">Data contoh</span>}
             </div>
+            <p className="mt-1 hidden text-xs leading-snug text-ink-muted md:block">Skor 0–100 dari batas dan prioritasmu. Berubah langsung saat kamu mengubah bobot.</p>
             {dataLoading ? <p role="status" className="mt-2 text-xs">Memuat data kecamatan…</p>
                 : dataError ? <p role="alert" className="text-xs text-error">{dataError}<button type="button" onClick={onRetryData} className="btn btn-ghost min-h-11 px-1 text-xs underline">Coba lagi</button></p>
                 : !preview.available ? <p role="status" className="mt-2 text-xs">{preview.city ? "Data kecamatan belum tersedia." : "Pilih kota tujuan untuk melihat kecamatan."}</p>
-                : top.length ? <ol aria-label="Peringkat teratas" data-hci-region="onboarding-top-ranking" className="mt-1 flex gap-3 overflow-x-auto text-xs md:block md:divide-y md:divide-rule">
-                    {top.map((item) => <li key={item.district.zone_id} className="shrink-0">
-                        <button type="button" aria-pressed={selectedDistrictId === item.district.zone_id} onClick={() => onSelectDistrict(item.district.zone_id)}
-                            className="btn btn-ghost min-h-11 w-full justify-start gap-2 rounded-lg px-0.5 text-xs md:px-1">
-                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary font-semibold text-primary-content">{item.rank}</span>
-                            <span className="min-w-0 truncate">{item.district.zone_name}</span>
-                            <span className="badge badge-outline badge-xs ml-auto hidden tabular-nums md:inline-flex">{item.score}</span>
-                        </button>
-                    </li>)}
+                : top.length ? <ol aria-label="Peringkat teratas" data-hci-region="onboarding-top-ranking" className="mt-1 flex gap-3 overflow-x-auto text-xs md:mt-3 md:block md:space-y-1">
+                    {top.map((item) => {
+                        const before = previousOrder.indexOf(item.district.zone_id) + 1;
+                        const moved = before && item.rank ? before - item.rank : 0;
+                        return <li key={item.district.zone_id} className="shrink-0">
+                            <button type="button" aria-pressed={selectedDistrictId === item.district.zone_id} onClick={() => onSelectDistrict(item.district.zone_id)}
+                                className="btn btn-ghost h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-1 font-normal aria-pressed:bg-primary-tint md:grid md:grid-cols-[1.5rem_minmax(0,1fr)_auto_4.5rem_1.75rem] md:items-center md:gap-3 md:px-2">
+                                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary font-semibold text-primary-content md:size-6">{item.rank}</span>
+                                <span className="truncate text-left text-sm font-semibold">{item.district.zone_name}</span>
+                                <span className="hidden text-xs text-ink-muted md:block">{moved > 0 ? `naik ${moved}` : moved < 0 ? `turun ${-moved}` : ""}</span>
+                                <span aria-hidden="true" className="hidden h-1.5 overflow-hidden rounded-full bg-rule md:block"><span className="block h-full rounded-full bg-primary" style={{ width: `${item.score ?? 0}%` }} /></span>
+                                <span className="text-right font-sans text-base font-bold tabular-nums">{item.score}</span>
+                            </button>
+                        </li>;
+                    })}
                 </ol> : <p role="status" className="mt-2 text-xs">Belum ada urutan dengan batas dan data ini.</p>}
+            {scores && preview.available && !dataLoading && !dataError && <div className="mt-3 hidden items-center gap-2 border-t border-rule pt-3 text-xs text-ink-muted md:flex">
+                <span className="tabular-nums">{scores.low}</span>
+                <span aria-hidden="true" className="h-2 flex-1 rounded-full bg-linear-to-r from-accent to-primary" />
+                <span className="tabular-nums">{scores.high}</span>
+                <span>skor kecocokan</span>
+            </div>}
             {geometryLoading && <p role="status" className="text-xs text-ink-muted">Memuat batas kecamatan…</p>}
             {geometryError && <p className="text-xs text-ink-muted">{geometryError}<button type="button" onClick={onRetry} className="btn btn-ghost min-h-11 px-1 text-xs text-primary underline">Coba lagi</button></p>}
-            {preview.available && <details className="hidden border-t border-rule text-xs md:block" data-hci-region="onboarding-accessible-results">
-                <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan</summary>
+            {preview.available && <details className="mt-2 hidden border-t border-rule text-xs md:block" data-hci-region="onboarding-accessible-results">
+                <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary underline">Lihat semua {listed.length} kecamatan</summary>
                 <ul className="max-h-40 space-y-1 overflow-y-auto" aria-label="Kecamatan dalam pratinjau">
-                    {visiblePreviewDistricts(preview, true).map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={4}
+                    {listed.map((item) => <DistrictListItem key={item.district.zone_id} item={item} step={4}
                         selected={selectedDistrictId === item.district.zone_id} onSelect={() => onSelectDistrict(item.district.zone_id)} />)}
                 </ul>
             </details>}
@@ -92,22 +113,35 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
         <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
                 {!completed && preview.available && <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs md:hidden" role="status">
-                    <span>{step === 1 ? `${areaName} · ${preview.districts.length} kecamatan` : step === 2 ? <div className="flex flex-col items-center gap-1"><strong className="text-base">{preview.affordableCount}</strong> <p>kecamatan memenuhi batas data sewa</p></div> : step === 3 ? <>Moda {transportLabel ?? (session ? session.answers.transport : "belum dipilih")}</> : <><strong>{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong> {hasBudgetCriteria ? "kecamatan sesuai data dan estimasi" : "kecamatan dirangking"}</>}</span>
+                    <span>{step === 2 ? <div className="flex flex-col items-center gap-1"><strong className="text-base">{preview.affordableCount}</strong> <p>kecamatan memenuhi batas data sewa</p></div> : <><strong>{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong> {hasBudgetCriteria ? "kecamatan sesuai data dan estimasi" : "kecamatan dirangking"}</>}</span>
                 </div>}
                 <div className={`${completed || !preview.available ? "flex" : "hidden md:flex"} flex-wrap items-center gap-x-2 gap-y-1`}>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{step === 3 ? "Perjalanan" : areaName ?? "Pratinjau kecamatan"}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{areaName ?? "Pratinjau kecamatan"}</p>
                 </div>
             </div>
             {preview.available && !completed && <button type="button" aria-expanded={listOpen} aria-controls="onboarding-area-list" onClick={() => setListOpen(!listOpen)} className="btn btn-ghost h-11 min-h-11 shrink-0 px-2 text-xs text-primary hover:border-base-300 hover:bg-base-200 underline">{listOpen ? "Tutup daftar kecamatan" : "Lihat daftar kecamatan"}</button>}
         </div>
         {dataLoading && <p role="status" className="mt-2 text-sm">Memuat data kecamatan…</p>}
         {dataError && <div role="alert" className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-error"><p className="min-w-0 flex-1">{dataError}</p><button type="button" onClick={onRetryData} className="btn btn-ghost h-11 min-h-11 shrink-0 px-1 text-xs text-primary underline">Coba lagi</button></div>}
-        {!dataLoading && !dataError && !preview.available && <p role="status" className="mt-2 text-sm">{preview.city ? "Data kecamatan untuk kota ini belum tersedia." : "Pilih salah satu kota yang didukung untuk melihat kecamatan dan bukti yang tersedia."}</p>}
+        {!dataLoading && !dataError && !preview.available && <p role="status" className="mt-2 text-sm">{completed
+            ? preview.city ? "Data kecamatan untuk kota ini belum tersedia." : "Tujuan profilmu belum tersedia di Jejak."
+            : preview.city ? "Data kecamatan untuk kota ini belum tersedia." : "Pilih salah satu kota yang didukung untuk melihat kecamatan dan bukti yang tersedia."}</p>}
         <div className={completed || !preview.available ? "" : "hidden md:block"}>
-            {preview.available && <>
+            {preview.available && !dataLoading && !dataError && <>
                 {step === 2 && <p role="status" className=" flex flex-col text-sm leading-snug"><strong className="font-sans text-3xl tabular-nums">{preview.affordableCount}</strong> kecamatan memenuhi batas sewa dan biaya.</p>}
-                {step === 3 && <p className="mt-1 text-sm"><strong>Moda {transportLabel ?? (session ? session.answers.transport : "belum dipilih")}</strong></p>}
-                {step === 4 && <p role="status" className="mt-1 text-sm leading-snug"><strong className="font-sans text-xl tabular-nums">{hasBudgetCriteria ? preview.eligibleCount : preview.ranked.length}</strong>{hasBudgetCriteria ? " kecamatan sesuai data dan estimasi." : " kecamatan dirangking · anggaran belum ditentukan."}</p>}
+                {completed && step === 4 && preview.ranked.length > 0 && (
+                    <p role="status" className="mt-1 text-sm leading-snug">
+                        <strong className="font-sans text-xl tabular-nums">
+                            {preview.ranked.length}
+                        </strong>{" "}
+                        kecamatan dirangking
+                    </p>
+                )}
+                {completed && step === 4 && preview.ranked.length === 0 && (
+                    <p role="status" className="mt-1 text-sm leading-snug">
+                        Belum ada kecamatan yang dapat dirangking dengan batas dan data ini.
+                    </p>
+                )}
                 {(step === 2 || step === 4) && <p className="mt-1 text-xs leading-snug text-ink-muted">
                     {step === 2 ? hasDestination ? "Urutan: sewa, biaya, jarak ke tujuan" : "Rata-rata sewa dan biaya"
                         : completed ? categoryHints[category ?? "summary"] : "Skor memakai dimensi dengan data"}
@@ -119,7 +153,7 @@ export default function OnboardingPreview({ session, preview, geometryLoading, g
             </>}
         </div>
         {/* While setting up, the form explains the reach; the saved view keeps it because the ring stays on the map. */}
-        {preview.available && completed && step >= 3 && <CommuteSummary preview={preview} loading={commuteLoading} error={commuteError} onRetry={onRetryCommute} />}
+        {preview.available && !dataLoading && !dataError && completed && step >= 3 && <CommuteSummary preview={preview} loading={commuteLoading} error={commuteError} onRetry={onRetryCommute} />}
         {completed && <div className="mt-1 flex flex-wrap items-center gap-x-4">
             <button type="button" className="btn btn-ghost h-11 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Sesuaikan rencana</button>
             <button type="button" className="btn btn-ghost h-11 min-h-11 px-0 text-xs text-ink underline" onClick={onExitPrototype}>Jelajahi data peta</button>

@@ -35,6 +35,9 @@ type RawArea = {
         is_sample: boolean;
     }>;
     transit_stop_count: number | string;
+    area_km2?: number | string | null;
+    park_count?: number | string | null;
+    public_facility_count?: number | string | null;
     living_cost_monthly_idr: number | string | null;
     living_cost_source: string | null;
     living_cost_source_url: string | null;
@@ -117,6 +120,9 @@ export async function getOnboardingCityRows(cityId: string | null): Promise<Onbo
             is_sample: place.is_sample,
         })),
         transit_stop_count: Number(row.transit_stop_count) || 0,
+        area_km2: number(row.area_km2 ?? null),
+        park_count: number(row.park_count ?? null),
+        public_facility_count: number(row.public_facility_count ?? null),
         living_cost: number(row.living_cost_monthly_idr) !== null && row.living_cost_source
             ? {
                 value: number(row.living_cost_monthly_idr)!,

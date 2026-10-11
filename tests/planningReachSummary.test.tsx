@@ -26,7 +26,8 @@ test("cleared destination removes old area summary and asks for a new point", ()
 test("reach count follows the same hidden-budget districts as map and list", () => {
     const center: [number, number] = [106.82, -6.24];
     const area: OnboardingArea = { zone_id: "a", zone_name: "A", city_id: "jakarta-selatan", city_name: "Jakarta Selatan",
-        center, is_sample: false, campuses: [], transit_stop_count: 0, living_cost: null, facts: [{
+        center, is_sample: false, campuses: [], transit_stop_count: 0,
+        living_cost: { value: 1_000_000, source: "Survei", source_url: null, limitations: null, is_sample: false }, facts: [{
             metric: "median_monthly_rent_idr", value: 10_000_000, unit: "IDR", source: "Survei", period_end: null,
             evidence_type: "derived", limitations: null, is_sample: false, dimension_key: "housing_type", dimension_value: "kos",
         }] };

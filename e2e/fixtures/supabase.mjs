@@ -201,6 +201,43 @@ createServer(async (request, response) => {
             return send(200, single ? rows[0] : rows);
         } catch (error) { return send(400, { message: error.message }); }
     }
+    if (url.pathname === "/rest/v1/onboarding_drafts") {
+        if (!isService) return send(403, { message: "Service role required" });
+        const userId = filter("user_id");
+        const kind = filter("kind");
+        try {
+            if (request.method === "GET") {
+                const rows = await database.transaction(async (tx) => {
+                    await tx.exec("set local role service_role");
+                    return (await tx.query(`select draft, updated_at from public.onboarding_drafts
+                        where ($1::uuid is null or user_id = $1::uuid)
+                        and ($2::text is null or kind = $2::text)`, [userId, kind])).rows;
+                });
+                return send(200, rows);
+            }
+            if (request.method === "POST" || request.method === "PATCH") {
+                const body = await readBody(request);
+                const draft = Array.isArray(body) ? body[0] : body;
+                const saved = await database.transaction(async (tx) => {
+                    await tx.exec("set local role service_role");
+                    return (await tx.query(`insert into public.onboarding_drafts (user_id, kind, draft, updated_at)
+                        values ($1::uuid, $2, $3::jsonb, $4::timestamptz)
+                        on conflict (user_id, kind) do update set draft = excluded.draft, updated_at = excluded.updated_at
+                        returning draft`, [draft.user_id, draft.kind, JSON.stringify(draft.draft), draft.updated_at])).rows;
+                });
+                return send(201, saved);
+            }
+            if (request.method === "DELETE") {
+                await database.transaction(async (tx) => {
+                    await tx.exec("set local role service_role");
+                    await tx.query(`delete from public.onboarding_drafts
+                        where ($1::uuid is null or user_id = $1::uuid)
+                        and ($2::text is null or kind = $2::text)`, [userId, kind]);
+                });
+                return send(204);
+            }
+        } catch (error) { return send(400, { message: error.message }); }
+    }
     if (url.pathname.startsWith("/rest/v1/")) return send(200, []);
     return send(404, { message: "Unknown fixture endpoint" });
 }).listen(3101, "127.0.0.1");

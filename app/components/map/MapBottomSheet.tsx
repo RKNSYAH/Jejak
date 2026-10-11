@@ -11,7 +11,8 @@ import {
     type Ref,
 } from "react";
 import type { ZoneSummary } from "@/app/engine/types";
-import type { LiveDistrictRecommendation } from "@/app/engine/onboarding/types";
+import type { LiveDistrictRecommendation, OnboardingCity } from "@/app/engine/onboarding/types";
+import { planningCoverageLabel } from "@/app/engine/onboarding/planningReach";
 import { hasHousingStatistics } from "@/app/engine/onboarding/livePreview";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
 import { clamp } from "./viewport";
@@ -56,6 +57,14 @@ export default function MapBottomSheet({
     reachActive = false,
     title,
     emptyMessage,
+    resultsMessage = null,
+    onRetryResults,
+    onResumeFormDraft,
+    onResumeStoryDraft,
+    onRestartFormDraft,
+    cityShortlist,
+    selectedCityId,
+    onSelectCity,
 }: {
     zones: ZoneSummary[];
     onSelect: (zone: ZoneSummary) => void;
@@ -68,6 +77,14 @@ export default function MapBottomSheet({
     reachActive?: boolean;
     title?: string;
     emptyMessage?: string;
+    resultsMessage?: string | null;
+    onRetryResults?: () => void;
+    onResumeFormDraft?: () => void;
+    onResumeStoryDraft?: () => void;
+    onRestartFormDraft?: () => void;
+    cityShortlist?: OnboardingCity[];
+    selectedCityId?: string | null;
+    onSelectCity?: (cityId: string) => void;
 }) {
     const [height, setHeight] = useState(SHEET_MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
@@ -167,7 +184,7 @@ export default function MapBottomSheet({
             <div
                 ref={dragHandleRef}
                 role="separator"
-                aria-label="Ubah tinggi daftar kecamatan"
+                aria-label={isExpanded ? "Ubah tinggi daftar kecamatan" : "Buka daftar kecamatan"}
                 aria-orientation="horizontal"
                 aria-valuemin={getMinHeight()}
                 aria-valuemax={Math.round(getMaxHeight())}
@@ -182,15 +199,57 @@ export default function MapBottomSheet({
             >
                 <div className="h-1 w-10 rounded-full bg-ink/20" />
             </div>
-            <div className="shrink-0 px-4 pb-3">
+            <div inert={!isExpanded} className="shrink-0 px-4 pb-3">
                 <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                     <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{title ?? (recommendations ? "Kecamatan dalam pratinjau" : "Pilih kecamatan jejakmu selanjutnya")}</h2>
-                    <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} kecamatan tersedia</p>
+                    {!resultsMessage && (
+                        <p className="shrink-0 font-body text-xs font-medium text-ink-muted md:text-sm">{zones.length} kecamatan tersedia</p>
+                    )}
                 </div>
                 {onEditPreferences && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onEditPreferences}>Ubah preferensi</button>}
+                {onResumeFormDraft && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onResumeFormDraft}>Lanjutkan draf formulir</button>}
+                {onResumeStoryDraft && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-primary underline" onClick={onResumeStoryDraft}>Lanjutkan draf cerita</button>}
+                {onRestartFormDraft && <button type="button" className="btn btn-ghost mt-1 min-h-11 px-0 text-xs text-ink underline" onClick={onRestartFormDraft}>Mulai ulang formulir</button>}
+                {resultsMessage && (
+                    <div
+                        role={onRetryResults ? "alert" : "status"}
+                        className="mt-2 font-body text-sm text-ink-muted"
+                    >
+                        <p>{resultsMessage}</p>
+                        {onRetryResults && (
+                            <button
+                                type="button"
+                                onClick={onRetryResults}
+                                className="btn btn-ghost min-h-11 px-0 text-xs text-primary underline"
+                            >
+                                Coba lagi
+                            </button>
+                        )}
+                    </div>
+                )}
+                {cityShortlist?.length && onSelectCity && (
+                    <fieldset className="mt-3 border-t border-rule pt-3">
+                        <legend className="font-body text-sm font-semibold text-ink">Pilih kota untuk melihat kecamatan</legend>
+                        <p className="mt-1 text-xs text-ink-muted">Daftar kota didukung, urutan alfabetis, belum dibandingkan berdasarkan kecocokan.</p>
+                        <select aria-label="Kota untuk dijelajahi" value={selectedCityId ?? ""}
+                            onChange={(event) => { if (event.target.value) onSelectCity(event.target.value); }}
+                            className="select mt-2 min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm">
+                            <option value="">Pilih kota</option>
+                            {cityShortlist.map((city) => <option key={city.city_id} value={city.city_id}>{city.city_name}</option>)}
+                        </select>
+                    </fieldset>
+                )}
             </div>
-            <div inert={height <= getMinHeight()} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
-                {recommendations && !recommendations.length && <p role="status" className="py-2 text-sm text-ink-muted">{emptyMessage ?? (reachActive ? "Titik kecamatan di wilayah ini belum tersedia." : "Belum ada hasil yang dapat dirangking dari bukti tersedia. Waktu rute belum dinilai.")}</p>}
+            <div inert={!isExpanded} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
+                {!resultsMessage && recommendations && !recommendations.length && (
+                    <p role="status" className="py-2 text-sm text-ink-muted">
+                        {emptyMessage ?? (
+                            reachActive
+                                ? "Titik kecamatan di wilayah ini belum tersedia."
+                                : "Belum ada hasil yang dapat dirangking dari bukti tersedia. Waktu rute belum dinilai."
+                        )}
+                    </p>
+                )}
                 <div className={isExpanded
                     ? "grid grid-cols-2 gap-2 @min-[480px]:grid-cols-3 @min-[768px]:grid-cols-4 @min-[768px]:gap-4 @min-[1200px]:grid-cols-5"
                     : "flex gap-2 snap-x snap-mandatory md:gap-8"}>
@@ -217,6 +276,11 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
     const housingUnavailable = restrictSelectionToHousingData && (!recommendation || !hasHousingStatistics(recommendation));
     const reachStyle = reachActive && recommendation?.reachBand === "near" ? "border-primary bg-primary/10"
         : reachActive && recommendation?.reachBand === "edge" ? "border-secondary bg-accent/20" : "bg-base-100";
+    const explanation = recommendation?.warnings[0] ?? (recommendation?.eligible === false
+        ? recommendation.exclusions[0]
+        : recommendation?.reasons[0]);
+    const missingEvidence = recommendation?.unknowns[0];
+    const coverage = recommendation ? planningCoverageLabel(recommendation.reachCoverage) : null;
     return (
         <button
             type="button"
@@ -233,6 +297,17 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
                 {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent !== null && hasHousingStatistics(recommendation) ? `Rata-rata sewa Rp${formatRupiah(recommendation.rent)}` : "Sewa belum tersedia"}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
                 {recommendation?.commuteEstimate?.minutes && <span className="font-body text-xs text-ink-muted">Estimasi {recommendation.commuteEstimate.minutes.low}–{recommendation.commuteEstimate.minutes.high} mnt · titik kecamatan</span>}
                 {recommendation && recommendation.reachBand !== "unknown" && <span className="font-body text-xs text-ink-muted">{recommendation.reachBand === "near" ? "Dalam perkiraan jangkauan" : recommendation.reachBand === "edge" ? "Tepi perkiraan jangkauan" : "Di luar perkiraan jangkauan"}{recommendation.reachBand === "edge" ? "" : " · titik kecamatan"}</span>}
+                {coverage && <span className="font-body text-xs leading-relaxed text-ink-muted">{coverage}</span>}
+                {explanation && (
+                    <span className="font-body text-xs leading-relaxed text-ink-muted">
+                        {explanation}
+                    </span>
+                )}
+                {missingEvidence && (
+                    <span className="font-body text-xs leading-relaxed text-ink-muted">
+                        {missingEvidence}
+                    </span>
+                )}
                 {reachActive && (!recommendation || recommendation.reachBand === "unknown") && <span className="font-body text-xs text-ink-muted">Lokasi kecamatan belum tersedia</span>}
                 <span className="font-body text-xs font-semibold text-primary md:text-sm">
                     <span className="md:hidden">Jelajahi →</span>

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultAnswers, defaultWeights, initialFormAnswers } from "../app/engine/onboarding/demoData";
-import { followSuggestedWeights, parseFormSession, priorityKeys, redistributeWeights, suggestWeights, toggleHousing, validateFormStep } from "../app/engine/onboarding/preview";
+import { followSuggestedWeights, getSavedResults, parseFormSession, priorityKeys, redistributeWeights, suggestWeights, toggleHousing, validateFormStep } from "../app/engine/onboarding/preview";
 
 test("housing choices toggle, while unsure is exclusive", () => {
     assert.deepEqual(toggleHousing(["kos"], "unsure"), ["unsure"]);
@@ -58,4 +58,14 @@ test("removed optional questions accept old and new drafts without inventing def
     assert.deepEqual(parsed?.answers.extras, []);
     assert.equal(parseFormSession({ ...session, answers: { ...answers, experience: "unknown" } }), null);
     assert.equal(parseFormSession({ ...session, answers: { ...answers, extras: ["unknown"] } }), null);
+});
+
+test("saved empty results name the blocking constraint or missing evidence", () => {
+    const preview = {
+        city: {}, available: true, ranked: [],
+        districts: [{ exclusions: ["Perkiraan biaya bulanan di atas anggaran"], unknowns: ["Rute belum dinilai"] }],
+    } as unknown as NonNullable<Parameters<typeof getSavedResults>[0]>;
+    assert.match(getSavedResults(preview, false, null) ?? "", /biaya bulanan/);
+    preview.districts[0].exclusions = [];
+    assert.match(getSavedResults(preview, false, null) ?? "", /Rute belum dinilai/);
 });

@@ -3,6 +3,10 @@ import { isRecord } from "./zoneGeometry";
 import { relocationGoalLabels, type RelocationGoal } from "./relocationGoal";
 import { extractUserProfile, onboardingTaxonomy } from "../extractUserProfile";
 import { extractProfileActiveMode, extractProfileTransportMode, getProfileTransportQuestion, parseProfileTransportAnswer, type ProfileTransportMode } from "./relocationProfileInterpretationTransport";
+import { housingLabels } from "../onboarding/demoData";
+import type { Housing } from "../onboarding/types";
+
+type StatedHousing = Exclude<Housing, "unsure">;
 
 export type ProfileClarificationAnswer = { question: string; answer: string; field?: "commute_minutes" | "transport_mode" };
 export type ProfileFollowUpDetails = {
@@ -10,15 +14,47 @@ export type ProfileFollowUpDetails = {
     transport_mode?: ProfileTransportMode;
     active_mode?: "walk" | "bicycle";
     destination?: { name: string; precision: "city" | "area" | "point"; latitude?: number; longitude?: number };
+    // Empty when the user answered "Belum yakin": kos and apartment rents are both compared.
+    housing_types?: StatedHousing[];
 };
 
-export function getProfileClarificationField(question: string): "commute_minutes" | "transport_mode" | "destination" | "goal" | null {
+export function getProfileClarificationField(question: string): "commute_minutes" | "transport_mode" | "housing_types" | "destination" | "goal" | null {
     if (/\b(waktu tempuh|waktu perjalanan|lama.{0,30}perjalanan|durasi.{0,30}perjalanan|travel time)\b|how long.{0,40}(travel|journey|commute)/iu.test(question)) return "commute_minutes";
     if (/\b(transport(?:asi|ation)?|angkutan|moda|naik apa|kendaraan|commute mode|travel mode)\b|how.{0,24}(travel|commute|get to work)/iu.test(question)) return "transport_mode";
+    if (/\b(?:jenis|tipe) hunian\b|\bhousing type\b|\bkost?\b.{0,30}\bapartemen\b|\bapartemen\b.{0,30}\bkost?\b/iu.test(question)) return "housing_types";
     if (/\bcommute\b/iu.test(question)) return "commute_minutes";
     if (/\b(kantor(?:ku|mu|nya)?|office|workplace|work location|lokasi kerja|tempat kerja|lokasi tujuan(?:mu|nya)?|tujuan spesifik)\b|where.{0,24}work/iu.test(question)) return "destination";
     if (/tujuan pindah|kerja.{0,30}kuliah|work.{0,30}study/iu.test(question)) return "goal";
     return null;
+}
+
+export function getProfileHousingQuestion(): string {
+    return "Jenis hunian apa yang kamu cari?";
+}
+
+export const profileHousingChoices = ["kos", "apartment", "unsure"] as const;
+
+export function parseProfileHousingAnswer(answer: string): Housing | null {
+    return profileHousingChoices.find((type) => housingLabels[type].toLowerCase() === answer.trim().toLowerCase()) ?? null;
+}
+
+const housingTerms: [StatedHousing, RegExp][] = [
+    ["kos", /\b(?:kos|kost|kosan|kostan|ngekos|ngekost|indekos)\b/iu],
+    ["apartment", /\b(?:apartemen|apartment)\b/iu],
+    ["house", /\b(?:kontrakan|ngontrak|sewa rumah|rent a house)\b/iu],
+];
+
+// Rent is scored per housing type, so only a stated type counts: "bukan kos" is not a choice, and neither is a model guess.
+export function extractProfileHousingTypes(story: string): StatedHousing[] {
+    const stated = new Set<StatedHousing>();
+    // Commas end a clause too, so "bukan kos, cari apartemen" negates only kos.
+    for (const clause of story.split(/[.,!?;\n]+|\b(?:tapi|tetapi|but)\b/iu)) {
+        for (const [type, pattern] of housingTerms) {
+            const match = clause.match(pattern);
+            if (match && !/\b(?:tidak|tak|nggak|gak|ga|bukan|tanpa|not|never|without|avoid)\b(?:\s+\S+){0,3}\s*$/iu.test(clause.slice(0, match.index))) stated.add(type);
+        }
+    }
+    return housingTerms.map(([type]) => type).filter((type) => stated.has(type));
 }
 
 export function parseProfileCommuteAnswer(answer: string): number | null {
@@ -29,7 +65,9 @@ export function parseProfileCommuteAnswer(answer: string): number | null {
 
 export function validateFollowUpDetails(value: unknown): ProfileFollowUpDetails {
     if (value === undefined) return {};
-    if (!isRecord(value) || Object.keys(value).some((key) => !["commute_minutes", "transport_mode", "active_mode", "destination"].includes(key)) ||
+    if (!isRecord(value) || Object.keys(value).some((key) => !["commute_minutes", "transport_mode", "active_mode", "destination", "housing_types"].includes(key)) ||
+        (value.housing_types !== undefined && (!Array.isArray(value.housing_types) || new Set(value.housing_types).size !== value.housing_types.length ||
+            value.housing_types.some((type) => !housingTerms.some(([stated]) => stated === type)))) ||
         (value.commute_minutes !== undefined && (typeof value.commute_minutes !== "number" || !Number.isInteger(value.commute_minutes) || value.commute_minutes < 0 || value.commute_minutes > 240)) ||
         (value.transport_mode !== undefined && (typeof value.transport_mode !== "string" || !["transit", "motorcycle", "car", "active"].includes(value.transport_mode)))) {
         throw new Error("INVALID_CLARIFICATION_ANSWERS");
@@ -73,7 +111,11 @@ export function resolveProfileFollowUpDetails(answers: ProfileClarificationAnswe
             const activeMode = extractProfileActiveMode(item.answer);
             if (explicit.transport_mode === "active" && activeMode) explicit.active_mode = activeMode;
         }
+        const housing = getProfileClarificationField(item.question) === "housing_types" ? parseProfileHousingAnswer(item.answer) : null;
+        if (housing && explicit.housing_types === undefined) explicit.housing_types = housing === "unsure" ? [] : [housing];
     }
+    const storyHousing = extractProfileHousingTypes(story);
+    if (explicit.housing_types === undefined && storyHousing.length) explicit.housing_types = storyHousing;
     const storyTransport = extractProfileTransportMode(story);
     if (explicit.transport_mode === undefined && storyTransport) {
         explicit.transport_mode = storyTransport;
@@ -97,6 +139,16 @@ export function groundProfileTransport(proposal: RelocationProfileProposal, stor
     if (transport === "active" && activeMode) soft.active_mode = activeMode;
     return { ...proposal, hard_constraints: hard, soft_preferences: soft,
         inferred_fields: proposal.inferred_fields.filter((field) => field !== "transport_mode" && field !== "active_mode") };
+}
+
+// Explicit details re-add a stated housing type afterwards; whatever the model guessed is discarded.
+export function dropModelHousing(proposal: RelocationProfileProposal): RelocationProfileProposal {
+    const hard = { ...proposal.hard_constraints };
+    const soft = { ...proposal.soft_preferences };
+    delete hard.housing_types;
+    delete soft.housing_types;
+    return { ...proposal, hard_constraints: hard, soft_preferences: soft,
+        inferred_fields: proposal.inferred_fields.filter((field) => field !== "housing_types") };
 }
 
 export function applyProfileExplicitDetails(proposal: RelocationProfileProposal, goal?: RelocationGoal, details: ProfileFollowUpDetails = {}): RelocationProfileProposal {
@@ -151,11 +203,15 @@ export function getProfileClarificationQuestions(proposal: RelocationProfileProp
     const destinationAnswered = !!details.destination || answers.some(({ question }) => getProfileClarificationField(question) === "destination");
     const questions = proposal.clarification_questions.filter((question) => {
         const field = getProfileClarificationField(question);
-        if (field === "transport_mode") return false; // One deterministic question, never a model-picked mode.
+        if (field === "transport_mode" || field === "housing_types") return false; // One deterministic question, never a model pick.
         return !answered.has(question.trim()) && !(field === "goal" && goal) && !(field === "destination" && destinationAnswered) && !(field && Object.hasOwn(details, field));
     });
     const transport = resolveProfileFollowUpDetails(answers, details, story).transport_mode;
     if (!transport) questions.push(getProfileTransportQuestion());
+    const housing = proposal.hard_constraints.housing_types ?? proposal.soft_preferences.housing_types;
+    if (!(Array.isArray(housing) && housing.length) && !answers.some(({ question }) => getProfileClarificationField(question) === "housing_types")) {
+        questions.push(getProfileHousingQuestion());
+    }
     const destination = proposal.hard_constraints.destination ?? proposal.soft_preferences.destination;
     const city = getProfileTargetCity(proposal, story);
     const hasSpecificDestination = isRecord(destination) && destination.precision !== "city" && typeof destination.name === "string" && destination.name.toLowerCase() !== city?.toLowerCase();

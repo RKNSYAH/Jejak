@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Bike, Car, Footprints, MapPin, Search, TrainFront } from "lucide-react";
 import type { OnboardingCampus } from "@/app/engine/onboarding/types";
-import { transportModeLabels } from "@/app/engine/onboarding/demoData";
+import { departureLabels, transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { RadioChoices } from "../FormControls";
 import type { StepProps } from "./PurposeStep";
 
@@ -48,6 +48,6 @@ export default function JourneyStep({ answers, onChange, destinations = [], onMa
         <RadioChoices name="commuteMinutes" label="Batas waktu tempuh sekali jalan" value={answers.commuteMinutes} onChange={(commuteMinutes) => onChange({ commuteMinutes })}
             className="grid! grid-cols-4 rounded-xl border border-rule p-1 [&>label>span]:px-1 [&>label>span]:border-transparent" choices={[15, 30, 45, 60].map((value) => ({ value: value as 15 | 30 | 45 | 60, label: `${value} mnt` }))} />
         <RadioChoices name="departure" label="Biasanya berangkat" value={answers.departure} onChange={(departure) => onChange({ departure })}
-            choices={[{ value: "morning", label: "Pagi" }, { value: "midday", label: "Siang" }, { value: "evening", label: "Sore atau malam" }, { value: "flexible", label: "Tidak tentu" }]} />
+            choices={(Object.keys(departureLabels) as (keyof typeof departureLabels)[]).map((value) => ({ value, label: departureLabels[value] }))} />
     </div>;
 }

@@ -34,7 +34,7 @@ export default function StoryReviewPanel({ header, children, footer, saving, onD
                 <h1 id="onboarding-step-three-title" ref={titleRef} tabIndex={-1} className="font-sans text-2xl font-bold leading-tight focus-visible:outline-2 focus-visible:outline-primary">
                     <span className="hidden md:inline">Sudah sesuai? </span>Atur prioritasmu
                 </h1>
-                <p className="mt-1 text-sm leading-relaxed text-ink-muted md:text-xs">Terisi dari ceritamu. Geser, nomor di peta ikut bergeser.</p>
+                <p className="mt-1 text-sm leading-relaxed text-ink-muted md:text-xs">Bobot sudah terisi dari ceritamu. Geser untuk mengubah, nomor di peta ikut bergeser.</p>
                 {children}
             </fieldset>
             <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-rule px-5 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-3 md:py-3">

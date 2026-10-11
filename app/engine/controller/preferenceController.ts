@@ -1,7 +1,7 @@
 import { buildRelocationProfileInterpretationInput, onboardingTaxonomy } from "../extractUserProfile";
 import { LANGFLOW_FLOWS, runFlow } from "../lib/langflow";
 import { validateRelocationProfileProposal, type RelocationProfileProposal } from "../lib/relocationProfileInterpretationValidation";
-import { applyProfileExplicitDetails, buildProfileFollowUpMessage, getProfileClarificationQuestions, groundProfileTransport, resolveProfileFollowUpDetails, type ProfileClarificationAnswer, type ProfileFollowUpDetails } from "../lib/relocationProfileInterpretationFollowUp";
+import { applyProfileExplicitDetails, buildProfileFollowUpMessage, dropModelHousing, getProfileClarificationQuestions, groundProfileTransport, resolveProfileFollowUpDetails, type ProfileClarificationAnswer, type ProfileFollowUpDetails } from "../lib/relocationProfileInterpretationFollowUp";
 import type { RelocationGoal } from "../lib/relocationGoal";
 import { buildNativeProfileRefinementInput, reconcileProfileRefinement } from "../lib/profileRefinement";
 import type { PersistedRelocationProfile } from "../lib/relocationProfile";
@@ -13,7 +13,7 @@ export async function interpretOnboardingStory(message: string, language: "id", 
     const input = { ...buildRelocationProfileInterpretationInput(buildProfileFollowUpMessage(message, answers, goal, explicitDetails), onboardingTaxonomy, sessionReference, language),
         ...(explicitDetails.transport_mode ? { answers: { transport_mode: explicitDetails.transport_mode } } : {}) };
     const result = await runFlow(LANGFLOW_FLOWS.relocationProfileInterpretation, input, { timeoutMs: 120_000, sessionId: sessionReference });
-    const proposal = applyProfileExplicitDetails(groundProfileTransport(validateRelocationProfileProposal(result, onboardingTaxonomy), message, explicitDetails), goal, explicitDetails);
+    const proposal = applyProfileExplicitDetails(dropModelHousing(groundProfileTransport(validateRelocationProfileProposal(result, onboardingTaxonomy), message, explicitDetails)), goal, explicitDetails);
     return validateRelocationProfileProposal({ ...proposal,
         clarification_questions: getProfileClarificationQuestions(proposal, message, answers, goal, explicitDetails),
     }, onboardingTaxonomy);

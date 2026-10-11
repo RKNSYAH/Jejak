@@ -3,10 +3,11 @@ import { test } from "node:test";
 import { spyOn } from "bun:test";
 import * as auth from "../app/engine/controller/userServerController";
 import { GET, POST, DELETE } from "../app/api/user/relocation-profile/route";
+import { GET as getOnboardingDraft, PUT as putOnboardingDraft, DELETE as deleteOnboardingDraft } from "../app/api/user/onboarding-drafts/route";
 import { DELETE as deleteAccount } from "../app/api/user/route";
 import { EXPECTED_USER_HEADER } from "../app/engine/lib/accountIdentity";
 import { draftKeys, FORM_DRAFT_KEY, STORY_DRAFT_KEY } from "../app/engine/onboarding/types";
-import { readOnboardingDraft, writeOnboardingDraft, clearOnboardingDrafts } from "../app/engine/onboarding/draftStorage";
+import { readOnboardingDraft, writeOnboardingDraft, clearOnboardingDraft, clearOnboardingDrafts } from "../app/engine/onboarding/draftStorage";
 import { defaultAnswers } from "../app/engine/onboarding/demoData";
 
 test("both onboarding drafts stay owned across expiry and another login; legacy drafts are discarded", () => {
@@ -36,6 +37,20 @@ test("both onboarding drafts stay owned across expiry and another login; legacy 
     }
 });
 
+test("restarting one onboarding path preserves the other path's draft", () => {
+    const values = new Map<string, string>();
+    const storage = {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => { values.set(key, value); },
+        removeItem: (key: string) => { values.delete(key); },
+    };
+    writeOnboardingDraft("A", "form", { step: 2 }, storage);
+    writeOnboardingDraft("A", "story", { step: 3 }, storage);
+    clearOnboardingDraft("A", "form", storage);
+    assert.equal(readOnboardingDraft("A", "form", storage), null);
+    assert.deepEqual(readOnboardingDraft("A", "story", storage), { step: 3 });
+});
+
 test("profile reads/saves/deletes and account deletion reject stale or absent expected owners before data access", async (context) => {
     const authMock = spyOn(auth, "getAuthenticatedUserId").mockResolvedValue("B");
     let dataCalls = 0;
@@ -51,6 +66,24 @@ test("profile reads/saves/deletes and account deletion reject stale or absent ex
                 assert.equal((await response.json()).code, "ACCOUNT_CHANGED");
             }
         }
+        assert.equal(dataCalls, 0);
+    } finally { authMock.mockRestore(); }
+});
+
+test("onboarding draft endpoints reject stale account scopes before database access", async (context) => {
+    const authMock = spyOn(auth, "getAuthenticatedUserId").mockResolvedValue("B");
+    let dataCalls = 0;
+    context.mock.method(globalThis, "fetch", async () => { dataCalls++; throw new Error("Must not access data"); });
+    const headers = { "Content-Type": "application/json", [EXPECTED_USER_HEADER]: "A" };
+    const requests = [
+        getOnboardingDraft(new Request("http://localhost/api/user/onboarding-drafts?kind=form", { headers })),
+        putOnboardingDraft(new Request("http://localhost/api/user/onboarding-drafts", {
+            method: "PUT", headers, body: JSON.stringify({ kind: "form", draft: { version: 1, status: "active", step: 1, answers: defaultAnswers } }),
+        })),
+        deleteOnboardingDraft(new Request("http://localhost/api/user/onboarding-drafts?kind=form", { method: "DELETE", headers })),
+    ];
+    try {
+        for (const response of await Promise.all(requests)) assert.equal(response.status, 409);
         assert.equal(dataCalls, 0);
     } finally { authMock.mockRestore(); }
 });

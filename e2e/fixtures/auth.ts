@@ -16,11 +16,23 @@ export async function authenticateContext(context: BrowserContext, baseURL: stri
     if (error) throw error;
     await context.setExtraHTTPHeaders({ "X-Jejak-User-Id": data.user!.id });
     await context.addCookies(cookies.map(({ name, value }) => ({ name, value, url: baseURL, sameSite: "Lax" })));
+    return data.user!.id;
 }
 
 export const test = base.extend({
     page: async ({ page, baseURL }, providePage) => {
-        await authenticateContext(page.context(), baseURL!);
+        await page.request.delete("http://127.0.0.1:3101/rest/v1/onboarding_drafts", {
+            headers: { apikey: "e2e-local-service-role", authorization: "Bearer e2e-local-service-role" },
+        });
+        const userId = await authenticateContext(page.context(), baseURL!);
+        for (const kind of ["form", "story"]) {
+            await page.request.delete(`${baseURL}/api/user/onboarding-drafts?kind=${kind}`, {
+                headers: { "X-Jejak-User-Id": userId },
+            });
+        }
+        await page.request.delete(`${baseURL}/api/user/relocation-profile`, {
+            headers: { "X-Jejak-User-Id": userId },
+        });
         await providePage(page);
     },
 });

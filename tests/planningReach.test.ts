@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { estimatePlanningReach, planningReachBand, planningDistrictData, planningDistrictPoints, planningDistanceLabel, pointDistanceKm } from "../app/engine/onboarding/planningReach";
-import type { Polygon } from "geojson";
+import { estimatePlanningReach, planningReachBand, planningReachCoverage, planningDistrictData, planningDistrictPoints, planningDistanceLabel, pointDistanceKm, reachFit, type PlanningReach } from "../app/engine/onboarding/planningReach";
+import type { MultiPolygon, Polygon } from "geojson";
 import { getGeometryBounds } from "../app/engine/lib/zoneGeometry";
 import type { ZoneGeometry } from "../app/engine/types";
 import { evaluateLiveOnboarding, formPreviewPreferences, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
@@ -76,6 +76,78 @@ test("a district whose boundary touches the circle counts as edge even when its 
     assert.equal(planningReachBand(null, reach, [box(0.007, 0.03)]), "edge");
     assert.equal(planningReachBand(null, reach, [box(0.02, 0.03)]), "unknown");
     assert.equal(planningReachBand(preferences.destinationPoint, reach, [box(0.02, 0.03)]), "near");
+});
+
+test("reach coverage measures covered area, subtracts holes, and combines multipolygons", () => {
+    const reach = estimatePlanningReach({ ...preferences, transport: "active", commuteMinutes: 15 }, [])!;
+    const radius = reach.radiusKm.high;
+    const [lon, lat] = reach.destination;
+    const longitudePerKm = 111.32 * Math.cos(lat * Math.PI / 180);
+    const point = (x: number, y: number): [number, number] => [lon + x / longitudePerKm, lat + y / 110.574];
+    const box = (west: number, east: number, south: number, north: number): Polygon => ({ type: "Polygon", coordinates: [[
+        point(west, south), point(east, south), point(east, north), point(west, north), point(west, south),
+    ]] });
+    const sliver = planningReachCoverage([box(0.7 * radius, 1.3 * radius, 0.7 * radius, 1.3 * radius)], reach);
+    const mostlyCovered = planningReachCoverage([box(-1.2 * radius, 1.2 * radius, -1.2 * radius, 1.2 * radius)], reach);
+    assert.ok(sliver !== null && sliver > 0 && sliver < 0.1);
+    assert.ok(mostlyCovered !== null && mostlyCovered > 0.5);
+
+    const outer = box(-2 * radius, 2 * radius, -2 * radius, 2 * radius).coordinates[0];
+    const hole = box(-0.5 * radius, 0.5 * radius, -0.5 * radius, 0.5 * radius).coordinates[0];
+    const withHole: Polygon = { type: "Polygon", coordinates: [outer, hole] };
+    assert.ok(Math.abs((planningReachCoverage([withHole], reach) ?? 0) - (Math.PI - 1) / 15) < 0.002);
+
+    const multipart: MultiPolygon = {
+        type: "MultiPolygon",
+        coordinates: [box(-0.25 * radius, 0.25 * radius, -0.25 * radius, 0.25 * radius).coordinates,
+            box(2 * radius, 3 * radius, 2 * radius, 3 * radius).coordinates],
+    };
+    assert.ok(Math.abs((planningReachCoverage([multipart], reach) ?? 0) - 0.2) < 0.001);
+    assert.equal(planningReachCoverage([], reach), null);
+
+    const ring = Array.from({ length: 97 }, (_, index) => {
+        const angle = -(index % 96) / 96 * 2 * Math.PI;
+        return point(2.3 * radius + 0.9 * radius * Math.cos(angle), -1.7 * radius + 0.9 * radius * Math.sin(angle));
+    });
+    const untouched: Polygon = { type: "Polygon", coordinates: [ring] };
+    assert.equal(planningReachCoverage([untouched], reach), 0);
+    assert.equal(planningReachBand(null, reach, [untouched]), "unknown");
+});
+
+test("when route estimates are unavailable, area coverage scores reach fit without normalizing tiny overlaps", () => {
+    const reach = estimatePlanningReach({ ...preferences, transport: "active", commuteMinutes: 15 }, [])!;
+    const radius = reach.radiusKm.high;
+    const [lon, lat] = reach.destination;
+    const longitudePerKm = 111.32 * Math.cos(lat * Math.PI / 180);
+    const point = (x: number, y: number): [number, number] => [lon + x / longitudePerKm, lat + y / 110.574];
+    const box = (west: number, east: number, south: number, north: number): Polygon => ({ type: "Polygon", coordinates: [[
+        point(west, south), point(east, south), point(east, north), point(west, north), point(west, south),
+    ]] });
+    const mostly = box(-1.2 * radius, 1.2 * radius, -1.2 * radius, 1.2 * radius);
+    const sliver = box(0.7 * radius, 1.3 * radius, 0.7 * radius, 1.3 * radius);
+    const city: OnboardingCity = { city_id: "jakarta-selatan", city_name: "Jakarta Selatan", district_count: 2,
+        center: reach.destination, is_sample: false };
+    const rentFact = { metric: "median_monthly_rent_idr", value: 1_500_000, unit: "IDR", source: "Survei",
+        period_end: null, evidence_type: "derived" as const, limitations: null, is_sample: false,
+        dimension_key: "housing_type" as const, dimension_value: "kos" };
+    const area = (id: string, boundary: Polygon, center: [number, number]): OnboardingArea => ({
+        zone_id: id, zone_name: id, city_id: city.city_id, city_name: city.city_name, center, is_sample: false,
+        facts: [rentFact], campuses: [], transit_stop_count: 0, living_cost: null,
+    });
+    const areas = [area("mostly", mostly, reach.destination), area("sliver", sliver, point(radius, radius))];
+    const geometry: ZoneGeometry = { type: "FeatureCollection", features: areas.map((item, index) => ({
+        type: "Feature", properties: { zone_id: item.zone_id, zone_name: item.zone_name }, geometry: index === 0 ? mostly : sliver,
+    })) };
+    const preview = evaluateLiveOnboarding({ ...preferences, cityId: city.city_id, transport: "active", commuteMinutes: 15,
+        monthlyBudget: null, maximumRent: null, destinationId: null, destinationPoint: reach.destination,
+        weights: { mobility: 100, opportunity: 0, affordability: 0, environment: 0 } }, 4,
+    { cities: [city], areas, destinations: [], geometry });
+    const mostlyCovered = preview.districts.find((item) => item.district.zone_id === "mostly")!;
+    const sliverCovered = preview.districts.find((item) => item.district.zone_id === "sliver")!;
+    assert.ok(mostlyCovered.score !== null && sliverCovered.score !== null);
+    assert.ok(mostlyCovered.reachCoverage! > sliverCovered.reachCoverage!);
+    assert.ok(mostlyCovered.score > sliverCovered.score);
+    assert.equal(preview.ranked[0]?.district.zone_id, "mostly");
 });
 
 test("missing destination, mode or time does not invent reach; endpoint allowance is bounded", () => {
@@ -160,4 +232,16 @@ test("map polygons use exactly list classifications; missing boundaries and cent
     // Hidden-budget or other-metro districts cannot retain stale polygon highlights.
     assert.deepEqual(planningDistrictData(geometry, [preview.districts[1]]).features.map((feature) => feature.properties.zone_id), ["edge"]);
     assert.equal(planningDistrictData(geometry, []).features.length, 0);
+});
+
+test("beyond the reach, fit falls with the log of distance relative to the reach radius", () => {
+    const reach = (km: number) => ({ radiusKm: { low: km / 2, high: km } }) as PlanningReach;
+    assert.equal(reachFit(0.8, reach(1)), 1);
+    assert.equal(reachFit(null, reach(1)), 1);
+    assert.equal(reachFit(10, reach(1)), 0);
+    // Two extra kilometres cost far more in a tight reach than in a wide one.
+    assert.ok(1 - reachFit(3, reach(1)) > 3 * (1 - reachFit(12, reach(10))));
+    // A far district gains with the log of the reach: doubling the radius always adds the same fit.
+    const gain = (from: number, to: number) => reachFit(12, reach(to)) - reachFit(12, reach(from));
+    assert.ok(Math.abs(gain(2, 4) - gain(4, 8)) < 1e-12);
 });

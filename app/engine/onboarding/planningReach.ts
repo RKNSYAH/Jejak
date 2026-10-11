@@ -1,4 +1,4 @@
-import type { FeatureCollection, MultiPolygon, Point, Polygon } from "geojson";
+import type { FeatureCollection, MultiPolygon, Point, Polygon, Position } from "geojson";
 import { isCentroid } from "../lib/zoneGeometry";
 import { previewDestination } from "../routing/sampling";
 import type { RoutingPoint } from "../routing/types";
@@ -28,6 +28,7 @@ const assumptions: Record<Transport, { speedKmh: readonly [number, number]; allo
 const EARTH_KM = 6371.0088;
 const radians = (degrees: number) => degrees * Math.PI / 180;
 const degrees = (value: number) => value * 180 / Math.PI;
+type PlanePoint = [number, number];
 
 export function pointDistanceKm(a: RoutingPoint, b: RoutingPoint): number {
     const latA = radians(a[1]), latB = radians(b[1]);
@@ -66,29 +67,80 @@ export function estimatePlanningReach(preferences: LivePreviewPreferences, desti
     };
 }
 
-// True when any part of a boundary lies inside the outer reach circle. Works in a flat km grid around the
-// destination, which is accurate at these radii. Holes are ignored.
-function boundaryTouchesReach(boundary: Polygon | MultiPolygon, reach: PlanningReach): boolean {
+function projectRing(ring: Position[], reach: PlanningReach): PlanePoint[] | null {
     const [lon0, lat0] = reach.destination;
-    const kx = 111.32 * Math.cos(radians(lat0)), ky = 110.574, radius = reach.radiusKm.high;
-    const polygons = boundary.type === "Polygon" ? [boundary.coordinates] : boundary.coordinates;
-    return polygons.some((polygon) => {
-        const rings = polygon.map((ring) => ring.map(([lon, lat]) => [(lon - lon0) * kx, (lat - lat0) * ky]));
-        for (const ring of rings) for (let index = 1; index < ring.length; index++) {
-            const [ax, ay] = ring[index - 1], [bx, by] = ring[index];
-            const dx = bx - ax, dy = by - ay, length = dx * dx + dy * dy;
-            const t = length ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / length)) : 0;
-            if (Math.hypot(ax + t * dx, ay + t * dy) <= radius) return true;
+    const kx = 111.32 * Math.cos(radians(lat0)), ky = 110.574;
+    const points = ring.map(([longitude, latitude]) => [(longitude - lon0) * kx, (latitude - lat0) * ky] as PlanePoint);
+    return points.length >= 3 && points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)) ? points : null;
+}
+
+function ringArea(ring: PlanePoint[]): number {
+    let area = 0;
+    for (let index = 0; index < ring.length; index++) {
+        const [x1, y1] = ring[index], [x2, y2] = ring[(index + 1) % ring.length];
+        area += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(area / 2);
+}
+
+// Green's theorem gives exact circle overlap for straight polygon edges in the local km projection.
+function ringCircleIntersectionArea(ring: PlanePoint[], radius: number): number {
+    const radiusSquared = radius * radius;
+    let area = 0;
+    for (let index = 0; index < ring.length; index++) {
+        const [ax, ay] = ring[index], [bx, by] = ring[(index + 1) % ring.length];
+        const dx = bx - ax, dy = by - ay;
+        const quadratic = dx * dx + dy * dy;
+        const roots = [0, 1];
+        if (quadratic > 0) {
+            const linear = 2 * (ax * dx + ay * dy);
+            const constant = ax * ax + ay * ay - radiusSquared;
+            const discriminant = linear * linear - 4 * quadratic * constant;
+            if (discriminant > 0) {
+                const root = Math.sqrt(discriminant);
+                for (const t of [(-linear - root) / (2 * quadratic), (-linear + root) / (2 * quadratic)]) {
+                    if (t > 0 && t < 1) roots.push(t);
+                }
+            }
         }
-        // No edge reaches the circle: it is either wholly inside the boundary or wholly outside it.
-        let inside = false;
-        const outer = rings[0] ?? [];
-        for (let index = 1; index < outer.length; index++) {
-            const [ax, ay] = outer[index - 1], [bx, by] = outer[index];
-            if ((ay > 0) !== (by > 0) && ax + (0 - ay) / (by - ay) * (bx - ax) > 0) inside = !inside;
+        roots.sort((a, b) => a - b);
+        for (let part = 1; part < roots.length; part++) {
+            const start = roots[part - 1], end = roots[part];
+            const x1 = ax + start * dx, y1 = ay + start * dy;
+            const x2 = ax + end * dx, y2 = ay + end * dy;
+            const cross = x1 * y2 - x2 * y1;
+            const middle = (start + end) / 2;
+            const mx = ax + middle * dx, my = ay + middle * dy;
+            area += mx * mx + my * my <= radiusSquared
+                ? cross / 2
+                : radiusSquared * Math.atan2(cross, x1 * x2 + y1 * y2) / 2;
         }
-        return inside;
-    });
+    }
+    return Math.abs(area);
+}
+
+export function planningReachCoverage(boundaries: (Polygon | MultiPolygon)[], reach: PlanningReach): number | null {
+    const radius = reach.radiusKm.high;
+    if (!boundaries.length || !Number.isFinite(radius) || radius <= 0) return null;
+    let totalArea = 0, coveredArea = 0;
+    for (const boundary of boundaries) {
+        const polygons = boundary.type === "Polygon" ? [boundary.coordinates] : boundary.coordinates;
+        for (const polygon of polygons) {
+            const rings = polygon.map((ring) => projectRing(ring, reach));
+            if (!rings.length || rings.some((ring) => ring === null)) return null;
+            const [outer, ...holes] = rings as PlanePoint[][];
+            const outerArea = ringArea(outer);
+            const holeArea = holes.reduce((sum, ring) => sum + ringArea(ring), 0);
+            const polygonArea = outerArea - holeArea;
+            if (!Number.isFinite(polygonArea) || polygonArea <= 0) return null;
+            totalArea += polygonArea;
+            coveredArea += ringCircleIntersectionArea(outer, radius) - holes.reduce((sum, ring) => sum + ringCircleIntersectionArea(ring, radius), 0);
+        }
+    }
+    if (!(totalArea > 0)) return null;
+    // Arcs of a ring that never enters the circle cancel to rounding noise (~1e-16), not real overlap.
+    const coverage = coveredArea / totalArea;
+    return coverage < 1e-9 ? 0 : Math.min(1, coverage);
 }
 
 // A district whose center is outside (or unknown) but whose boundary touches the circle still counts as "edge".
@@ -99,12 +151,30 @@ export function planningReachBand(center: RoutingPoint | null, reach: PlanningRe
         const distance = pointDistanceKm(center, reach.destination);
         band = reach.radiusKm.high === 0 ? "outside" : distance <= reach.radiusKm.low ? "near" : distance <= reach.radiusKm.high ? "edge" : "outside";
     }
-    return band !== "near" && band !== "edge" && reach.radiusKm.high > 0 && boundaries.some((boundary) => boundaryTouchesReach(boundary, reach)) ? "edge" : band;
+    const coverage = band !== "near" && band !== "edge" ? planningReachCoverage(boundaries, reach) : null;
+    return coverage !== null && coverage > 0 ? "edge" : band;
+}
+
+// Fit beyond the reach falls with the log of how many reach radii away a district is, so one extra kilometre
+// costs a lot in a tight reach and little in a wide one. A cheap but far district can't buy its way back up.
+// ponytail: uses the district's centre point and a fixed zero point; tune REACH_ZERO_RADII with user testing.
+const REACH_ZERO_RADII = 10;
+export function reachFit(distanceKm: number | null, reach: PlanningReach): number {
+    const radius = reach.radiusKm.high;
+    if (distanceKm === null || !Number.isFinite(distanceKm) || distanceKm <= radius) return 1;
+    if (!(radius > 0)) return 0;
+    return Math.max(0, 1 - Math.log(distanceKm / radius) / Math.log(REACH_ZERO_RADII));
 }
 
 export function planningReachLabel(band: PlanningReachBand): string {
     return { near: "Titik kecamatan dalam perkiraan jangkauan", edge: "Kecamatan di tepi perkiraan jangkauan",
         outside: "Titik kecamatan di luar perkiraan jangkauan", unknown: "Lokasi kecamatan belum tersedia" }[band];
+}
+
+export function planningCoverageLabel(coverage: number | null): string | null {
+    if (coverage === null || !Number.isFinite(coverage)) return null;
+    const percentage = coverage > 0 && coverage < 0.001 ? "<0,1" : (coverage * 100).toLocaleString("id-ID", { maximumFractionDigits: 1 });
+    return `Wilayah kecamatan dalam jangkauan perkiraan: ${percentage}%`;
 }
 
 export function planningRadiusLabel(reach: PlanningReach): string {

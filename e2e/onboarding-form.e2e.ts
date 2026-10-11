@@ -102,7 +102,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     // The form explains the reach; the card stays short and does not repeat it.
     await expect(page.locator(".onboarding-form-panel")).toContainText("Perkiraan jangkauan");
     await expect(preview).not.toContainText(/Perkiraan jangkauan|titik tersimpan|kecamatan belum terverifikasi/);
-    await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).toContainText("Waktu tempuh belum dinilai");
+    await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).not.toContainText(/\d+\s*menit/);
     await expect(districtList.getByRole("button", { name: /Kecamatan A/ })).toContainText("perkiraan jangkauan");
     await page.getByRole("radio", { name: "Motor", exact: true }).check();
     await page.screenshot({ path: testInfo.outputPath("step-3.png") });
@@ -119,7 +119,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await expect(review).toBeVisible();
     await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Pekerjaan atau bidang karier");
     await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Anggaran bulanan");
-    await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Belum dinilai");
+    await expect(review.locator('[data-hci-region="profile-review-fields"]')).not.toContainText("Belum dinilai");
     expect(profileSaves).toBe(0);
     const saveResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
     await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
@@ -143,10 +143,10 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     expect(liveCalls).toEqual([]);
     expect(errors).toEqual([]);
 
-    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
+    await page.getByRole("separator").press("End");
     await expect(page.getByRole("heading", { name: "Kecamatan dalam pratinjau" })).toBeVisible();
     await expect(page.locator('[data-hci-region="zone-list"]')).toContainText("Kecamatan A");
-    const separator = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
+    const separator = page.getByRole("separator");
     const resultCard = page.locator('[data-hci-region="zone-list"]').getByRole("button", { name: /Kecamatan A/ });
     await resultCard.click();
     const detail = page.getByRole("region", { name: "Data Kecamatan A" });
@@ -161,7 +161,7 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await page.reload();
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sesuaikan rencana" })).toHaveCount(1);
-    await page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" }).press("End");
+    await page.getByRole("separator").press("End");
     await page.getByRole("button", { name: "Sesuaikan rencana" }).click();
     await expect(page.getByRole("heading", { name: "Apa yang paling penting untukmu?" })).toBeVisible();
 });
@@ -201,7 +201,7 @@ test("costs stay outside the collapsed list and removed optional questions are a
     await expect(costs).not.toContainText("Sewa di atas batasmu");
     await district.selectOption("jakarta-selatan-b");
     await expect(costs).toContainText("sekitar Rp6.000.000");
-    await expect(costs).toContainText("Sewa di atas batasmu");
+    await expect(costs).toContainText("Sewa rata-rata di atas batas");
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
     await expect(district).toHaveValue("jakarta-selatan-b");
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
@@ -306,7 +306,7 @@ test("back, refresh, story switching, and skip preserve the form draft", async (
     await expect(page.getByRole("heading", { name: "Ceritakan rencana pindahmu" })).toBeVisible();
     await page.getByRole("button", { name: "Isi formulir", exact: true }).click();
     await expect(page.getByLabel("Pekerjaan", { exact: true })).toHaveValue("Data analyst");
-    await page.getByRole("button", { name: "Lewati", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut nanti", exact: true }).click();
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
@@ -338,7 +338,7 @@ test("city changes update live data and invalid budgets block navigation", async
     await expect(page.locator('[data-hci-region="onboarding-preview"]')).toContainText(/0\/\d+ kecamatan dalam batas sewa/);
     const districtList = page.getByRole("list", { name: "Kecamatan dalam pratinjau" });
     if (!await districtList.isVisible()) await page.getByText("Lihat daftar kecamatan dan batasnya", { exact: true }).click();
-    await expect(districtList).toContainText("Sewa di atas batasmu");
+    await expect(districtList).toContainText("Sewa rata-rata di atas batas");
 });
 
 test("mobile sheet reflows with usable fixed navigation and keyboard controls", async ({ page }, testInfo) => {

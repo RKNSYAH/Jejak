@@ -1,3 +1,4 @@
+import { housingLabels } from "@/app/engine/onboarding/demoData";
 import { toggleHousing } from "@/app/engine/onboarding/preview";
 import { CheckboxChoices, MoneyField, RadioChoices } from "../FormControls";
 import type { StepProps } from "./PurposeStep";
@@ -15,6 +16,6 @@ export default function BudgetStep({ answers, onChange, errors }: StepProps) {
             choices={[{ value: "mark", label: "Tampilkan dengan tanda", shortLabel: "Tampilkan, diarsir", description: "Diarsir di peta" }, { value: "hide", label: "Sembunyikan", description: "Hanya yang dalam batas" }]} />
         <CheckboxChoices name="housing" label={<>Jenis hunian <span className="font-normal text-ink-muted">· boleh lebih dari satu</span></>}
             values={answers.housing} onToggle={(choice) => onChange({ housing: toggleHousing(answers.housing, choice) })} error={errors.housing}
-            choices={[{ value: "kos", label: "Kos" }, { value: "apartment", label: "Apartemen" },{ value: "unsure", label: "Belum yakin" }]} />
+            choices={(["kos", "apartment", "unsure"] as const).map((value) => ({ value, label: housingLabels[value] }))} />
     </div>;
 }

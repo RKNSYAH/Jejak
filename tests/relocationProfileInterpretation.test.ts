@@ -6,7 +6,7 @@ import { LANGFLOW_FLOWS } from "../app/engine/lib/langflow";
 import { onboardingTaxonomy } from "../app/engine/extractUserProfile";
 import { completed, countFetches, postJson, withWorkflowEnvironment } from "./helpers";
 import { validateRelocationProfileProposal } from "../app/engine/lib/relocationProfileInterpretationValidation";
-import { applyProfileFieldEdit, buildProfileMessage, getProfileClarificationField, getProfileClarificationQuestions, parseProfileCommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/relocationProfileInterpretationFollowUp";
+import { applyProfileFieldEdit, buildProfileMessage, extractProfileHousingTypes, getProfileClarificationField, getProfileClarificationQuestions, parseProfileCommuteAnswer, validateClarificationAnswers, validateFollowUpDetails } from "../app/engine/lib/relocationProfileInterpretationFollowUp";
 import { extractProfileTransportMode, parseProfileTransportAnswer } from "../app/engine/lib/relocationProfileInterpretationTransport";
 import { buildPersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
 
@@ -128,9 +128,9 @@ test("commute bindings normalize minutes and reject invalid or unbounded numeric
 test("missing transport and specific destination get follow-ups even when profile interpretation returns none", () => {
   const profile = validateRelocationProfileProposal({ ...validProfile, hard_constraints: { ...validProfile.hard_constraints, destination_cities: ["Jakarta Selatan"] } }, onboardingTaxonomy);
   assert.deepEqual(getProfileClarificationQuestions(profile, "Mau pindah."),
-    ["Moda transportasi apa yang kamu pilih?", "Sudah tahu lokasi tujuan spesifik di Jakarta Selatan?"]);
+    ["Moda transportasi apa yang kamu pilih?", "Jenis hunian apa yang kamu cari?", "Sudah tahu lokasi tujuan spesifik di Jakarta Selatan?"]);
   assert.deepEqual(getProfileClarificationQuestions({ ...profile, clarification_questions: ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"] }, "Mau pindah."),
-    ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?"]);
+    ["Di mana lokasi kantormu?", "Moda transportasi apa yang kamu pilih?", "Jenis hunian apa yang kamu cari?"]);
 });
 
 test("unstated transport never accepts a model guess, even with high confidence", async (context) => {
@@ -207,12 +207,44 @@ test("unknown specific destination retains a city without inventing coordinates 
       [{ question: "Sudah tahu lokasi tujuan spesifik di Jakarta Selatan?", answer: "Belum tahu" }], "work", { destination, transport_mode: "transit" });
     assert.deepEqual(profile.soft_preferences.destination, destination);
     assert.equal(profile.soft_preferences.transport_mode, "transit");
-    assert.deepEqual(profile.clarification_questions, ["Apa pola kerjamu?"]);
+    assert.deepEqual(profile.clarification_questions, ["Apa pola kerjamu?", "Jenis hunian apa yang kamu cari?"]);
     assert.deepEqual(profile.inferred_fields, ["priorities"]);
     assert.match(sentMessage, /Belum tahu/);
     assert.ok(sentMessage.includes(JSON.stringify(destination)));
     assert.throws(() => validateFollowUpDetails({ destination: { ...destination, latitude: -6, longitude: 106 } }), /INVALID_CLARIFICATION_ANSWERS/);
     assert.throws(() => validateRelocationProfileProposal({ ...profile, soft_preferences: { destination: { ...destination, latitude: -6 } } }, onboardingTaxonomy), /INVALID_RELOCATION_PROFILE_INTERPRETATION_PROFILE/);
+  } finally { restoreEnvironment(); }
+});
+
+test("housing type comes from the story or the follow-up answer, never a model guess", async (context) => {
+  assert.deepEqual(extractProfileHousingTypes("Budget 6 juta, kos sekitar 2jt."), ["kos"]);
+  assert.deepEqual(extractProfileHousingTypes("Saya mau ngekost atau tinggal di apartemen."), ["kos", "apartment"]);
+  assert.deepEqual(extractProfileHousingTypes("Bukan kos, cari apartemen."), ["apartment"]);
+  assert.deepEqual(extractProfileHousingTypes("Sewa maksimal 2 juta, kosong dulu rencananya."), []);
+  assert.equal(getProfileClarificationField("Kamu cari kos atau apartemen?"), "housing_types");
+  assert.equal(getProfileClarificationField("Berapa batas sewa kos per bulan?"), null);
+  assert.throws(() => validateFollowUpDetails({ housing_types: ["villa"] }), /INVALID_CLARIFICATION_ANSWERS/);
+
+  const restoreEnvironment = withWorkflowEnvironment();
+  context.mock.method(globalThis, "fetch", async () => Response.json(completed({ output: { text: JSON.stringify({
+    ...validProfile, soft_preferences: { ...validProfile.soft_preferences, housing_types: ["kos"] },
+    inferred_fields: [...validProfile.inferred_fields, "housing_types"], clarification_questions: ["Kamu cari kos atau apartemen?"],
+  }) } })));
+  try {
+    const guessed = await interpretOnboardingStory("Saya pindah untuk kerja, sewa maksimal 2 juta.", "id");
+    assert.equal(guessed.soft_preferences.housing_types, undefined);
+    assert.ok(!guessed.inferred_fields.includes("housing_types"));
+    assert.equal(guessed.clarification_questions.filter((question) => getProfileClarificationField(question) === "housing_types").length, 1);
+
+    const stated = await interpretOnboardingStory("Saya pindah untuk kerja, cari apartemen.", "id");
+    assert.deepEqual(stated.soft_preferences.housing_types, ["apartment"]);
+    assert.ok(!stated.clarification_questions.some((question) => getProfileClarificationField(question) === "housing_types"));
+
+    const answered = await interpretOnboardingStory("Saya pindah untuk kerja.", "id", [{ question: "Jenis hunian apa yang kamu cari?", answer: "Apartemen" }]);
+    assert.deepEqual(answered.soft_preferences.housing_types, ["apartment"]);
+    const unsure = await interpretOnboardingStory("Saya pindah untuk kerja.", "id", [{ question: "Jenis hunian apa yang kamu cari?", answer: "Belum yakin" }]);
+    assert.deepEqual(unsure.soft_preferences.housing_types, []);
+    assert.ok(!unsure.clarification_questions.some((question) => getProfileClarificationField(question) === "housing_types"));
   } finally { restoreEnvironment(); }
 });
 
@@ -307,7 +339,8 @@ test("profile interpretation controller sends screened server-built input and re
       "id",
     );
 
-    assert.deepEqual({ ...profile, clarification_questions: upstreamProfile.clarification_questions }, upstreamProfile);
+    assert.deepEqual({ ...profile, clarification_questions: upstreamProfile.clarification_questions },
+      { ...upstreamProfile, soft_preferences: { ...upstreamProfile.soft_preferences, housing_types: ["kos"] } });
     assert.equal(profile.clarification_questions.length, 4);
     assert.equal(sentUrl, "http://localhost:7860/api/v2/workflows");
     assert.equal(new Headers(sentHeaders).get("x-api-key"), "test-api-key");

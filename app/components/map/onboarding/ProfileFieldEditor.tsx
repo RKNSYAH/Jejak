@@ -2,7 +2,7 @@ import { useState } from "react";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
 import { SENSITIVE_TEXT } from "@/app/engine/lib/relocationProfileInterpretationValidation";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
-import { transportModeLabels } from "@/app/engine/onboarding/demoData";
+import { departureLabels, housingLabels, overBudgetLabels, transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import { MoneyField } from "./FormControls";
 
@@ -61,7 +61,7 @@ export default function ProfileFieldEditor({ field, label, value, onSave, onCanc
     const [draft, setDraft] = useState<EditorDraft>(() => initialDraft(field, value));
     const [error, setError] = useState<string | null>(null);
     const id = `profile-edit-${field}`;
-    const choices: [string, string][] | null = field === "housing_types" ? [["kos", "Kos"], ["apartment", "Apartemen"], ["house", "Rumah"]]
+    const choices: [string, string][] | null = field === "housing_types" ? (["kos", "apartment", "house"] as const).map((value) => [value, housingLabels[value]])
         : field === "target_occupations" ? onboardingTaxonomy.occupations.map((item) => [item.id, item.label])
         : field === "target_fields" ? onboardingTaxonomy.sectors.map((item) => [item.id, item.label])
         : field === "destination_cities" ? (onboardingTaxonomy.areas ?? []).map((area) => [area.label, area.label]) : null;
@@ -97,9 +97,9 @@ export default function ProfileFieldEditor({ field, label, value, onSave, onCanc
                 <label htmlFor={id} className="sr-only">{label}</label>
                 {field === "goal" ? select(Object.entries(relocationGoalLabels))
                     : field === "transport_mode" ? select(Object.entries(transportModeLabels))
-                    : field === "active_mode" ? select([["walk", "Jalan kaki"], ["bicycle", "Sepeda · rute belum didukung"]])
-                    : field === "departure_time" ? select([["morning", "Pagi"], ["midday", "Siang"], ["evening", "Sore atau malam"], ["flexible", "Fleksibel"]])
-                    : field === "over_budget" ? select([["mark", "Tandai di atas batas"], ["hide", "Jangan tampilkan di atas batas"]])
+                    : field === "active_mode" ? select([["walk", transportModeLabels.walk], ["bicycle", transportModeLabels.bicycle]])
+                    : field === "departure_time" ? select(Object.entries(departureLabels))
+                    : field === "over_budget" ? select(Object.entries(overBudgetLabels))
                     : <input id={id} type={field === "commute_minutes" ? "number" : "text"} inputMode={field === "commute_minutes" ? "numeric" : undefined}
                         min={field === "commute_minutes" ? 0 : undefined} max={field === "commute_minutes" ? 240 : undefined} value={typeof draft === "string" || typeof draft === "number" ? draft : ""}
                         onChange={(event) => setDraft(event.target.value)} className="input min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm" />}
