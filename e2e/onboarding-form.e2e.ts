@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
-import { stubZones } from "./fixtures/map";
+import { confirmProfile, stubZones } from "./fixtures/map";
 
 async function startForm(page: Page, savedProfile: Record<string, unknown> | null = null, beforeOpen?: () => Promise<void>) {
     expect((await page.request.delete("/api/user/relocation-profile")).status()).toBe(204);
@@ -120,9 +120,16 @@ test("form uses database-shaped evidence, saves a map-picked destination, and ke
     await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Pekerjaan atau bidang karier");
     await expect(review.locator('[data-hci-region="profile-review-fields"]')).toContainText("Anggaran bulanan");
     await expect(review.locator('[data-hci-region="profile-review-fields"]')).not.toContainText("Belum dinilai");
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: "Konfirmasi profil relokasi ini?" });
+    await expect(confirmation).toContainText("Kelayakan");
+    await expect(confirmation.getByRole("link", { name: "Lihat Premium", exact: true })).toHaveAttribute("href", "/pricing");
+    await confirmation.getByRole("button", { name: "Lengkapi dulu", exact: true }).click();
+    await expect(confirmation).toBeHidden();
     expect(profileSaves).toBe(0);
     const saveResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
-    await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await confirmProfile(page);
     const response = await saveResponse;
     expect(response.status()).toBe(201);
     const { profile: saved } = await response.json();
@@ -273,10 +280,11 @@ test("failed form save keeps inputs and allows a real backend retry", async ({ p
         expect(route.request().postDataJSON().form_answers.occupation).toBe("Data analyst");
         return route.fallback();
     });
-    const save = page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true });
+    const save = page.getByRole("dialog", { name: "Konfirmasi profil relokasi ini?" }).getByRole("button", { name: "Konfirmasi profil", exact: true });
     await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
     await save.click();
-    await expect(page.locator(".onboarding-form-panel").getByRole("alert")).toContainText("Profil belum tersimpan");
+    await expect(page.getByRole("dialog", { name: "Konfirmasi profil relokasi ini?" }).getByRole("alert")).toContainText("Profil belum tersimpan");
     await expect(page.locator(".onboarding-form-panel")).toBeVisible();
     await expect(save).toBeEnabled();
     await save.click();

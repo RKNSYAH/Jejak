@@ -25,9 +25,10 @@ import { priorityKeys } from "../../engine/onboarding/preview";
 import { storyPriorityWeights, updateStoryPriority } from "../../engine/onboarding/storyPriorities";
 import DistrictListItem from "./onboarding/DistrictListItem";
 import { visiblePreviewDistricts } from "../../engine/onboarding/visibleDistricts";
+import { formatProfileChip } from "../../engine/onboarding/profileConfirmation";
+import ProfileConfirmDialog from "./onboarding/ProfileConfirmDialog";
 
 const MAX_STORY_LENGTH = 1000;
-const compactMoney = new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 });
 
 const placeholderStory = "Saya berencana pindah untuk bekerja di bidang teknologi. Saya mencari kos dengan batas sewa dan anggaran bulanan tertentu. Saya lebih nyaman naik transportasi umum dan ingin memahami pilihan kecamatan yang sesuai.";
 
@@ -109,22 +110,6 @@ function removeDraftFromStorage(userId: string) {
   try { writeOnboardingDraft(userId, "story", null); } catch { /* Browser storage is optional. */ }
 }
 
-
-function formatProfileChip(field: string, profile: RelocationProfileProposal, destinationLabel: string) {
-  const soft = profile.soft_preferences;
-  const value = profile.hard_constraints[field] ?? soft[field];
-  if (field === "goal") {
-    const job = typeof soft.occupation === "string" && soft.occupation.trim() ? soft.occupation.trim()
-      : Array.isArray(soft.target_occupations) && soft.target_occupations.length ? formatProfileValue("target_occupations", soft.target_occupations) : null;
-    return job ? `${formatProfileValue(field, value)} · ${job}` : formatProfileValue(field, value);
-  }
-  if (field === "housing_budget" && isRecord(value) && typeof value.amount === "number") {
-    const types = Array.isArray(soft.housing_types) ? soft.housing_types.filter((type) => type !== "unsure") : [];
-    return `${types.length === 1 ? formatProfileValue("housing_types", types) : "Sewa"} ≤ Rp${compactMoney.format(value.amount)}`;
-  }
-  if (field === "commute_minutes" && typeof value === "number") return `≤ ${value} mnt ke ${destinationLabel.toLowerCase()}`;
-  return formatProfileValue(field, value);
-}
 
 type ProfileDisplayRow = {
   key: string;
@@ -260,6 +245,7 @@ export default function RelocationOnboarding({
   const [hydrated, setHydrated] = useState(false);
   const [prioritySuggestion, setPrioritySuggestion] = useState<Draft["prioritySuggestion"]>(null);
   const [profileFieldsOpen, setProfileFieldsOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const extractedProfile = extractUserProfile(story);
   const reviewProfile: PersistedRelocationProfile | null = proposal ? (() => {
     try { return normalizeRelocationProfileInputs(proposal.hard_constraints, proposal.soft_preferences, proposal.priority_weights); }
@@ -466,6 +452,7 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
 
   function closePanel(){
     setStep(0)
+    setConfirming(false)
     onMapPickingChange(false)
 
     const dialog = dialogRef.current;
@@ -672,6 +659,12 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Jawaban belum bisa diproses. Coba lagi.");
     }
+  }
+
+  function openConfirmation() {
+    if (!proposal || !canConfirmProfile || isSaving || editingField !== null || mapPicking) return;
+    setSaveError(null);
+    setConfirming(true);
   }
 
   async function saveProfile() {
@@ -955,14 +948,14 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
         )}
 
       </dialog>
-      {step === 3 && <StoryReviewPanel saving={isSaving} onDismiss={dismiss} onSubmit={() => void saveProfile()}
+      {step === 3 && <StoryReviewPanel saving={isSaving} onDismiss={dismiss} onSubmit={openConfirmation}
         header={<StepHeader step={3} title="Tinjau dan prioritas" onSkip={dismiss} disabled={isSaving} compact className="px-5 pb-2 pt-1 md:pt-4" />}
         footer={<>
           <button type="button" disabled={isSaving} aria-label="Kembali" onClick={() => goToStep(2)} className="btn btn-outline btn-neutral min-h-12 rounded-xl px-3">
             <ArrowLeft aria-hidden="true" className="size-4" /><span className="hidden md:inline">Kembali</span>
           </button>
           <button type="submit" disabled={!canConfirmProfile || isSaving || editingField !== null || mapPicking} className="btn btn-primary min-h-12 min-w-0 flex-1 rounded-xl px-3 md:flex-none">
-            {isSaving ? "Menyimpan profil…" : "Selesai, buka peta"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
+            {isSaving ? "Menyimpan profil…" : "Lanjut"} {!isSaving && <ArrowRight aria-hidden="true" className="size-4" />}
           </button>
         </>}>
         <section aria-label="Profil dari ceritamu" data-hci-region="story-review-profile" className="mt-4 rounded-xl border border-ink/25 px-3 py-2 md:px-4 md:py-3">
@@ -1032,6 +1025,8 @@ const reviewPriorityHints = { opportunity: profileGoal === "study" ? "Kampus dan
         {saveError && <div role="alert" className="alert alert-error mt-3 text-sm">{saveError}</div>}
         {saveError?.startsWith("Masuk") && <Link href="/login?next=%2Fmap" className="btn btn-outline mt-2 min-h-11 border-ink text-ink">Masuk untuk menyimpan</Link>}
       </StoryReviewPanel>}
+      {step === 3 && confirming && proposal && <ProfileConfirmDialog profile={proposal} inferredFields={proposal.inferred_fields}
+        preview={preview} saving={isSaving} error={saveError} onBack={() => setConfirming(false)} onConfirm={() => void saveProfile()} />}
     </>
   );
 }

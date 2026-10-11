@@ -28,7 +28,10 @@ export async function getSavedRelocationProfile(userId: string): Promise<StoredR
 }
 
 export async function deleteRelocationProfile(userId: string): Promise<void> {
-    const { error } = await createAdminClient().from("relocation_profiles")
+    const admin = createAdminClient();
+    const { error: draftError } = await admin.from("onboarding_drafts").delete().eq("user_id", userId);
+    if (draftError) throw draftError;
+    const { error } = await admin.from("relocation_profiles")
         .delete().eq("user_id", userId).eq("profile_name", RELOCATION_PROFILE_NAME);
     if (error) throw error;
 }

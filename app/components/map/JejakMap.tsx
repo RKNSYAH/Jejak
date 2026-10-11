@@ -33,13 +33,12 @@ import OnboardingMapLayers, { ONBOARDING_FILL_ID } from "./onboarding/Onboarding
 import PlanningReachLayers from "./PlanningReachLayers";
 import PlanningDistrictLayers, { PLANNING_DISTRICT_FILL_ID } from "./PlanningDistrictLayers";
 import PlanningReachSummary from "./PlanningReachSummary";
-import { planningReachLabel } from "@/app/engine/onboarding/planningReach";
 import OnboardingPreview from "./onboarding/OnboardingPreview";
 import { useFormOnboarding } from "./onboarding/useFormOnboarding";
 import { useOnboardingGeometry } from "./onboarding/useOnboardingGeometry";
 import { useSavedRelocationProfile } from "./onboarding/useSavedRelocationProfile";
 import { isDesktopViewport, prefersReducedMotion, useMediaQuery } from "./viewport";
-import { formatRupiah, transportLabels } from "@/app/engine/onboarding/demoData";
+import { transportLabels } from "@/app/engine/onboarding/demoData";
 import { evaluateLiveOnboarding, hasHousingStatistics, isLiveRecommendationSample, monthlyCostEstimate, profilePreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { saveRelocationProfile } from "@/app/engine/lib/relocationProfileApi";
 import { normalizeRelocationProfileInputs, type StoredRelocationProfile } from "@/app/engine/lib/relocationProfile";
@@ -276,10 +275,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         const cityId = activePreview?.city?.city_id;
         setSampleSelection(id && cityId ? { cityId, id } : null);
     }
-    const sampleSelectedCenter = useMemo(() => {
-        if (!sampleSelected) return null;
-        return getPreviewDistrictCenter(onboardingGeometry.geometry, sampleSelected.district.zone_id, sampleSelected.district.center);
-    }, [sampleSelected, onboardingGeometry.geometry]);
     const sampleZones = useMemo<ZoneSummary[]>(() => previewDistricts.map((item) => ({
         zone_id: item.district.zone_id, zone_name: item.district.zone_name,
         city_id: item.district.city_id, city_name: item.district.city_name,
@@ -291,6 +286,12 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     const selectedId = state.selectedZone?.zone_id;
     const selectedGeometry = selectedId ? state.geometryByZone[selectedId] : undefined;
     const selectedResult = selectedId ? state.results[selectedId] : undefined;
+    const selectedPanelZone = prototypeActive && !setupPanelActive ? sampleSelected?.district ?? null : exploring ? state.selectedZone : null;
+    const selectedPanelRecommendation = prototypeActive ? sampleSelected ?? null
+        : regularPreview?.districts.find((item) => item.district.zone_id === selectedId) ?? null;
+    const selectedPanelDetails = prototypeActive && sampleSelected
+        ? { is_sample: isLiveRecommendationSample(sampleSelected), facts: sampleSelected.district.facts, places: [] }
+        : selectedResult ?? null;
     const metricConfig = getMapMetricConfig(category ?? "summary", educationMetric);
 
     const layerData = useMemo(() => {
@@ -421,11 +422,17 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
     function closeSelection() {
         cancelPendingSearchFly();
         setMobilePanelOpen(false);
+        setSampleSelectedId(null);
         state.closeSelection();
     }
 
+    function changeCategory(next: MapCategory | null) {
+        setCategory(next);
+        if (next === "summary") state.restoreRecommendations();
+    }
+
     function editPreferences() {
-        if (confirmedProfile) { router.push("/user"); return; }
+        if (profile.savedProfile) { router.push("/user"); return; }
         if (storyPreviewVisible) {
             setStoryPreviewVisible(false);
             form.selectPreviewCity(undefined);
@@ -454,6 +461,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
         const item = activePreview?.districts.find((candidate) => candidate.district.zone_id === zoneId);
         if (!item || !hasHousingStatistics(item)) return;
         setSampleSelectedId(zoneId);
+        if (!setupPanelActive && isMobileViewport) setMobilePanelOpen(true);
         // A user pick owns the camera, even if city boundaries are still loading.
         onboardingCameraRef.current = onboardingCameraKey;
         bottomSheetRef.current?.collapse();
@@ -753,37 +761,6 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                         ? { destinationId: destination.id, destinationName: destination.name, destinationPoint: destination.center }
                         : { destinationId: null, destinationName: null, destinationPoint: null })}
                     selectedDistrictId={sampleSelectedId} onSelectDistrict={selectPreviewDistrict} />}
-                {prototypeActive && !resultsUnavailable && !setupPanelActive && sampleSelected && sampleSelectedCenter && <Popup longitude={sampleSelectedCenter[0]} latitude={sampleSelectedCenter[1]}
-                    anchor="bottom" offset={28} closeOnClick={false} onClose={() => setSampleSelectedId(null)} className="onboarding-sample-popup">
-                    <section aria-label={`Data ${sampleSelected.district.zone_name}`} className="max-w-64 font-body text-ink" data-hci-region="onboarding-result-detail">
-                        {isLiveRecommendationSample(sampleSelected) && (
-                            <span className="badge badge-neutral badge-xs">Data contoh</span>
-                        )}
-                        <h2 className="mt-2 font-sans text-xl font-bold">{sampleSelected.district.zone_name}</h2>
-                        <dl className="mt-3 space-y-2 text-sm">
-                            <div><dt className="text-xs text-ink-muted">Rata-rata sewa / bulan</dt><dd className="font-semibold">{sampleSelected.rent === null ? "Belum tersedia" : `Rp${formatRupiah(sampleSelected.rent)}`}</dd></div>
-                            <div><dt className="text-xs text-ink-muted">Perkiraan sewa + biaya kota</dt><dd className="font-semibold">{sampleSelected.monthlyCost === null ? "Belum tersedia" : `sekitar Rp${formatRupiah(sampleSelected.monthlyCost)}`}</dd></div>
-                            <div><dt className="text-xs text-ink-muted">Perkiraan jangkauan</dt><dd className="font-semibold">{activePreview?.planningReach ? planningReachLabel(sampleSelected.reachBand) : "Belum tersedia"}</dd></div>
-                        </dl>
-                        {sampleSelected.rentFact?.source_url && <p className="mt-3 text-xs leading-relaxed text-ink-muted">Sewa: <a className="link link-hover" href={sampleSelected.rentFact.source_url} target="_blank" rel="noreferrer">Sumber</a></p>}
-                        {sampleSelected.district.living_cost?.source_url && <p className="mt-1 text-xs leading-relaxed text-ink-muted">Biaya kota: <a className="link link-hover" href={sampleSelected.district.living_cost.source_url} target="_blank" rel="noreferrer">Sumber</a></p>}
-                        {sampleSelected.reasons.length > 0 && (
-                            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                                {sampleSelected.reasons.join(" · ")}
-                            </p>
-                        )}
-                        {sampleSelected.exclusions.length > 0 && (
-                            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                                {sampleSelected.exclusions.join(" · ")}
-                            </p>
-                        )}
-                        {sampleSelected.unknowns.length > 0 && (
-                            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                                {sampleSelected.unknowns.join(" · ")}
-                            </p>
-                        )}
-                    </section>
-                </Popup>}
                 {exploring && <>
                     <Source id="region-data" type="geojson" data={layerData}>
                         <Layer {...zoneFillLayer} beforeId={BUILDINGS_3D_LAYER}
@@ -855,10 +832,7 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 heatmapError={cells.error}
                 onRetryHeatmap={cells.retry}
                 category={category}
-                onCategoryChange={(next) => {
-                    setCategory(next);
-                    if (next === "summary") state.restoreRecommendations();
-                }}
+                onCategoryChange={changeCategory}
                 onSelect={selectZone}
                 onReset={() => {
                     if (prototypeActive) { form.dismiss(); setStoryPreviewVisible(false); form.selectPreviewCity(undefined); setSampleSelectedId(null); }
@@ -901,18 +875,28 @@ export default function JejakMap({ userId, account, confirmedProfile, profileLoa
                 <MapZoomControls onZoomIn={() => mapRef.current?.zoomIn({ duration: prefersReducedMotion() ? 0 : 300 })}
                     onZoomOut={() => mapRef.current?.zoomOut({ duration: prefersReducedMotion() ? 0 : 300 })} />
             </div>}
-            {exploring && state.selectedZone && (
+            {!onboardingActive && selectedPanelZone && (
                 <ZoneIntelligencePanel
-                    zoneName={state.selectedZone.zone_name}
-                    details={selectedResult ?? null}
+                    zoneName={selectedPanelZone.zone_name}
+                    cityName={selectedPanelZone.city_name}
+                    details={selectedPanelDetails}
                     category={category ?? "summary"}
-                    isSample={selectedResult?.is_sample ?? zonesById.get(selectedId ?? "")?.is_sample ?? false}
-                    loading={state.loading}
-                    error={state.error}
-                    geometryMissing={selectedGeometry?.features.length === 0}
+                    recommendation={selectedPanelRecommendation}
+                    destinationName={(prototypeActive ? activePreview : regularPreview)?.preferences.destinationName ?? null}
+                    commuteStale={(prototypeActive ? activePreview : regularPreview)?.commute?.provenance?.freshness === "stale"}
+                    isSample={prototypeActive && selectedPanelRecommendation
+                        ? isLiveRecommendationSample(selectedPanelRecommendation)
+                        : selectedPanelDetails?.is_sample ?? zonesById.get(selectedId ?? "")?.is_sample ?? false}
+                    loading={prototypeActive ? form.dataLoading : state.loading}
+                    error={prototypeActive ? form.dataError : state.error}
+                    geometryMissing={!prototypeActive && selectedGeometry?.features.length === 0}
                     mobileOpen={mobilePanelOpen}
-                    onRetry={() => { if (state.selectedZone) void state.selectZone(state.selectedZone, true); }}
-                    onClose={closeSelection} />
+                    onRetry={() => {
+                        if (prototypeActive) form.retryData();
+                        else if (state.selectedZone) void state.selectZone(state.selectedZone, true);
+                    }}
+                    onClose={closeSelection}
+                    onSelectLens={changeCategory} />
             )}
             {!onboardingActive && <MapBottomSheet
                 ref={bottomSheetRef}

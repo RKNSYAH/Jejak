@@ -136,6 +136,17 @@ test("account settings show real data, section navigation, and unavailable actio
     await expect(page.getByRole("heading", { name: "Jejakmu bisa berubah", exact: true })).toBeVisible();
 });
 
+test("resetting the profile deletes it and reopens onboarding from the start", async ({ page }) => {
+    await openEditor(page);
+    await page.getByRole("button", { name: "Hapus dan mulai ulang", exact: true }).click();
+    const deleting = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "DELETE");
+    await page.getByRole("dialog", { name: "Hapus profil dan mulai ulang dari awal?" }).getByRole("button", { name: "Hapus dan mulai ulang", exact: true }).click();
+    expect((await deleting).status()).toBe(204);
+    await page.waitForURL((url) => url.pathname === "/map");
+    await expect(page.getByRole("heading", { name: "Ceritakan rencana pindahmu", exact: true })).toBeVisible();
+    expect(await latestProfile(page)).toBeNull();
+});
+
 test("deleting the relocation profile removes every saved revision and its cache", async ({ page }) => {
     await openEditor(page);
     await seedProfile(page);
@@ -374,13 +385,10 @@ test("recalc retry avoids duplicate revision and map adopts latest server profil
     });
     await editField(page, "housing-budget", String(updatedRent));
     await expect(page.getByText(/Draf \(.+\): 1 kecamatan sesuai batas anggaran\./)).toBeVisible();
-    await field(page, "over-budget").getByRole("button", { name: /Ubah/ }).click();
-    await page.locator("#over-budget").selectOption("hide");
     await page.getByRole("button", { name: "Simpan dan hitung ulang", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: /Profil tersimpan, tetapi hitungan kecamatan belum berhasil/ })).toBeVisible();
     const stored = await latestProfile(page);
     expect(stored.revision).toBe(initial.revision + 1);
-    expect(stored.profile.soft_preferences.over_budget).toBe("hide");
     await page.getByRole("button", { name: "Coba hitung ulang", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "Hitungan kecamatan diperbarui." })).toBeVisible();
     expect((await latestProfile(page)).revision).toBe(stored.revision);

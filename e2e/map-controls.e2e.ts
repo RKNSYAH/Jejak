@@ -24,6 +24,20 @@ async function openMapWithZone(page: Page) {
     await expect(page.locator("#zone-intelligence-desktop")).toBeVisible();
 }
 
+test("summary detail rows activate matching lenses without clearing the selected district", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop");
+    await openMapWithZone(page);
+
+    const panel = page.locator("#zone-intelligence-desktop");
+    const categories = page.getByRole("group", { name: "Kategori peta" });
+    for (const lens of ["Pekerjaan", "Pendidikan", "Hunian", "Mobilitas"]) {
+        await panel.getByRole("button", { name: new RegExp(`^${lens}`) }).click();
+        await expect(categories.getByRole("button", { name: lens, exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expect(panel.getByRole("heading", { name: "Pancoran" })).toBeVisible();
+        await categories.getByRole("button", { name: "Ringkasan", exact: true }).click();
+    }
+});
+
 for (const reducedMotion of ["reduce", "no-preference"] as const) {
     test(`desktop arrows follow overflow edges (${reducedMotion})`, async ({ page }, testInfo) => {
         test.skip(testInfo.project.name !== "desktop");

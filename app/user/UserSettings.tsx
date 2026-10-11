@@ -30,7 +30,17 @@ function SettingsRow({ label, value, unavailable = false }: { label: string; val
     </div>;
 }
 
-function ConfirmDelete({ label, title, confirmLabel, onConfirm }: { label: string; title: string; confirmLabel: string; onConfirm: () => Promise<string | undefined> }) {
+export async function clearSavedProfile(identity: AccountScope, next?: string) {
+    const response = await accountFetch(identity, "/api/user/relocation-profile", { method: "DELETE" }).then(({ response }) => response, () => null);
+    if (identity.signal.aborted) return ACCOUNT_CHANGED_MESSAGE;
+    if (!response?.ok) return "Profil belum terhapus. Coba lagi.";
+    useUserProfileStore.getState().resetProfile(identity.userId);
+    clearOnboardingDrafts(identity.userId);
+    if (next) window.location.assign(next);
+    else window.location.reload();
+}
+
+export function ConfirmDelete({ label, title, confirmLabel, onConfirm }: { label: string; title: string; confirmLabel: string; onConfirm: () => Promise<string | undefined> }) {
     const dialog = useRef<HTMLDialogElement>(null);
     const cancel = useRef<HTMLButtonElement>(null);
     const [pending, setPending] = useState(false);
@@ -74,14 +84,6 @@ export default function UserSettings({ identity, email, account, hasSavedProfile
     onCreateProfile: (event: { preventDefault: () => void }) => void;
     children: ReactNode;
 }) {
-    async function deleteProfile() {
-        const response = await accountFetch(identity, "/api/user/relocation-profile", { method: "DELETE" }).then(({ response }) => response, () => null);
-        if (identity.signal.aborted) return ACCOUNT_CHANGED_MESSAGE;
-        if (!response?.ok) return "Profil belum terhapus. Coba lagi.";
-        useUserProfileStore.getState().resetProfile(identity.userId);
-        window.location.reload();
-    }
-
     async function deleteAccount() {
         const response = await accountFetch(identity, "/api/user", { method: "DELETE" }).then(({ response }) => response, () => null);
         if (identity.signal.aborted) return ACCOUNT_CHANGED_MESSAGE;
@@ -144,7 +146,7 @@ export default function UserSettings({ identity, email, account, hasSavedProfile
                     <span className="text-xs text-ink-muted">Belum tersedia</span>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-3 border-t border-rule pt-4">
-                    {hasSavedProfile && <ConfirmDelete label="Hapus profil" title="Hapus profil relokasimu?" confirmLabel="Hapus profil relokasi" onConfirm={deleteProfile} />}
+                    {hasSavedProfile && <ConfirmDelete label="Hapus profil" title="Hapus profil relokasimu?" confirmLabel="Hapus profil relokasi" onConfirm={() => clearSavedProfile(identity)} />}
                     <ConfirmDelete label="Hapus akun" title="Hapus akunmu permanen?" confirmLabel="Hapus akun permanen" onConfirm={deleteAccount} />
                 </div>
             </SettingsSection>

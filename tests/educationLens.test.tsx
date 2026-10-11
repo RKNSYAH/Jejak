@@ -29,10 +29,11 @@ const geometry: ZoneGeometry = {
         geometry: { type: "Polygon", coordinates: [[[106, -6], [107, -6], [107, -5], [106, -6]]] } })),
 };
 
-function panel(data: ZoneDetailResult | null, loading = false, category: "education" | "employment" = "education"): string {
-    return renderToStaticMarkup(<ZoneIntelligencePanel zoneName="Kecamatan uji" category={category} details={data}
+function panel(data: ZoneDetailResult | null, loading = false, category: "education" | "employment" | "summary" = "education"): string {
+    return renderToStaticMarkup(<ZoneIntelligencePanel zoneName="Kecamatan uji" cityName="Jakarta Selatan" category={category} details={data}
+        recommendation={null} destinationName={null} commuteStale={false}
         loading={loading} error={null} isSample={data?.is_sample ?? false} geometryMissing={false}
-        onRetry={() => {}} onClose={() => {}} mobileOpen={false} />);
+        onRetry={() => {}} onClose={() => {}} onSelectLens={() => {}} mobileOpen={false} />);
 }
 
 test("education uses one chosen metric everywhere and preserves all district boundaries", () => {
@@ -95,6 +96,52 @@ test("other lens cards use the same concise source link", () => {
     })] }, false, "employment");
     assert.match(html, />Sumber<\/a>/);
     assert.doesNotMatch(html, /Long company registry source description/);
+});
+
+test("summary shows available facts, missing values, lens choices, and disabled actions", () => {
+    const html = panel(details.positive, false, "summary");
+    assert.match(html, /Kecamatan · Jakarta Selatan/);
+    assert.match(html, /Belum tersedia/);
+    assert.match(html, /Lihat lebih dalam/);
+    for (const lens of ["Pekerjaan", "Pendidikan", "Hunian", "Mobilitas"]) assert.match(html, new RegExp(lens));
+    assert.match(html, /Bandingkan/);
+    assert.match(html, /Simpan/);
+    assert.match(html, /Segera hadir/);
+    assert.match(html, /<summary[^>]*>Sumber<\/summary>/);
+});
+
+test("summary source disclosure combines population facts and hides research caveats", () => {
+    const html = panel({ is_sample: false, places: [], facts: [
+        count("average_monthly_rent_idr:apartment", 1_500_000, {
+            source: "Static research baseline, not independently verified. Mamikos listing snapshot.",
+            source_url: "https://www.mamikos.com/kost-jakarta", period_end: null,
+            dimension_key: "housing_type", dimension_value: "apartment",
+            limitations: "54 distinct offers; prices are not a representative market survey.",
+        }),
+        count("female_population", 120, {
+            source: "Static research baseline. Kota Jakarta Selatan Dalam Angka 2026.",
+            source_url: "https://jakselkota.bps.go.id/id/publication/2026/example.html", period_end: null,
+            limitations: "Consolidated 2 rows into one current record.",
+        }),
+        count("male_population", 121, {
+            source: "Static research baseline. Kota Jakarta Selatan Dalam Angka 2026.",
+            source_url: "https://jakselkota.bps.go.id/id/publication/2026/example.html", period_end: null,
+            limitations: "No exact district sex counts are published in this table.",
+        }),
+        count("population", 241, {
+            source: "Kota Jakarta Selatan Dalam Angka 2026.",
+            source_url: "https://jakselkota.bps.go.id/id/publication/2026/example.html", period_end: null,
+        }),
+        count("households", 80, {
+            source: "Kota Jakarta Selatan Dalam Angka 2026.",
+            source_url: "https://jakselkota.bps.go.id/id/publication/2026/example.html", period_end: null,
+        }),
+    ] }, false, "summary");
+    assert.match(html, /Sewa apartemen: <a[^>]*>Mamikos<\/a>/);
+    assert.equal((html.match(/Penduduk, Keluarga terdaftar: <a[^>]*>BPS<\/a>/g) ?? []).length, 2);
+    assert.doesNotMatch(html, /perempuan|laki-laki/);
+    assert.doesNotMatch(html, /Static research baseline|54 distinct offers|Consolidated 2 rows|Periode belum tersedia|Turunan/);
+    assert.doesNotMatch(html, /Perlu tahu:/);
 });
 
 test("campus points do not turn incomplete university counts into invented totals", () => {

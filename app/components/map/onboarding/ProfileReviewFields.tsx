@@ -17,7 +17,6 @@ const fields: { field: string; label: string; group: "limits" | "preferences"; a
     { field: "education_level", label: "Jenjang pendidikan", group: "preferences" },
     { field: "work_arrangement", label: "Pola kerja", group: "preferences" },
     { field: "housing_types", label: "Jenis hunian", group: "preferences" },
-    { field: "over_budget", label: "Pilihan di atas anggaran", group: "preferences", always: true },
     { field: "transport_mode", label: "Moda transportasi", group: "preferences", always: true },
     { field: "active_mode", label: "Moda aktif", group: "preferences" },
     { field: "departure_time", label: "Waktu berangkat", group: "preferences" },
@@ -29,7 +28,7 @@ const fields: { field: string; label: string; group: "limits" | "preferences"; a
 ];
 
 function profileValue(profile: ReviewProfile, field: string): unknown {
-    return profile.hard_constraints[field] ?? profile.soft_preferences[field] ?? (field === "over_budget" ? "mark" : undefined);
+    return profile.hard_constraints[field] ?? profile.soft_preferences[field];
 }
 
 function isMissing(value: unknown): boolean {
