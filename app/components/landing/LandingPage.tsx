@@ -61,7 +61,6 @@ export default async function LandingPage() {
                                 </p>
                             )}
                         </div>
-                        <p className="mt-10 text-right font-body text-xs text-on-ink-muted">Jl. Jenderal Sudirman, Jakarta</p>
                     </div>
                 </section>
 
