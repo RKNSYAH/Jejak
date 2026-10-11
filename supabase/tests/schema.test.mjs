@@ -1,0 +1,736 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { applyMigrations, asRole as runAs, createDatabase } from './bootstrap.mjs';
+
+test('migration chain and database contracts', async (t) => {
+  const db = await createDatabase();
+  t.after(() => db.close());
+  const rows = async (sql, params = []) => (await db.query(sql, params)).rows;
+  const one = async (sql, params = []) => (await rows(sql, params))[0];
+  const asRole = (role, fn) => runAs(db, role, fn);
+  const setUser = (sub) => db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [sub]);
+  const userA = '00000000-0000-4000-8000-000000000001';
+  const userB = '00000000-0000-4000-8000-000000000002';
+  const hash = 'a'.repeat(64);
+
+  let migrated = false;
+  await t.test('all migrations apply without rewriting SQL', async () => {
+    await applyMigrations(db);
+    migrated = true;
+  });
+  if (!migrated) return;
+
+  await t.test('onboarding drafts are RLS-protected and backend-only', async () => {
+    const access = await one(`select c.relrowsecurity as rls,
+      has_table_privilege('authenticated', 'public.onboarding_drafts', 'select') as user_can_read,
+      has_table_privilege('service_role', 'public.onboarding_drafts', 'select') as backend_can_read
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'onboarding_drafts'`);
+    assert.deepEqual(access, { rls: true, user_can_read: false, backend_can_read: true });
+  });
+
+  await t.test('all workbook headers exist on their matching Supabase tables', async () => {
+    const workbookColumns = {
+      regions: ['region_code', 'region_name', 'region_type', 'parent_region_code', 'kemendagri_code', 'bps_code', 'source_name', 'source_updated_at', 'is_supported'],
+      population: ['region_code', 'population', 'male_population', 'female_population', 'working_age_population', 'households', 'population_density', 'urban_population', 'rural_population', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      labor_force: ['region_code', 'labor_force', 'employed_people', 'unemployed_people', 'unemployment_rate', 'labor_force_participation_rate', 'working_age_population', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      sector_employment: ['region_code', 'kbli_2020_code', 'kbli_2020_name', 'employed_people', 'employment_percentage', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      wages_income: ['region_code', 'average_monthly_wage_idr', 'median_monthly_wage_idr', 'minimum_wage_idr', 'median_household_income_idr', 'average_household_expenditure_idr', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      institutions: ['institution_code', 'institution_name', 'institution_type', 'website', 'source_name', 'source_url', 'is_active'],
+      campuses: ['institution_code', 'region_code', 'campus_name', 'osm_type', 'osm_id', 'osm_tags', 'latitude', 'longitude', 'address', 'website', 'phone', 'operator', 'source_name', 'source_url', 'observed_at', 'is_active'],
+      student_enrollment: ['institution_code', 'campus_osm_type', 'campus_osm_id', 'metric', 'student_count', 'data_scope', 'program_code', 'program_name', 'academic_year', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      education_facilities: ['region_code', 'schools', 'vocational_schools', 'universities', 'polytechnics', 'training_centers', 'public_schools', 'private_schools', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      healthcare_facilities: ['region_code', 'hospitals', 'public_hospitals', 'private_hospitals', 'health_centers', 'clinics', 'pharmacies', 'hospital_beds', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      transport_infrastructure: ['region_code', 'public_transport_stops', 'train_stations', 'bus_stations', 'transit_stations', 'airport_count', 'port_count', 'road_length_km', 'period_start', 'period_end', 'source_name', 'source_url', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      public_places: ['region_code', 'institution_code', 'place_name', 'category', 'osm_type', 'osm_id', 'osm_tags', 'latitude', 'longitude', 'address', 'operator', 'website', 'phone', 'source_name', 'source_url', 'observed_at', 'is_active'],
+      housing_statistics: ['region_code', 'housing_type', 'median_monthly_rent_idr', 'average_monthly_rent_idr', 'minimum_monthly_rent_idr', 'maximum_monthly_rent_idr', 'observation_count', 'housing_price_index', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'confidence', 'limitations', 'is_sample'],
+      cost_of_living: ['region_code', 'food_monthly_idr', 'utilities_monthly_idr', 'transport_monthly_idr', 'connectivity_monthly_idr', 'household_expenditure_monthly_idr', 'consumer_price_index', 'inflation_rate', 'period_start', 'period_end', 'source_name', 'source_url', 'published_at', 'retrieved_at', 'evidence_type', 'sample_size', 'confidence', 'limitations', 'is_sample'],
+      sector_mapping: ['kbli_2020_code', 'kbli_2020_name', 'jejak_sector_id', 'relationship', 'notes'],
+      geospatial_sources: ['dataset_code', 'layer', 'dataset_name', 'provider', 'release', 'reference_period', 'spatial_resolution', 'crs', 'file_format', 'file_name', 'coverage', 'license', 'source_url', 'retrieved_at', 'limitations'],
+      estimation_parameters: ['parameter', 'value_low', 'value_high', 'unit', 'applies_to', 'region_code', 'period_end', 'source_name', 'source_url', 'published_at', 'limitations', 'is_sample'],
+    };
+    for (const [table, expected] of Object.entries(workbookColumns)) {
+      const found = await rows(`select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = $1`, [table]);
+      const actual = new Set(found.map((column) => column.column_name));
+      assert.deepEqual(expected.filter((column) => !actual.has(column)), [], `${table} sheet headers`);
+    }
+    const sourceWidths = await rows(`select table_name, column_name, character_maximum_length
+      from information_schema.columns where table_schema = 'public'
+        and column_name in ('source', 'source_name') and data_type = 'character varying'`);
+    assert.ok(sourceWidths.length > 0);
+    assert.ok(sourceWidths.every((column) => column.character_maximum_length === 255), 'all varchar source labels allow 255 characters');
+  });
+
+  await db.query('insert into auth.users values ($1), ($2)', [userA, userB]);
+  const region = await one(`insert into public.regions (code, name, region_type)
+    values ('pancoran', 'Pancoran', 'district') returning id`);
+
+  await t.test('sheet-shaped static data feeds the public map RPCs', async () => {
+    const city = await one(`insert into public.regions
+      (region_code, region_name, region_type, source_name, is_supported)
+      values ('sheet-dki-jakarta', 'DKI Jakarta', 'province', 'BIG', true) returning id`);
+    const district = await one(`insert into public.regions
+      (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+      values ('sheet-jakarta-selatan', 'Jakarta Selatan', 'sheet-dki-jakarta', 'district', 'BIG', true) returning id`);
+    assert.equal((await one('select parent_id from public.regions where id = $1', [district.id])).parent_id, city.id);
+    await db.query(`update public.regions set region_name = 'DKI Jakarta Province' where id = $1`, [city.id]);
+    assert.equal((await one('select name from public.regions where id = $1', [city.id])).name, 'DKI Jakarta Province');
+    const source = 'BPS 2025';
+    const longSource = source.padEnd(200, 'x');
+    await db.exec('set role service_role');
+    await db.query(`insert into public.population
+      (region_code, population, period_end, source_name, evidence_type, is_sample)
+      values ('sheet-jakarta-selatan', 1500000, '2025-12-31', $1, 'observed', false)`, [longSource]);
+    await db.query(`insert into public.population
+      (region_code, population, period_end, source_name, evidence_type, is_sample)
+      values ('sheet-jakarta-selatan', 1510000, '2025-12-31', $1, 'observed', false)
+      on conflict (region_code, period_start, period_end, source_name)
+      do update set population = excluded.population`, [longSource]);
+    await db.query(`insert into public.wages_income
+      (region_code, average_monthly_wage_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 7200000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.housing_statistics
+      (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'kos', 1800000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.housing_statistics
+      (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'apartment', 3200000, '2025-12-31', $1, 'observed')`, [source]);
+    await db.query(`insert into public.sector_employment
+      (region_code, kbli_2020_code, kbli_2020_name, employed_people, employment_percentage,
+       period_end, source_name, evidence_type)
+      values ('sheet-jakarta-selatan', 'j', 'Information and Communication', 95000, 0.084,
+       '2025-12-31', $1, 'observed')`, [source]);
+    const university = await one(`insert into public.institutions
+      (institution_code, institution_name, institution_type, source_name)
+      values ('sheet-university', 'Sheet University', 'university', 'PDDikti') returning id`);
+    await db.query(`insert into public.campuses
+      (institution_code, region_code, campus_name, osm_type, osm_id, latitude, longitude, source_name, observed_at)
+      values ('sheet-university', 'sheet-jakarta-selatan', 'Sheet Campus', 'node', 12345,
+        -6.2, 106.8, $1, '2026-09-01')`, [longSource]);
+    await db.query(`insert into public.public_places
+      (region_code, place_name, category, osm_type, osm_id, latitude, longitude, source_name, observed_at)
+      values ('sheet-jakarta-selatan', 'Sheet Stop', 'transit_stop', 'node', 12346,
+        -6.21, 106.81, 'OpenStreetMap', '2026-09-01')`);
+    await db.query(`insert into public.student_enrollment
+      (institution_code, campus_osm_type, campus_osm_id, metric, student_count, data_scope,
+       program_code, program_name, academic_year, source_name, evidence_type)
+      values ('sheet-university', 'node', 12345, 'program_enrollment', 420,
+       'program', 'informatics', 'Informatics', '2025/2026', $1, 'observed')`, [longSource]);
+    await db.exec('reset role');
+
+    await asRole('anon', async () => {
+      const ranked = await one(`select * from public.get_map_regions('sheet-dki-jakarta', false)`);
+      assert.equal(ranked.region_code, 'sheet-jakarta-selatan');
+      assert.equal(Number(ranked.average_monthly_wage_idr), 7200000);
+      assert.equal(Number(ranked.median_monthly_rent_idr), 1800000);
+      assert.equal(Number(ranked.population), 1510000);
+
+      const details = await one(`select * from public.get_map_region('sheet-jakarta-selatan', false, false)`);
+      assert.equal(details.region_name, 'Jakarta Selatan');
+      assert.equal(details.geometry, null);
+      const facts = new Map(details.facts.map((fact) => [fact.metric, fact]));
+      assert.equal(Number(facts.get('population').value), 1510000);
+      assert.equal(Number(facts.get('median_monthly_rent_idr').value), 1800000);
+      assert.equal(Number(facts.get('median_monthly_rent_idr:apartment').value), 3200000);
+      assert.equal(Number(facts.get('employed_people:kbli_j').value), 95000);
+      assert.equal(facts.get('median_monthly_rent_idr').dimension_key, 'housing_type');
+      assert.equal(facts.get('median_monthly_rent_idr').dimension_value, 'kos');
+      assert.equal(facts.get('median_monthly_rent_idr:apartment').dimension_value, 'apartment');
+      assert.equal(facts.get('employed_people:kbli_j').dimension_key, 'kbli_2020_code');
+      assert.equal(facts.get('employed_people:kbli_j').dimension_value, 'j');
+      assert.equal(facts.get('population').source, longSource);
+      assert.equal(details.places.length, 2);
+      assert.ok(details.places.every((place) => place.osm_id > 0));
+
+      const places = await db.query(`select name, osm_type, osm_id
+        from public.get_public_places($1)`, [district.id]);
+      assert.equal(places.rows.length, 2);
+      assert.equal(places.rows[0].osm_type, 'node');
+      const longPlaceSource = await one(`select source from public.get_public_places($1)
+        where name = 'Sheet Campus'`, [district.id]);
+      assert.equal(longPlaceSource.source, longSource);
+
+      const enrollment = await one(`select institution_id, metric, numeric_value,
+        program_code, program_name from public.get_institution_data($1)`, [university.id]);
+      assert.equal(enrollment.institution_id, university.id);
+      assert.equal(enrollment.metric, 'program_enrollment');
+      assert.equal(Number(enrollment.numeric_value), 420);
+      assert.equal(enrollment.program_code, 'informatics');
+      const longEnrollmentSource = await one(`select source from public.get_institution_data($1)`, [university.id]);
+      assert.equal(longEnrollmentSource.source, longSource);
+
+      const populationRows = await db.query(`select metric, numeric_value, source
+        from public.get_region_data($1, 'population')`, [district.id]);
+      assert.equal(Number(populationRows.rows[0].numeric_value), 1510000);
+      assert.equal(populationRows.rows[0].source, longSource);
+
+      const layer = await db.query(`select region_code, metric_data
+        from public.get_region_layer($1, 'population', null, null, 'district')`, [city.id]);
+      assert.equal(layer.rows.length, 1);
+      assert.equal(layer.rows[0].region_code, 'sheet-jakarta-selatan');
+      assert.equal(Number(layer.rows[0].metric_data.numeric_value), 1510000);
+      assert.equal(layer.rows[0].metric_data.source, longSource);
+      const housingLayer = await one(`select metric_data
+        from public.get_region_layer($1, 'median_monthly_rent_idr', null, null, 'district')`, [city.id]);
+      assert.equal(housingLayer.metric_data.dimension_key, 'housing_type');
+      assert.equal(housingLayer.metric_data.dimension_value, 'kos');
+    });
+  });
+
+  await t.test('map wage-to-rent ratio uses parent-region wage and local rent', async () => {
+    await asRole('service_role', async () => {
+      await db.exec(`insert into public.regions
+        (region_code, region_name, region_type, source_name, is_supported)
+        values ('ratio-dki', 'DKI Jakarta', 'province', 'BPS', true)`);
+      await db.exec(`insert into public.regions
+        (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('ratio-jakarta-selatan', 'Jakarta Selatan', 'ratio-dki', 'city', 'BPS', true)`);
+      await db.exec(`insert into public.regions
+        (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('ratio-tebet', 'Tebet', 'ratio-jakarta-selatan', 'district', 'BPS', true)`);
+      await db.exec(`insert into public.wages_income
+        (region_code, average_monthly_wage_idr, period_end, source_name, evidence_type)
+        values ('ratio-jakarta-selatan', 8000000, '2025-12-31', 'BPS', 'observed'),
+          ('ratio-tebet', 4000000, '2025-12-31', 'Local sample', 'observed')`);
+      await db.exec(`insert into public.housing_statistics
+        (region_code, housing_type, median_monthly_rent_idr, period_end, source_name, evidence_type)
+        values ('ratio-jakarta-selatan', 'kos', 8000000, '2025-12-31', 'BPS', 'observed'),
+          ('ratio-tebet', 'kos', 2000000, '2025-12-31', 'Local sample', 'observed')`);
+    });
+
+    await asRole('anon', async () => {
+      const tebet = await one(`select * from public.get_map_regions('ratio-jakarta-selatan', false)`);
+      assert.equal(tebet.region_code, 'ratio-tebet');
+      assert.equal(Number(tebet.average_monthly_wage_idr), 4000000, 'returned wage field remains district-local');
+      assert.equal(Number(tebet.median_monthly_rent_idr), 2000000, 'rent remains district-local');
+      assert.equal(Number(tebet.wage_to_rent_ratio), 4, 'ratio uses parent city wage / district rent');
+    });
+  });
+
+  await t.test('onboarding preview counts parks and public facilities from child neighborhoods', async () => {
+    await asRole('service_role', async () => {
+      await db.exec(`insert into public.regions (region_code, region_name, region_type, source_name, is_supported)
+        values ('env-jakarta-selatan', 'Jakarta Selatan', 'city', 'BPS', true)`);
+      await db.exec(`insert into public.regions (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('env-tebet', 'Tebet', 'env-jakarta-selatan', 'district', 'BPS', true),
+          ('env-tebet-manggarai', 'Manggarai', 'env-tebet', 'neighborhood', 'BPS', true)`);
+      await db.query(`select public.store_region_boundary('env-tebet', $1::jsonb)`, [JSON.stringify({ type: 'MultiPolygon',
+        coordinates: [[[[106.84, -6.23], [106.849, -6.23], [106.849, -6.221], [106.84, -6.221], [106.84, -6.23]]]] })]);
+      await db.exec(`insert into public.public_places (region_code, place_name, category, osm_type, osm_id, osm_tags, latitude, longitude, source_name)
+        values ('env-tebet-manggarai', 'Taman', 'public_facility', 'way', 91, '{"leisure":"park"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet-manggarai', 'Perpustakaan', 'public_facility', 'node', 92, '{"amenity":"library"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet', 'RS', 'hospital', 'node', 93, '{"amenity":"hospital"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet', 'Halte', 'transit_stop', 'node', 94, '{}', -6.225, 106.845, 'OpenStreetMap')`);
+    });
+
+    await asRole('authenticated', async () => {
+      const tebet = await one(`select * from public.get_onboarding_city_preview('env-jakarta-selatan', false)`);
+      assert.equal(tebet.region_code, 'env-tebet');
+      assert.equal(tebet.park_count, 1);
+      assert.equal(tebet.public_facility_count, 2);
+      assert.equal(tebet.transit_stop_count, 1);
+      assert.ok(tebet.area_km2 > 0.9 && tebet.area_km2 < 1.1, `about 1 km², got ${tebet.area_km2}`);
+    });
+  });
+
+  await t.test('backend RPCs deny browser execution even with legacy default grants', async () => {
+    const exposed = await rows(`select p.proname from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname in (
+         'check_and_claim_zone_enrichment', 'get_zone_evidence', 'upsert_zone_evidence',
+         'complete_enrichment_run', 'zone_evidence_gc', 'publish_region_snapshot',
+         'calculate_relocation_fit', 'get_zone_data', 'classify_evidence_points',
+         'save_confirmed_relocation_profile', 'get_evidence_clusters')
+      and (has_function_privilege('anon', p.oid, 'execute')
+        or has_function_privilege('authenticated', p.oid, 'execute'))`);
+    assert.deepEqual(exposed, []);
+    await asRole('anon', async () => {
+      await assert.rejects(db.query('select public.zone_evidence_gc()'), /permission denied/);
+      await assert.rejects(db.query('select * from public.zone_evidence_cache'), /permission denied/);
+      await assert.rejects(db.query('select * from public.population'), /permission denied/);
+      assert.deepEqual(await rows('select * from public.get_region_data($1)', [region.id]), []);
+    });
+  });
+
+  let profile;
+  let recommendation;
+  await t.test('recommendations require an owned, immutable confirmed revision', async () => {
+    profile = await one(`insert into public.relocation_profiles
+      (user_id, profile_name, revision, profile) values ($1, 'Move', 1, '{}') returning id`, [userA]);
+    const insertRun = (user) => one(`insert into public.recommendation_runs
+      (user_id, profile_id, scoring_version) values ($1, $2, 'v1') returning id`, [user, profile.id]);
+    await assert.rejects(insertRun(userA), /confirmed profile/);
+    await db.query(`update public.relocation_profiles set confirmed = true, confirmed_at = now()
+      where id = $1`, [profile.id]);
+    await assert.rejects(insertRun(userB), /confirmed profile/);
+    recommendation = await insertRun(userA);
+    await assert.rejects(db.query(`update public.relocation_profiles set profile = '{"budget":1}'
+      where id = $1`, [profile.id]), /immutable/);
+  });
+
+  await t.test('confirmed profile saves are atomic, compare revisions, and reuse identical retries', async () => {
+    const payload = {
+      schema_version: 'relocation-profile-v1',
+      hard_constraints: { monthly_budget: { amount: 6000000, currency: 'IDR', period: 'month' } },
+      soft_preferences: { goal: 'work' },
+      priority_weights: { career: 1 },
+      taxonomy_version: '2026-09',
+      contract_version: 'lf05-v2',
+    };
+    const save = (expectedRevision, value = payload) => one(`select * from public.save_confirmed_relocation_profile(
+      $1, 'primary', $2::jsonb, $3)`, [userA, JSON.stringify(value), expectedRevision]);
+
+    await asRole('anon', async () => {
+      await assert.rejects(save(null), /permission denied/);
+    });
+
+    await db.exec('set role service_role');
+    let first;
+    try {
+      first = await save(null);
+      const retry = await save(null);
+      assert.equal(first.revision, 1);
+      assert.equal(retry.revision, 1);
+      assert.equal(retry.id, first.id);
+      const changedPayload = { ...payload, soft_preferences: { goal: 'study' } };
+      await assert.rejects(save(null, changedPayload), /PROFILE_REVISION_CONFLICT/);
+      const second = await save(first.revision, changedPayload);
+      assert.equal(second.revision, 2);
+      assert.equal((await save(first.revision, changedPayload)).id, second.id);
+      await assert.rejects(save(first.revision, payload), /PROFILE_REVISION_CONFLICT/);
+      assert.ok(first.confirmed_at);
+      assert.ok(first.updated_at);
+      await assert.rejects(db.query(`update public.relocation_profiles set profile = '{}' where id = $1`, [first.id]), /immutable/);
+      await assert.rejects(db.query(`select * from public.save_confirmed_relocation_profile(
+        $1, 'primary', '{"schema_version":"relocation-profile-v1","hard_constraints":{},"soft_preferences":{},"priority_weights":{},"taxonomy_version":"2026-09","contract_version":"lf05-v2","story":"private"}'::jsonb, 2)`, [userA]), /invalid confirmed relocation profile/);
+    } finally {
+      await db.exec('reset role');
+    }
+
+    await asRole('authenticated', async () => {
+      await setUser(userA);
+      assert.equal((await rows(`select id from public.relocation_profiles where profile_name = 'primary'`)).length, 2);
+      await setUser(userB);
+      assert.deepEqual(await rows(`select id from public.relocation_profiles where profile_name = 'primary'`), []);
+      await assert.rejects(db.query(`insert into public.relocation_profiles
+        (user_id, profile_name, revision, profile, confirmed, confirmed_at)
+        values ($1, 'primary', 1, '{}'::jsonb, true, now())`, [userB]), /permission denied/);
+    });
+  });
+
+  await t.test('shortlist default ID, ownership, updates, and deletion work as authenticated', async () => {
+    await asRole('authenticated', async () => {
+      await setUser(userA);
+      const saved = await one(`insert into public.shortlist_items (user_id, region_id, recommendation_run_id)
+        values ($1, $2, $3) returning id`, [userA, region.id, recommendation.id]);
+      assert.ok(Number.isSafeInteger(Number(saved.id)));
+      await db.query(`update public.shortlist_items set note = 'commute' where id = $1`, [saved.id]);
+      await assert.rejects(db.query(`update public.shortlist_items set user_id = $1 where id = $2`,
+        [userB, saved.id]), /row-level security/);
+      await setUser(userB);
+      assert.deepEqual(await rows('select * from public.shortlist_items'), []);
+      await assert.rejects(db.query(`insert into public.shortlist_items (user_id, region_id, recommendation_run_id)
+        values ($1, $2, $3)`, [userB, region.id, recommendation.id]), /foreign key/);
+      await setUser(userA);
+      await db.query('delete from public.shortlist_items where id = $1', [saved.id]);
+    });
+  });
+
+  const claim = () => one(`select * from public.check_and_claim_zone_enrichment($1,
+    'active_opening', 'pancoran|active_opening', $2)`, [region.id, hash]);
+  const upsert = (run, candidates) => db.query('select public.upsert_zone_evidence($1, $2)',
+    [run, JSON.stringify(candidates)]);
+  const candidate = (index, extra = {}) => ({
+    dedup_hash: index.toString(16).padStart(64, '0'),
+    canonical_url: `https://example.test/jobs/${index}`,
+    value: { title: 'Engineer' },
+    latitude: -6.245, longitude: 106.845,
+    geographic_precision: 'district', locality_tier: 'zone',
+    validation_status: 'accepted', confidence: 0.8,
+    ...extra,
+  });
+
+  await t.test('claim, deduplication, sample exclusion, locality ranking, and cache hit', async () => {
+    await asRole('service_role', async () => {
+      const run = await claim();
+      assert.equal(run.call_lf01, true);
+      const duplicate = await claim();
+      assert.equal(duplicate.call_lf01, false);
+      assert.equal(duplicate.run_id, run.run_id);
+      await upsert(run.run_id, [candidate(99, { is_sample: true }), candidate(98, {
+        geographic_precision: 'building', locality_tier: 'national', confidence: 1,
+      })]);
+      await upsert(run.run_id, Array.from({ length: 25 }, (_, i) => candidate(i + 1)));
+      const evidence = await rows(`select * from public.get_zone_evidence($1, 'active_opening', $2, 100)`,
+        [region.id, hash]);
+      assert.equal(evidence.length, 25);
+      assert.ok(evidence.every((row) => row.locality_tier === 'zone' && !row.is_sample));
+      await db.query(`select public.complete_enrichment_run($1, 'completed')`, [run.run_id]);
+      await db.query(`select public.complete_enrichment_run($1, 'completed')`, [run.run_id]);
+      await assert.rejects(upsert(run.run_id, [candidate(1)]), /terminal/);
+      await assert.rejects(db.query(`select public.complete_enrichment_run($1, 'failed')`, [run.run_id]), /terminal/);
+      assert.equal((await claim()).status, 'cache_hit');
+    });
+  });
+
+  await t.test('full stale cache requests real refresh work; failed runs retry at once unless a policy opts in', async () => {
+    await db.query(`update public.zone_evidence_cache set refresh_after = now() - interval '1 hour'
+      where region_id = $1`, [region.id]);
+    const run = await claim();
+    assert.equal(run.needed_count, 25);
+    assert.equal(run.source_budget, 7);
+    const { input } = await one('select input from public.enrichment_runs where id = $1', [run.run_id]);
+    assert.equal(input.missing_count, 0);
+    assert.equal(input.refresh_count, 25);
+    await db.query(`update public.enrichment_runs set lease_expires_at = now() - interval '1 second'
+      where id = $1`, [run.run_id]);
+    await assert.rejects(upsert(run.run_id, [candidate(1)]), /lease has expired/);
+    await assert.rejects(db.query(`select public.complete_enrichment_run($1, 'completed')`, [run.run_id]), /lease has expired/);
+    // No cooldown by default: the expired worker fails and a new run is claimed immediately.
+    const retry = await claim();
+    assert.equal(retry.call_lf01, true);
+    assert.notEqual(retry.run_id, run.run_id);
+    assert.equal((await one('select status from public.enrichment_runs where id = $1', [run.run_id])).status, 'failed');
+
+    // A policy can still opt into a cooldown, and a new run must not bypass it.
+    await db.query(`update public.evidence_cache_policies set retry_after_minutes = 120 where evidence_type = 'active_opening'`);
+    try {
+      await db.query(`update public.enrichment_runs set lease_expires_at = null where id = $1`, [retry.run_id]);
+      const cooling = await claim();
+      assert.equal(cooling.status, 'retry_cooldown');
+      assert.equal(cooling.call_lf01, false);
+      assert.equal((await claim()).run_id, cooling.run_id);
+    } finally {
+      await db.query(`update public.evidence_cache_policies set retry_after_minutes = 0 where evidence_type = 'active_opening'`);
+      await db.query(`update public.enrichment_runs set next_retry_at = null where region_id = $1`, [region.id]);
+    }
+  });
+
+  await t.test('acceptance is explicit and requires a complete classified location', async () => {
+    const otherHash = 'b'.repeat(64);
+    const run = await one(`select * from public.check_and_claim_zone_enrichment($1,
+      'office_presence', 'pancoran|office_presence', $2)`, [region.id, otherHash]);
+    await assert.rejects(upsert(run.run_id, [candidate(1, { locality_tier: null })]), /accepted_location_ck/);
+    await assert.rejects(upsert(run.run_id, [candidate(2, { longitude: null })]), /check constraint/);
+    await upsert(run.run_id, [candidate(3, { validation_status: undefined, latitude: null,
+      longitude: null, locality_tier: null, geographic_precision: null })]);
+    assert.deepEqual(await rows(`select * from public.get_zone_evidence($1, 'office_presence', $2)`,
+      [region.id, otherHash]), []);
+  });
+
+  await t.test('campus facts cannot attach to another institution or a non-campus place', async () => {
+    const institution = await one(`insert into public.institutions (code, name, institution_type)
+      values ('example', 'Example University', 'university') returning id`);
+    const other = await one(`insert into public.institutions (code, name, institution_type)
+      values ('other', 'Other University', 'university') returning id`);
+    const campus = await one(`insert into public.places
+      (region_id, institution_id, name, category, latitude, longitude, source)
+      values ($1, $2, 'Campus', 'campus', -6.2, 106.8, 'official') returning id`, [region.id, institution.id]);
+    const addFact = (institutionId, campusId) => db.query(`insert into public.institution_data
+      (institution_id, campus_place_id, metric, numeric_value, data_scope, source, evidence_type)
+      values ($1, $2, 'enrolled_students', 500, 'campus', 'official', 'observed')`, [institutionId, campusId]);
+    await addFact(institution.id, campus.id);
+    await assert.rejects(addFact(other.id, campus.id), /foreign key/);
+    await assert.rejects(addFact(institution.id, null), /scope_ck/);
+    await assert.rejects(db.query(`update public.places set category = 'hospital' where id = $1`, [campus.id]), /category_ck/);
+    await assert.rejects(db.query('delete from public.places where id = $1', [campus.id]), /foreign key/);
+  });
+
+  await t.test('public snapshots enforce aggregate-only JSON and retain explicit stale fallbacks', async () => {
+    const addSnapshot = (payload, contributors = 3, daysOld = 0) => one(`insert into public.region_snapshots
+      (region_id, snapshot_type, scope_key, scope_hash, snapshot, contributor_count,
+       generated_at, refresh_after, expires_at)
+      values ($1, 'employment_summary', 'pancoran|local_employment', $2, $3, $4,
+        now() - make_interval(days => $5), now() - make_interval(days => $5) + interval '1 day',
+        now() - make_interval(days => $5) + interval '2 days') returning id`,
+    [region.id, hash, JSON.stringify(payload), contributors, daysOld]);
+    await assert.rejects(addSnapshot({ companies: [{ name: 'Private company' }] }), /json_ck/);
+    await assert.rejects(addSnapshot({ estimated_employment: { minimum: 5, maximum: 10,
+      status: 'estimated', company: 'Private company' } }), /json_ck/);
+    const payload = { estimated_employment: { minimum: 40, maximum: 80, status: 'estimated' },
+      limitations: ['Partial office coverage.'] };
+    await assert.rejects(addSnapshot(payload, 2), /privacy_ck/);
+    const older = await addSnapshot(payload, 3, 5);
+    const current = await addSnapshot(payload, 3, 3);
+    await db.query('select public.publish_region_snapshot($1)', [current.id]);
+    await assert.rejects(db.query('select public.publish_region_snapshot($1)', [older.id]), /older/);
+    await asRole('anon', async () => {
+      const snapshot = await one('select * from public.get_region_snapshot($1)', [region.id]);
+      assert.deepEqual(snapshot.snapshot, payload);
+      assert.equal(snapshot.is_stale, true);
+      assert.equal(snapshot.is_expired, true);
+    });
+  });
+
+  await t.test('one layer call returns scoped child geometry, latest non-sample facts, and safe aggregates', async () => {
+    const parent = await one(`insert into public.regions (code, name, region_type, is_supported)
+      values ('jakarta-selatan', 'Jakarta Selatan', 'city', true) returning id`);
+    const gridA = await one(`insert into public.regions
+      (parent_id, code, name, region_type, is_supported, geometry)
+      values ($1, 'h3-a', 'Grid A', 'grid', true,
+        extensions.ST_Multi(extensions.ST_GeomFromText(
+          'POLYGON((106.8 -6.2,106.81 -6.2,106.81 -6.21,106.8 -6.2))', 4326))) returning id`,
+    [parent.id]);
+    await one(`insert into public.regions
+      (parent_id, code, name, region_type, is_supported)
+      values ($1, 'h3-b', 'Grid B', 'grid', true) returning id`, [parent.id]);
+    const metric = 'transit_access';
+    const putFact = (regionId, value, periodEnd, sample = false, source = 'test-dataset') =>
+      db.query(`insert into public.region_data
+        (region_id, metric, numeric_value, unit, evidence_type, period_start, period_end,
+         source, is_sample, limitations)
+        values ($1, $2, $3, 'stops', 'estimated', null, $4, $5, $6, 'Demo only')
+        on conflict (region_id, metric, period_start, period_end, source)
+        do update set numeric_value = excluded.numeric_value, limitations = excluded.limitations`,
+      [regionId, metric, value, periodEnd, source, sample]);
+    await putFact(gridA.id, 2, '2024-12-31');
+    await putFact(gridA.id, 3, '2025-12-31');
+    await putFact(gridA.id, 4, '2025-12-31');
+    await putFact(gridA.id, 999, '2026-12-31', true, 'sample');
+    assert.equal((await one(`select count(*)::int as n from public.region_data
+      where region_id = $1 and source = 'test-dataset'`, [gridA.id])).n, 2);
+
+    const scopedHash = 'c'.repeat(64);
+    const payload = {
+      observed_organizations: 4, observed_office_count: 3, opening_count: 2,
+      organizations_without_headcount: 1, oldest_material_evidence: '2025-01-01',
+      estimated_employment: { minimum: 30, maximum: 60, status: 'estimated',
+        method_version: 'local-headcount-v1' },
+    };
+    await assert.rejects(db.query(`insert into public.region_snapshots
+      (region_id, snapshot_type, scope_key, scope_hash, snapshot, contributor_count)
+      values ($1, 'employment_summary', 'grid-a|sector', $2, $3, 3)`,
+    [gridA.id, scopedHash, JSON.stringify({ ...payload, indices: { sector_presence: 90 } })]), /json_ck/);
+    await assert.rejects(db.query(`insert into public.region_snapshots
+      (region_id, snapshot_type, scope_key, scope_hash, snapshot, contributor_count)
+      values ($1, 'employment_summary', 'grid-a|sector', $2, $3, 3)`,
+    [gridA.id, scopedHash, JSON.stringify({ ...payload,
+      estimated_employment: { ...payload.estimated_employment, method_version: { private: 'office' } } })]), /json_ck/);
+    const snapshot = await one(`insert into public.region_snapshots
+      (region_id, snapshot_type, scope_key, scope_hash, snapshot, contributor_count,
+       coverage, refresh_after, expires_at)
+      values ($1, 'employment_summary', 'grid-a|sector', $2, $3, 3,
+        'partial', now() + interval '1 day', now() + interval '2 days') returning id`,
+    [gridA.id, scopedHash, JSON.stringify(payload)]);
+    await db.query('select public.publish_region_snapshot($1)', [snapshot.id]);
+    const getLayer = (type, scope) => rows(`select * from public.get_region_layer(
+      $1, $2, $3, $4, 'grid')`, [parent.id, metric, type, scope]);
+
+    await asRole('anon', async () => {
+      await assert.rejects(db.query('select * from public.region_data'), /permission denied/);
+      const layer = await getLayer('employment_summary', scopedHash);
+      assert.deepEqual(layer.map((cell) => cell.region_code), ['h3-a', 'h3-b']);
+      assert.equal(layer[0].geometry.type, 'MultiPolygon');
+      assert.equal(layer[0].metric_data.numeric_value, 4);
+      assert.equal(layer[0].metric_data.period_end, '2025-12-31');
+      assert.equal(layer[0].metric_data.source, 'test-dataset');
+      assert.deepEqual(layer[0].snapshot, payload);
+      assert.equal(layer[0].coverage, 'partial');
+      assert.equal(layer[0].is_expired, false);
+      assert.equal(layer[1].geometry, null);
+      assert.equal(layer[1].snapshot, null);
+      assert.equal(layer[1].metric_data, null);
+      assert.equal((await getLayer('employment_summary', 'd'.repeat(64)))[0].snapshot, null);
+      assert.equal((await getLayer(null, null))[0].snapshot, null);
+      await assert.rejects(getLayer(null, scopedHash), /optional exact snapshot/);
+      await assert.rejects(getLayer('employment_summary', 'bad'), /optional exact snapshot/);
+    });
+
+    // One RPC fetches 85 cells; missing geometry/facts remain explicitly null.
+    await db.query(`insert into public.regions (parent_id, code, name, region_type, is_supported)
+      select $1, 'h3-extra-' || n::text, 'Test grid ' || n::text, 'grid', true
+      from generate_series(1,83) as n`, [parent.id]);
+    assert.equal((await getLayer(null, null)).length, 85);
+  });
+
+  await t.test('mock map fixtures are absent while grid reads remain available', async () => {
+    assert.equal((await one(`select count(*)::int as n from public.regions
+      where region_type = 'grid' and is_sample`)).n, 0);
+    assert.notEqual((await one(`select to_regprocedure('public.get_map_cells(text,text[],boolean,boolean)') as fn`)).fn, null);
+    assert.equal((await one(`select count(*)::int as n from public.housing_observations`)).n, 0);
+  });
+
+  await t.test('detail and point-only map reads skip polygons without losing facts or centroids', async () => {
+    const city = await one(`select id from public.regions where code = 'jakarta-selatan'`);
+    const district = await one(`insert into public.regions
+      (parent_id, code, name, region_type, is_supported, geometry)
+      values ($1, 'map-read-test', 'Map read test', 'district', true,
+        extensions.ST_Multi(extensions.ST_GeomFromText(
+          'POLYGON((106.8 -6.2,106.82 -6.2,106.82 -6.22,106.8 -6.2))', 4326))) returning id`, [city.id]);
+    await db.query(`insert into public.region_data (region_id, metric, numeric_value, unit, evidence_type, source)
+      values ($1, 'company_count', 2, 'companies', 'observed', 'map read test')`, [district.id]);
+    const cell = await one(`insert into public.regions
+      (parent_id, code, name, region_type, is_supported, geometry)
+      values ($1, 'map-cell-test', 'Map cell test', 'grid', true,
+        extensions.ST_Multi(extensions.ST_GeomFromText(
+          'POLYGON((106.8 -6.2,106.81 -6.2,106.81 -6.21,106.8 -6.2))', 4326))) returning id`, [district.id]);
+    await db.query(`insert into public.region_data (region_id, metric, numeric_value, unit, evidence_type, source)
+      values ($1, 'housing_listing_count', 4, 'listings', 'observed', 'map read test')`, [cell.id]);
+
+    await asRole('anon', async () => {
+      const full = await one(`select * from public.get_map_region('map-read-test', false)`);
+      const compact = await one(`select * from public.get_map_region('map-read-test', false, false)`);
+      assert.equal(full.geometry.type, 'MultiPolygon');
+      assert.equal(compact.geometry, null);
+      assert.deepEqual(compact.facts, full.facts);
+
+      const polygons = await one(`select * from public.get_map_cells('map-read-test', array['housing_listing_count'], false)`);
+      const points = await one(`select * from public.get_map_cells('map-read-test', array['housing_listing_count'], false, false)`);
+      assert.equal(polygons.geometry.type, 'MultiPolygon');
+      assert.equal(points.geometry, null);
+      assert.deepEqual(points.centroid, polygons.centroid);
+      assert.deepEqual(points.facts, polygons.facts);
+    });
+  });
+
+  await t.test('subscriptions are backend-written, owner-read, and one current per user', async () => {
+    await asRole('service_role', async () => {
+      const plan = await one(`insert into public.subscription_plans (code, name, billing_interval, price_amount, features)
+        values ('pro_monthly', 'Pro', 'month', 49000, '{"max_profiles": 5}') returning id`);
+      await db.query(`insert into public.subscriptions (user_id, plan_id, status, current_period_start, current_period_end)
+        values ($1, $2, 'expired', now() - interval '2 months', now() - interval '1 month'),
+               ($1, $2, 'active', now(), now() + interval '1 month')`, [userA, plan.id]);
+      await assert.rejects(db.query(`insert into public.subscriptions (user_id, plan_id, status)
+        values ($1, $2, 'trialing')`, [userA, plan.id]), /subscriptions_one_current_uq/);
+      // A missed renewal webhook leaves userB "active" after the period lapsed.
+      const lapsed = `insert into public.subscriptions (user_id, plan_id, status, current_period_start,
+        current_period_end, provider, provider_subscription_id)
+        values ($1, $2, $3, now() - interval '2 months', now() - interval '1 month', 'provider_x', 'sub_1')`;
+      await db.query(lapsed, [userB, plan.id, 'active']);
+      await assert.rejects(db.query(lapsed, [userB, plan.id, 'expired']), /subscriptions_provider_uq/);
+    });
+
+    await asRole('anon', async () => {
+      assert.deepEqual(await rows('select code from public.subscription_plans'), [{ code: 'pro_monthly' }]);
+      await assert.rejects(rows('select * from public.subscriptions'), /permission denied/);
+      await assert.rejects(rows('select * from public.get_my_subscription()'), /permission denied/);
+    });
+
+    await asRole('authenticated', async () => {
+      await setUser(userA);
+      assert.equal((await rows('select * from public.subscriptions')).length, 2);
+      assert.deepEqual(await rows('select plan_code, status, features from public.get_my_subscription()'),
+        [{ plan_code: 'pro_monthly', status: 'active', features: { max_profiles: 5 } }]);
+      await assert.rejects(db.query(`update public.subscriptions set status = 'canceled'`), /permission denied/);
+      await setUser(userB);
+      assert.deepEqual(await rows('select provider_subscription_id from public.subscriptions'),
+        [{ provider_subscription_id: 'sub_1' }]);
+      assert.deepEqual(await rows('select * from public.get_my_subscription()'), []);
+    });
+  });
+
+  await t.test('account deletion cascades through confirmed profiles and recommendations', async () => {
+    await db.query('delete from auth.users where id = $1', [userA]);
+    assert.deepEqual(await rows('select * from public.relocation_profiles where user_id = $1', [userA]), []);
+    assert.deepEqual(await rows('select * from public.recommendation_runs where user_id = $1', [userA]), []);
+    assert.deepEqual(await rows('select * from public.subscriptions where user_id = $1', [userA]), []);
+  });
+
+  await t.test('click telemetry is insert-only for browsers and constrained like the API', async () => {
+    const insert = (region, x) => db.query(`insert into public.hci_click_events
+      (session_id, elapsed_ms, region, target, x, y, viewport_width, viewport_height, paint_ms, response_ms)
+      values ('6f1c2d3e-4b5a-4c6d-8e7f-001122334455', 1000, $1, 'Pekerjaan', $2, $2, 1280, 720, 16, null)`, [region, x]);
+    await asRole('anon', async () => {
+      await insert('categories', 0.5);
+      await assert.rejects(insert('Bad Region', 0.5), /check constraint/);
+      await assert.rejects(insert('map', 2), /check constraint/);
+      await assert.rejects(rows('select * from public.hci_click_events'), /permission denied/);
+      await assert.rejects(rows('select * from public.hci_region_summary'), /permission denied/);
+    });
+    assert.deepEqual(await rows('select region, clicks, response_timeouts from public.hci_region_summary'),
+      [{ region: 'categories', clicks: 1, response_timeouts: 1 }]);
+  });
+
+  await t.test('geocoded evidence gets a boundary-based tier and publishes a scoped snapshot', async () => {
+    const square = (west, south) => `extensions.ST_Multi(extensions.ST_GeomFromText('POLYGON((${west} ${south},
+      ${west + 0.1} ${south},${west + 0.1} ${south + 0.1},${west} ${south + 0.1},${west} ${south}))', 4326))`;
+    const addRegion = (code, type, parentId, geometry = 'null') => one(`insert into public.regions
+      (code, name, region_type, parent_id, geometry) values ($1, $1, $2, $3, ${geometry}) returning id`,
+    [code, type, parentId]);
+    const province = await addRegion('tier-province', 'province', null);
+    const cityA = await addRegion('tier-city-a', 'city', province.id);
+    const cityB = await addRegion('tier-city-b', 'city', province.id);
+    const target = await addRegion('tier-target', 'district', cityA.id, square(110, -8));
+    await addRegion('tier-sibling', 'district', cityA.id, square(110.1, -8));
+    await addRegion('tier-cousin', 'district', cityB.id, square(110.2, -8));
+    const points = JSON.stringify([
+      { point_index: 0, latitude: -7.95, longitude: 110.05 },
+      { point_index: 1, latitude: -7.95, longitude: 110.15 },
+      { point_index: 2, latitude: -7.95, longitude: 110.25 },
+      { point_index: 3, latitude: -7.95, longitude: 111.05 },
+      { point_index: 4, latitude: 200, longitude: 110.05 },
+    ]);
+
+    await asRole('anon', async () => {
+      await assert.rejects(db.query('select * from public.classify_evidence_points($1, $2)', [target.id, points]), /permission denied/);
+      await assert.rejects(db.query('select * from public.geocode_cache'), /permission denied/);
+    });
+
+    await asRole('service_role', async () => {
+      const tiers = await rows('select * from public.classify_evidence_points($1, $2)', [target.id, points]);
+      assert.deepEqual(tiers.map((row) => [row.point_index, row.containing_region_code, row.locality_tier]), [
+        [0, 'tier-target', 'zone'], [1, 'tier-sibling', 'city'], [2, 'tier-cousin', 'region'], [3, null, null],
+      ]);
+
+      await assert.rejects(db.query(`insert into public.geocode_cache (query_hash, query, provider, status, expires_at)
+        values ($1, 'setiabudi', 'nominatim', 'found', now() + interval '1 day')`, ['d'.repeat(64)]), /result_ck/);
+      await db.query(`insert into public.geocode_cache (query_hash, query, provider, status, result, expires_at)
+        values ($1, 'setiabudi', 'nominatim', 'found', '{"latitude": -6.2}', now() + interval '1 day')`, ['d'.repeat(64)]);
+
+      const scopeHash = 'e'.repeat(64);
+      const run = await one(`select * from public.check_and_claim_zone_enrichment($1,
+        'salary_observation', 'salary_observation|sector=software_and_it_services', $2)`, [target.id, scopeHash]);
+      assert.equal(run.call_lf01, true);
+      assert.equal(run.minimum_required_count, 5);
+      await upsert(run.run_id, [candidate(40, { latitude: -7.95, longitude: 110.05, locality_tier: tiers[0].locality_tier })]);
+      await db.query(`select public.complete_enrichment_run($1, 'partial', '{"accepted": 1}')`, [run.run_id]);
+      assert.equal((await rows(`select * from public.get_zone_evidence($1, 'salary_observation', $2)`,
+        [target.id, scopeHash])).length, 1);
+
+      const snapshot = await one(`insert into public.region_snapshots
+        (region_id, snapshot_type, scope_key, scope_hash, snapshot, evidence_count, contributor_count,
+         coverage, refresh_after, expires_at)
+        values ($1, 'career', 'career|sector=software_and_it_services', $2, $3, 1, 1, 'partial',
+          now() + interval '1 day', now() + interval '2 days') returning id`,
+      [target.id, scopeHash, JSON.stringify({ salary_idr: { status: 'unavailable' }, sources_monitored: 1,
+        coverage: 'partial', as_of: '2026-09-28', limitations: ['Counts describe observed web sources.'] })]);
+      await db.query('select public.publish_region_snapshot($1)', [snapshot.id]);
+      const published = await one(`select * from public.get_region_snapshot($1, 'career', $2)`, [target.id, scopeHash]);
+      assert.equal(published.coverage, 'partial');
+      assert.equal(published.is_stale, false);
+    });
+  });
+
+  await t.test('evidence clusters count district-precise claims per district, once each', async () => {
+    const scopeHash = 'f'.repeat(64);
+    // Clusters, like the map reads, cover supported districts (or sample ones when asked).
+    await db.query(`update public.regions set is_supported = true where code in ('tier-target', 'tier-sibling')`);
+    const cluster = (hashes) => rows(`select * from public.get_evidence_clusters('tier-city-a', $1, true)`, [hashes]);
+    await asRole('anon', async () => {
+      await assert.rejects(db.query(`select * from public.get_evidence_clusters('tier-city-a', $1)`, [[scopeHash]]), /permission denied/);
+    });
+    await asRole('service_role', async () => {
+      const run = await one(`select * from public.check_and_claim_zone_enrichment(
+        (select id from public.regions where code = 'tier-target'), 'active_opening', 'active_opening|sector=test', $1)`, [scopeHash]);
+      await upsert(run.run_id, [
+        candidate(60, { latitude: -7.95, longitude: 110.05, entity_name: 'Org A' }),
+        candidate(61, { latitude: -7.96, longitude: 110.06, entity_name: 'Org A' }),
+        candidate(62, { latitude: -7.95, longitude: 110.15, entity_name: 'Org B', locality_tier: 'city' }),
+        // A city-level point is never credited to the district it happens to land in.
+        candidate(63, { latitude: -7.95, longitude: 110.05, geographic_precision: 'city', locality_tier: 'city' }),
+        candidate(64, { latitude: -7.95, longitude: 111.05, locality_tier: 'national' }),
+      ]);
+      const counts = (await cluster([scopeHash])).map((row) =>
+        [row.region_code, row.evidence_type, row.evidence_count, row.organization_count]);
+      assert.deepEqual(counts, [
+        ['tier-sibling', 'active_opening', 1, 1],
+        ['tier-target', 'active_opening', 2, 1],
+      ]);
+      const target = (await cluster([scopeHash])).find((row) => row.region_code === 'tier-target');
+      assert.equal(target.centroid.type, 'Point');
+      assert.deepEqual(await cluster(['0'.repeat(64)]), []);
+    });
+  });
+
+});

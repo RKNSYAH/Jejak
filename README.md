@@ -1,36 +1,207 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Jejak
 
-## Getting Started
+Jejak is a relocation-planning project for people choosing where to study or work in Indonesia. In the current alpha, you can explore districts on a map, compare available employment, education, housing, and transport data, and inspect the sources behind those figures.
 
-First, run the development server:
+## Current features
+
+- Explore a full-screen map with search, ranked area cards, selectable district boundaries, and a 3D-building toggle.
+- Switch between Ringkasan (summary), Pekerjaan (employment), Pendidikan (education), Hunian (housing), and Mobilitas (mobility).
+- Inspect regional facts and campus locations in a desktop sidebar or mobile sheet, including source, period, confidence, and sample-data labels where available.
+- Preview estimated reach areas around your destination in both onboarding paths, using disclosed mode/speed assumptions—no journey service required. Map/list labels refer to kecamatan center points, not guaranteed access. Optional network routing setup remains documented in [routing/README.md](routing/README.md).
+- Browse areas ranked by wage-to-rent ratio, with population as a secondary sort key.
+- Measure click-to-paint and response latency through anonymous alpha-study telemetry.
+
+The project also plans personalized recommendations, saved shortlists, and AI-assisted explanations. See the [project summary](docs/Jejak_Project_Summary.md) for the full scope.
+
+## Dependencies
+
+Use **Bun 1.4.2**, as specified in `package.json`, and **Node.js 20.9 or newer**. The worker-copy scripts and database tests invoke Node.js. You also need a WebGL-capable browser and a Supabase project with the Jejak schema and map data.
+
+| Area | Packages |
+| --- | --- |
+| Application | Next.js 16.3.5, React 19.2.8, TypeScript 5 |
+| Maps | MapLibre GL JS 6, react-map-gl 8, OpenFreeMap basemap |
+| Styling | Tailwind CSS 4, daisyUI 5, Lucide React icons |
+| Data and authentication | Supabase JavaScript client 2, Supabase SSR, PostgreSQL with PostGIS |
+| Client state and analytics | Zustand 5, Vercel Analytics |
+| Checks | ESLint 9, Bun test runner, Playwright Test |
+| Database tests | PGlite and its PostGIS extension |
+
+Check [`package.json`](package.json) for dependency ranges and `bun.lock` for resolved versions.
+
+## Run locally
+
+### 1. Install packages
+
+From the repository root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install --frozen-lockfile
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Configure the environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create `.env.local` in the repository root:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-project-anon-key
 
-## Learn More
+# Optional; both features default to enabled.
+JEJAK_INCLUDE_SAMPLE_DATA=true
+NEXT_PUBLIC_HCI_TELEMETRY=true
 
-To learn more about Next.js, take a look at the following resources:
+# Langflow (relocation profile interpretation and evidence enrichment). Server-only.
+NEXT_LANGFLOW_URL=https://your-langflow-host
+NEXT_LANGFLOW_API_KEY=your-langflow-api-key
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Evidence enrichment only. Server-only; never expose these to the browser.
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+JEJAK_GEOCODER_USER_AGENT=Jejak/0.1 (you@example.com)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Required Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Required public anon key for browser and server clients. Use the anon key, not a service-role key. |
+| `JEJAK_INCLUDE_SAMPLE_DATA` | Set to `false` to exclude sample rows from map reads. |
+| `NEXT_PUBLIC_HCI_TELEMETRY` | Set to `false` to disable click telemetry. Keep it enabled for the interaction-latency tests. |
+| `NEXT_LANGFLOW_URL` | Langflow server base URL or its `/api/v2/workflows` endpoint. Without it, `/api/evidence-conflict-review`, `/api/zone-fit-explanation`, `/api/relocation-profile-interpretation`, and enrichment return 503. |
+| `NEXT_LANGFLOW_API_KEY` | Langflow API key, sent as `x-api-key`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for the backend-only enrichment RPCs. Used only by server enrichment code. |
+| `JEJAK_GEOCODER_USER_AGENT` | Identifying User-Agent with contact details, required by Nominatim's usage policy. |
 
-## Deploy on Vercel
+Git ignores `.env.local`. Restart the development server after changing environment variables; rebuild production assets after changing `NEXT_PUBLIC_*` values.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Connect the database
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Use a Supabase project that contains the Jejak schema, map-read RPCs, and regional data. The schema lives in [`supabase/migrations/`](supabase/migrations/); [`supabase/SCHEMA.md`](supabase/SCHEMA.md) describes the tables, access rules, and evidence model. Installing JavaScript packages does not provision or populate the database.
+
+The app reads stored boundaries first and falls back to Indonesia's BIG boundary service when needed. Map tiles and fallback boundaries require network access.
+
+### 4. Start development
+
+```bash
+bun run dev
+```
+
+Open [http://localhost:3000/map](http://localhost:3000/map). Signed-out visitors are redirected to `/login`, with their map query parameters preserved for after sign-in. Protected map APIs return `403` JSON for missing or invalid sessions; authenticated requests for unknown regions return `404`.
+
+The `predev` and `prebuild` scripts copy MapLibre worker files into `public/maplibre/` (gitignored). Edit `scripts/copy-maplibre-worker.mjs` if that setup needs to change.
+
+### Production build
+
+```bash
+bun run build
+bun run start
+```
+
+Configure the environment before building and starting the server.
+
+## Checks and tests
+
+### Lint and type checking
+
+```bash
+bun run lint
+bunx tsc --noEmit
+```
+
+There is no separate `typecheck` script.
+
+### Application tests
+
+Run the application suite from the repository root:
+
+```bash
+bun test ./tests
+```
+
+For a focused run:
+
+```bash
+bun test tests/mapping.test.ts
+bun test tests/enrichment.test.ts
+bun test tests/hci.test.ts
+```
+
+Each file in `tests/` covers one module or route; shared test helpers live in `tests/helpers.ts`. These tests use fixtures and mocks for external data. `bunfig.toml` preloads `tests/setup.mjs`, which stubs Next's `server-only` module so route tests can import server controllers.
+
+### Database contract tests
+
+```bash
+bun run test:schema
+```
+
+This runs the Node tests in `supabase/tests/` against an in-memory PostgreSQL/PostGIS instance. You do not need remote database credentials. The suite checks migration replay, database access rules, and data contracts.
+
+### Browser and interaction-latency tests
+
+From the repository root, install Chromium once, then run Playwright:
+
+```bash
+bunx playwright install chromium
+bun run test:e2e
+```
+
+Playwright starts an isolated Supabase Auth/Data API fixture at `http://127.0.0.1:3101`, builds the app with that fixture's public configuration, and serves the production app at `http://localhost:3100`. Both ports must be available. No remote Supabase credentials are needed. Map tests sign in with local test sessions, while map-data and telemetry requests use fixtures. Tests run desktop Chrome and Pixel 7 emulation with one worker and check click-to-paint and selection-response budgets.
+
+`e2e/map-auth.e2e.ts` covers signed-out redirects, forbidden API responses, tampered cookies, successful login return paths, token refresh, and session-expiry navigation.
+
+Open the HTML report with:
+
+```bash
+bunx playwright show-report
+```
+
+Find report files in `playwright-report/` and test artifacts in `test-results/`. Playwright retains traces on failure.
+
+## Code layout
+
+```text
+app/
+  api/                 Map data, geometry, auth, telemetry, conflict review, zone explanation, profile interpretation, enrichment
+  components/map/      Map canvas, controls, discovery sheet, and detail panel
+  engine/              Data controllers, API clients, validation, and types
+  engine/enrichment/   Discovery/classification contracts, geocoding, acceptance, snapshots, pipeline
+  map/page.tsx         Map route
+  stores/              Client state
+docs/                  Product, design, AI, and data-research specifications
+e2e/                   Playwright browser, auth, and interaction-latency tests
+ingestion/             Python scripts that prepare static data sources
+scripts/               MapLibre worker copy and onboarding boundary download
+supabase/              Migrations, schema documentation, and database tests
+tests/                 Application and route tests
+instrumentation-client.ts  Click-telemetry startup
+proxy.ts               Supabase auth cookie refresh and map access redirect
+```
+
+For map-data changes, follow this path:
+
+```text
+JejakMap → useZoneIntelligence → zoneApi → app/api → zoneController → Supabase RPCs
+```
+
+The main read routes are `/api/zones` and `/api/zones/[zoneId]/intelligence`.
+
+Evidence enrichment follows this path:
+
+```text
+POST /api/zones/[zoneId]/enrich → enrichmentController (claim runs) → after(): pipeline
+  → zone evidence discovery → evidence classification + company-office discovery pass (best effort) → Nominatim + classify_evidence_points → upsert_zone_evidence
+  → publish_region_snapshot → complete_enrichment_run
+GET /api/zones/[zoneId]/evidence?scope=career|housing   snapshot, freshness, refresh state
+GET /api/enrichment-runs/[runId]                          one run's status
+GET /api/evidence/clusters?city_id=&scope=                approximate evidence counts per district (map clusters)
+```
+ Click telemetry posts to `/api/hci`; adding `?study=P01` to the map URL tags a study participant. Give new UI surfaces a `data-hci-region` attribute so telemetry can identify them.
+
+## Project documentation
+
+- [Project summary](docs/Jejak_Project_Summary.md): product goals, intended user journey, and planned scope.
+- [Design guide](docs/DESIGN.md): map layout, interaction patterns, and visual rules.
+- [Database schema](supabase/SCHEMA.md): tables, evidence storage, and access contracts.
+- [Langflow AI specification](docs/Jejak_Langflow_AI_Specification.md): planned AI workflows and enrichment contracts.
+- [Static-data research handoff](docs/Static_Data_Research_Handoff.md): data sourcing and preparation.
+- [Static data import preparation](docs/Static_Data_Import_Preparation.md): offline workbook validation, local import verification, review queue, and separate database-promotion approval gate.
+- [Contributor instructions](AGENTS.md): repository conventions and implementation guidance.

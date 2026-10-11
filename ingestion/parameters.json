@@ -1,0 +1,12 @@
+{
+  "method_version": "building-workers-v0",
+  "placeholder": true,
+  "note": "Placeholder ranges until the estimation_parameters sheet from the static data research supplies sourced values. Replace low/high and fill source for each entry.",
+  "floor_height_m": { "low": 3.5, "high": 4.2, "source": null, "meaning": "Average storey height; converts GHSL volume and OSM height tags to floor area" },
+  "net_to_gross": { "low": 0.75, "high": 0.85, "source": null, "meaning": "Usable share of gross floor area" },
+  "occupancy": { "low": 0.70, "high": 0.80, "source": null, "meaning": "Share of office space that is leased or occupied" },
+  "area_per_worker_m2": { "low": 10, "high": 20, "source": null, "meaning": "Usable office floor area per worker" },
+  "mixed_office_share": { "low": 0.3, "high": 0.7, "source": null, "meaning": "Office share of OSM building=commercial floor area" },
+  "unknown_office_share": { "low": 0.3, "high": 0.6, "source": null, "meaning": "Office share of GHSL non-residential floor area that OSM does not explain" },
+  "max_plausible_floors": 80
+}

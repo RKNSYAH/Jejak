@@ -1,0 +1,1 @@
+-- No synthetic map values or grid cells. Import verified data with provenance instead.
