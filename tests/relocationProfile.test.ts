@@ -157,7 +157,7 @@ test("profile saving reads the owned confirmed database row before reporting suc
   }
 });
 
-test("profile deletion requires sign-in and removes only the owner's primary profile rows", async (context) => {
+test("profile deletion requires sign-in and removes the owner's onboarding drafts and primary profile rows", async (context) => {
   assert.equal((await DELETE(new Request("http://localhost/api/user/relocation-profile", { method: "DELETE" }))).status, 401);
   const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -172,11 +172,11 @@ test("profile deletion requires sign-in and removes only the owner's primary pro
   });
   try {
     await deleteRelocationProfile(userId);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].method, "DELETE");
-    assert.match(calls[0].url.pathname, /\/rest\/v1\/relocation_profiles$/);
-    assert.equal(calls[0].url.searchParams.get("user_id"), `eq.${userId}`);
-    assert.equal(calls[0].url.searchParams.get("profile_name"), "eq.primary");
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((call) => call.method === "DELETE" && call.url.searchParams.get("user_id") === `eq.${userId}`));
+    assert.match(calls[0].url.pathname, /\/rest\/v1\/onboarding_drafts$/);
+    assert.match(calls[1].url.pathname, /\/rest\/v1\/relocation_profiles$/);
+    assert.equal(calls[1].url.searchParams.get("profile_name"), "eq.primary");
     status = 500;
     await assert.rejects(deleteRelocationProfile(userId));
   } finally {

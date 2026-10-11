@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
-import { stubZones } from "./fixtures/map";
+import { confirmProfile, stubZones } from "./fixtures/map";
 
 const originalWeights = { career: 0.5, education: 0, housing: 0.15, cost_of_living: 0.05, commute: 0.2, environment: 0.1 };
 
@@ -78,7 +78,7 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
     await expect(panel.locator("#profile-edit-goal")).toBeVisible();
     await panel.getByRole("button", { name: "Batal", exact: true }).click();
 
-    const save = panel.getByRole("button", { name: "Selesai, buka peta", exact: true });
+    const save = panel.getByRole("button", { name: "Lanjut", exact: true });
     await panel.getByRole("button", { name: "Pilih di peta", exact: true }).click();
     await expect(save).toBeDisabled();
     await page.locator(".maplibregl-canvas").click({ position: { x: 150, y: testInfo.project.name === "mobile" ? 170 : 180 } });
@@ -98,8 +98,9 @@ test("story review keeps the map live, resets inferred weights, picks a destinat
         return saves === 1 ? route.fulfill({ status: 503, json: { error: "Profil belum tersimpan. Coba lagi." } }) : route.fallback();
     });
     await save.click();
+    await confirmProfile(page);
     await expect(panel.getByRole("alert")).toContainText("Profil belum tersimpan");
-    await save.click();
+    await confirmProfile(page);
     await expect(panel).toHaveCount(0);
     const saved = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
     expect(saved.profile.priority_weights).toEqual(draft.proposal.priority_weights);
@@ -126,7 +127,7 @@ test("mobile story review keeps navigation reachable and collapses to reveal the
     for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 640, height: 360 }]) {
         await page.setViewportSize(viewport);
         const bounds = (await panel.boundingBox())!;
-        const save = (await panel.getByRole("button", { name: "Selesai, buka peta", exact: true }).boundingBox())!;
+        const save = (await panel.getByRole("button", { name: "Lanjut", exact: true }).boundingBox())!;
         expect(bounds.y).toBeGreaterThan(0);
         expect(save.height).toBeGreaterThanOrEqual(44);
         expect(save.y + save.height).toBeLessThanOrEqual(viewport.height);
@@ -135,9 +136,9 @@ test("mobile story review keeps navigation reachable and collapses to reveal the
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Perkecil prioritas untuk melihat peta" }).click();
     await expect(page.getByRole("button", { name: "Buka prioritas" })).toHaveAttribute("aria-expanded", "false");
-    await expect(panel.getByRole("button", { name: "Selesai, buka peta" })).toBeHidden();
+    await expect(panel.getByRole("button", { name: "Lanjut", exact: true })).toBeHidden();
     await page.getByRole("button", { name: "Buka prioritas" }).press("Enter");
-    await expect(panel.getByRole("button", { name: "Selesai, buka peta" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Lanjut", exact: true })).toBeVisible();
     const career = panel.getByRole("slider", { name: "Karier", exact: true });
     await career.focus();
     await career.press("ArrowRight");

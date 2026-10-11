@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/auth";
-import { stubZones } from "./fixtures/map";
+import { confirmProfile, stubZones } from "./fixtures/map";
 
 const fields = ["Tujuan", "Pekerjaan", "Kota tujuan", "Batas sewa", "Jenis hunian", "Anggaran bulanan", "Waktu tempuh",
     "Moda transportasi", "Lokasi tujuan", "Prioritas"];
@@ -161,7 +161,8 @@ for (const [length, story] of [
         await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
         await expect(page.getByRole("dialog")).toContainText("Kerja dan kuliah");
         const saving = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user/relocation-profile" && response.request().method() === "POST");
-        await page.getByRole("button", { name: "Selesai, buka peta" }).click();
+        await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+        await confirmProfile(page);
         const saveResponse = await saving;
         expect(saveResponse.status()).toBe(201);
         const saved = (await saveResponse.json()).profile;
@@ -185,7 +186,7 @@ test("inferred story goal is highlighted and failed saving keeps the review for 
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah untuk bekerja. Rp6 juta, cari kos, kantor di Kuningan, naik transportasi umum.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    const save = page.getByRole("button", { name: "Selesai, buka peta" });
+    const save = page.getByRole("button", { name: "Lanjut", exact: true });
     const review = page.getByRole("dialog");
     await review.getByRole("button", { name: "Ubah profil", exact: true }).click();
     await expect(review.locator('[data-hci-region="profile-review-fields"] dl > div')
@@ -199,11 +200,12 @@ test("inferred story goal is highlighted and failed saving keeps the review for 
         return attempts === 1 ? route.fulfill({ status: 503, json: { error: "Profil belum tersimpan. Coba lagi." } }) : route.fallback();
     });
     await save.click();
-    await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Profil belum tersimpan");
+    await confirmProfile(page);
+    await expect(page.getByRole("dialog", { name: "Konfirmasi profil relokasi ini?" }).getByRole("alert")).toContainText("Profil belum tersimpan");
     await expect(save).toBeEnabled();
     await expect.poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.draft?.story, storyDraftKey))
         .toContain("Saya pindah untuk bekerja");
-    await save.click();
+    await confirmProfile(page);
     await expect(page.getByRole("dialog")).toBeHidden();
     expect(attempts).toBe(2);
     await expect.poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.draft, storyDraftKey)).toBeNull();
@@ -236,7 +238,8 @@ test("map-picked story answer survives refresh and saves exact chosen coordinate
     expect(proposed.soft_preferences.housing_types).toEqual(["apartment"]);
     expect(proposed.decision_trace.received_message).toContain("Lokasi kantor dipilih di peta:");
     expect(proposed.soft_preferences.destination).toEqual({ name: "Dipilih di peta", precision: "point", ...point });
-    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await confirmProfile(page);
     await expect(page.getByRole("dialog")).toBeHidden();
     const backend = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
     expect(backend.profile.soft_preferences.destination).toEqual(proposed.soft_preferences.destination);
@@ -307,7 +310,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await review.getByRole("button", { name: "Ubah profil", exact: true }).click();
     const profileField = (label: string) => review.locator('[data-hci-region="profile-review-fields"] dl > div')
         .filter({ hasText: new RegExp(`^${label}`) });
-    await expect(profileField("Pilihan di atas anggaran")).toContainText("Default Jejak");
+    await expect(profileField("Pilihan di atas anggaran")).toHaveCount(0);
     for (const [label, value] of [["Batas waktu tempuh", "45 menit"], ["Anggaran bulanan", "Rp5.000.000"], ["Batas sewa", "Rp2.000.000"], ["Lokasi tujuan", "Jakarta Selatan"], ["Moda transportasi", "Transport umum"]]) {
         await expect(profileField(label)).toContainText(value);
     }
@@ -320,7 +323,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await expect(cost).not.toContainText("Data contoh");
     // "Ubah" edits in place instead of sending the user back to an earlier step.
     const card = profileField;
-    const save = page.getByRole("button", { name: "Selesai, buka peta" });
+    const save = page.getByRole("button", { name: "Lanjut", exact: true });
     await card("Batas sewa").getByRole("button", { name: "Ubah Batas sewa" }).click();
     await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     await expect(save).toBeDisabled();
@@ -350,6 +353,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await review.getByRole("button", { name: "Benar", exact: true }).click();
     await expect(review.getByRole("button", { name: "Benar", exact: true })).toHaveCount(0);
     await save.click();
+    await confirmProfile(page);
     await expect(review).toBeHidden();
     const saved = (await (await page.request.get("/api/user/relocation-profile")).json()).profile;
     expect(saved.profile.hard_constraints).toMatchObject({ goal: "work", monthly_budget: { amount: 6000000 }, housing_budget: { amount: 3000000 }, commute_minutes: 45 });
@@ -374,7 +378,8 @@ test("no follow-up questions opens review directly after an explicit goal choice
     await expect(page.getByRole("heading", { name: /Atur prioritasmu/ })).toBeVisible();
     expect(analyses).toBe(1);
     await expect(page.getByRole("dialog")).not.toContainText("Pertanyaan lanjutan");
-    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await confirmProfile(page);
     await expect(page.getByRole("dialog")).toBeHidden();
     expect((await (await page.request.get("/api/user/relocation-profile")).json()).profile.profile.hard_constraints.goal).toBe("both");
 });

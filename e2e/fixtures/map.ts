@@ -59,3 +59,7 @@ export async function openDemoMap(page: Page) {
     await page.goto("/map?onboarding=demo");
     await page.getByRole("button", { name: /Lewati untuk sekarang/ }).click();
 }
+
+export async function confirmProfile(page: Page) {
+    await page.getByRole("dialog", { name: "Konfirmasi profil relokasi ini?" }).getByRole("button", { name: "Konfirmasi profil", exact: true }).click();
+}

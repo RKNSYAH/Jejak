@@ -15,6 +15,7 @@ import { useSheetDrag } from "./useSheetDrag";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
 import { buildFormRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import ProfileReviewFields from "./ProfileReviewFields";
+import ProfileConfirmDialog from "./ProfileConfirmDialog";
 
 const steps = ["Tujuan", "Batas", "Perjalanan", "Prioritas"];
 const stepNumbers: FormStep[] = [1, 2, 3, 4];
@@ -40,6 +41,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     const [saveError, setSaveError] = useState<string | null>(null);
     const [reviewing, setReviewing] = useState(false);
     const [returningToReview, setReturningToReview] = useState(false);
+    const [confirming, setConfirming] = useState(false);
     const savingRef = useRef(false);
     const reviewedProfile = useMemo(() => {
         try { return buildFormRelocationProfile(session.answers); }
@@ -66,7 +68,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     async function next() {
         if (savingRef.current) return;
         if (reviewing) {
-            await confirm();
+            confirm();
             return;
         }
         const stepErrors = stepNumbers.map((step) => validateFormStep(session.answers, step));
@@ -82,7 +84,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
         else { setReviewing(true); setReturningToReview(false); }
     }
 
-    async function confirm() {
+    function confirm() {
         if (savingRef.current) return;
         const stepErrors = stepNumbers.map((step) => validateFormStep(session.answers, step));
         const allErrors = Object.assign({}, ...stepErrors);
@@ -93,6 +95,12 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
             if (invalidStep) onStepChange(invalidStep);
             return;
         }
+        setSaveError(null);
+        setConfirming(true);
+    }
+
+    async function save() {
+        if (savingRef.current) return;
         savingRef.current = true;
         setIsSaving(true);
         setSaveError(null);
@@ -122,7 +130,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
     function editField(field: string) {
         const editStep: FormStep = field === "goal" || field === "occupation" || field === "target_occupations" ||
             field === "target_fields" || field === "study_field" || field === "education_level" || field === "destination_cities" ? 1
-            : field === "monthly_budget" || field === "housing_budget" || field === "housing_types" || field === "over_budget" ? 2
+            : field === "monthly_budget" || field === "housing_budget" || field === "housing_types" ? 2
             : field === "priorities" ? 4 : 3;
         setReviewing(false);
         setReturningToReview(true);
@@ -131,7 +139,7 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
         onStepChange(editStep);
     }
 
-    return <dialog ref={dialogRef} aria-labelledby="form-onboarding-title"
+    return <><dialog ref={dialogRef} aria-labelledby="form-onboarding-title"
         data-hci-region={reviewing ? "onboarding-form-review" : `onboarding-form-step-${session.step}`} className="onboarding-form-panel absolute inset-x-0 bottom-0 z-200 m-0 flex h-[var(--sheet-h,74dvh)] max-h-[74dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-rule bg-base-100 p-0 font-body text-ink shadow-overlay max-md:transition-[height] max-md:duration-200 max-md:ease-out md:inset-y-4 md:left-auto md:right-4 md:h-auto md:max-h-none md:w-[min(35rem,43vw)] md:rounded-2xl"
         onKeyDown={(event) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement && event.target.type === "search")) { event.preventDefault(); if (!isSaving) onDismiss(); } }}>
         <button type="button" {...handleProps} aria-expanded={!collapsed} aria-label={collapsed ? "Buka formulir" : "Perkecil formulir untuk melihat peta"}
@@ -187,10 +195,13 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                     <ArrowLeft aria-hidden="true" className="size-4" /><span className="hidden md:inline">Kembali</span>
                 </button>
                 <button type="submit" disabled={isSaving || reviewing && !reviewedProfile} className="btn btn-primary min-h-12 min-w-0 flex-1 rounded-xl px-4 md:flex-none md:px-5">
-                    {isSaving ? "Menyimpan profil…" : reviewing ? "Konfirmasi dan simpan" : session.step === 4 ? returningToReview ? "Kembali ke tinjauan" : "Tinjau profil" : "Lanjut"}
+                    {isSaving ? "Menyimpan profil…" : reviewing ? "Lanjut" : session.step === 4 ? returningToReview ? "Kembali ke tinjauan" : "Tinjau profil" : "Lanjut"}
                     <ArrowRight aria-hidden="true" className="size-4" />
                 </button>
             </footer>
         </form>
-    </dialog>;
+    </dialog>
+    {confirming && reviewedProfile && <ProfileConfirmDialog profile={reviewedProfile} preview={preview} saving={isSaving} error={saveError}
+        onBack={() => setConfirming(false)} onConfirm={() => void save()} />}
+    </>;
 }

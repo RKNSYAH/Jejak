@@ -2,7 +2,7 @@ import { useState } from "react";
 import { onboardingTaxonomy } from "@/app/engine/extractUserProfile";
 import { SENSITIVE_TEXT } from "@/app/engine/lib/relocationProfileInterpretationValidation";
 import { relocationGoalLabels } from "@/app/engine/lib/relocationGoal";
-import { departureLabels, housingLabels, overBudgetLabels, transportModeLabels } from "@/app/engine/onboarding/demoData";
+import { departureLabels, housingLabels, transportModeLabels } from "@/app/engine/onboarding/demoData";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import { MoneyField } from "./FormControls";
 
@@ -10,7 +10,7 @@ import { MoneyField } from "./FormControls";
 export const editableProfileFields = new Set([
     "goal", "occupation", "target_occupations", "target_fields", "study_field", "education_level", "destination_cities",
     "housing_budget", "monthly_budget", "housing_types", "commute_minutes", "transport_mode", "active_mode",
-    "departure_time", "destination", "over_budget",
+    "departure_time", "destination",
 ]);
 
 type EditorDraft = string | number | string[];
@@ -99,7 +99,6 @@ export default function ProfileFieldEditor({ field, label, value, onSave, onCanc
                     : field === "transport_mode" ? select(Object.entries(transportModeLabels))
                     : field === "active_mode" ? select([["walk", transportModeLabels.walk], ["bicycle", transportModeLabels.bicycle]])
                     : field === "departure_time" ? select(Object.entries(departureLabels))
-                    : field === "over_budget" ? select(Object.entries(overBudgetLabels))
                     : <input id={id} type={field === "commute_minutes" ? "number" : "text"} inputMode={field === "commute_minutes" ? "numeric" : undefined}
                         min={field === "commute_minutes" ? 0 : undefined} max={field === "commute_minutes" ? 240 : undefined} value={typeof draft === "string" || typeof draft === "number" ? draft : ""}
                         onChange={(event) => setDraft(event.target.value)} className="input min-h-11 w-full border-ink/25 bg-base-100 text-base text-ink md:text-sm" />}

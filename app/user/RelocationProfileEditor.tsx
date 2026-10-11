@@ -13,11 +13,11 @@ import { saveRelocationProfile } from "../engine/lib/relocationProfileApi";
 import { useAccountIdentity } from "../engine/lib/useAccountIdentity";
 import { accountFetch } from "../engine/lib/accountIdentity";
 import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../engine/lib/relocationProfile";
-import { departureLabels, formatProfileValue, housingLabels, overBudgetLabels, transportModeLabels } from "../engine/onboarding/demoData";
+import { departureLabels, formatProfileValue, housingLabels, transportModeLabels } from "../engine/onboarding/demoData";
 import { evaluateLiveOnboarding, profilePreviewPreferences } from "../engine/onboarding/livePreview";
 import { useUserProfileStore } from "../stores/userStores";
 import SignOutButton from "./SignOutButton";
-import UserSettings, { type SettingsTab } from "./UserSettings";
+import UserSettings, { clearSavedProfile, ConfirmDelete, type SettingsTab } from "./UserSettings";
 import { cloneProfile, displayedWeights, parseAmount, priorityNames, profileFieldsDiffer, profileStory, summarizeProfileChanges, updatePriority, updateProfileField, type PriorityKey } from "./profileEditorModel";
 import { isRecord } from "../engine/lib/zoneGeometry";
 
@@ -40,7 +40,7 @@ const buttonClass = "btn min-h-11 border-ink/40 bg-base-100 text-ink hover:borde
 const inputIds: Record<string, string> = {
     "Tujuan pindah": "goal", Pekerjaan: "occupation", "Bidang kerja": "sector", "Bidang studi": "study-field",
     Pendidikan: "education-level", "Kota tujuan": "destination-city", "Anggaran bulanan": "monthly-budget",
-    "Batas sewa": "housing-budget", "Batas perjalanan": "commute-minutes", "Di atas anggaran": "over-budget",
+    "Batas sewa": "housing-budget", "Batas perjalanan": "commute-minutes",
     "Tipe hunian": "housing-kos", "Moda transportasi": "transport-mode", "Lokasi tujuan": "destination-name",
     "Waktu berangkat": "departure-time",
 };
@@ -518,6 +518,8 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                     <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">Profil relokasi</p>
                      <h1 className="mt-2 font-sans text-[clamp(2rem,4vw,3rem)] font-bold leading-tight text-ink">Jejakmu bisa berubah</h1>
                      <p className="mt-2 text-sm text-ink-muted">Ubah preferensimu, lalu simpan untuk menghitung ulang kecamatan yang cocok.</p>
+                     <div className="mt-3"><ConfirmDelete label="Hapus dan mulai ulang" title="Hapus profil dan mulai ulang dari awal?" confirmLabel="Hapus dan mulai ulang"
+                         onConfirm={() => clearSavedProfile(identity, "/map?welcome=1")} /></div>
                 </header>
 
                 <div className="mb-6 flex flex-col justify-between gap-2 border-y border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center">
@@ -539,10 +541,9 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                             <ProfileRow label="Kota tujuan" value={afterCityId ? cityName(afterCityId, cityCatalog?.cities ?? []) : citySelected ? `${cityValues.join(", ")} · tersimpan` : "Belum dipilih"} editing={editingField === "city"} onToggle={() => toggleEditing("city")} editor={<select id="destination-city" name="destination_cities" className={selectClass} value={afterCityId ?? citySelected} onChange={(event) => setField("hard_constraints", "destination_cities", event.target.value ? [event.target.value] : [])}><option value="">Belum dipilih</option>{cityIsUnknown && <option value={citySelected}>{citySelected} · tersimpan</option>}{(cityCatalog?.cities ?? []).map((city) => <option key={city.city_id} value={city.city_id}>{city.city_name}</option>)}</select>} />
                         </ProfileSection>
 
-                        <ProfileSection title="Batas keras" note="Toleransi anggaran 10%">
+                        <ProfileSection title="Batas keras">
                             {([ ["monthly_budget", "Anggaran bulanan"], ["housing_budget", "Batas sewa"] ] as const).map(([key, label]) => <ProfileRow key={key} label={label} value={formatProfileValue(key, hard[key])} editing={editingField === key} error={errors[key]} onToggle={() => toggleEditing(key)} editor={<input id={inputIds[label]} name={key} type="number" min="0" max="1000000000" step="1" inputMode="numeric" className={fieldClass} value={valueForAmount(key)} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? errorIdFor(label) : undefined} onChange={(event) => setNumber("hard_constraints", key, event.target.value, 1_000_000_000)} />} />)}
                             <ProfileRow label="Batas perjalanan" value={formatProfileValue("commute_minutes", hard.commute_minutes)} editing={editingField === "commute_minutes"} error={errors.commute_minutes} onToggle={() => toggleEditing("commute_minutes")} editor={<input id="commute-minutes" name="commute_minutes" type="number" min="0" max="240" step="1" inputMode="numeric" className={fieldClass} value={numberValues.commute_minutes ?? String(typeof hard.commute_minutes === "number" ? hard.commute_minutes : "")} aria-invalid={!!errors.commute_minutes} aria-describedby={errors.commute_minutes ? errorIdFor("Batas perjalanan") : undefined} onChange={(event) => setNumber("hard_constraints", "commute_minutes", event.target.value, 240)} />} />
-                            <ProfileRow label="Di atas anggaran" value={formatProfileValue("over_budget", soft.over_budget)} editing={editingField === "over_budget"} onToggle={() => toggleEditing("over_budget")} editor={<select id="over-budget" name="over_budget" className={selectClass} value={typeof soft.over_budget === "string" ? soft.over_budget : "mark"} onChange={(event) => setField("soft_preferences", "over_budget", event.target.value)}>{Object.entries(overBudgetLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>} />
                         </ProfileSection>
 
                         <ProfileSection title="Perjalanan" note="Estimasi rute belum tersedia">

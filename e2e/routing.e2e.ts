@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./fixtures/auth";
-import { stubZones } from "./fixtures/map";
+import { confirmProfile, stubZones } from "./fixtures/map";
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
 import type { RoutingPoint } from "../app/engine/routing/types";
 import { estimatePlanningReach } from "../app/engine/onboarding/planningReach";
@@ -100,7 +100,8 @@ for (const region of Object.keys(metros) as (keyof typeof metros)[]) {
         await page.screenshot({ path: testInfo.outputPath("setup-circles.png") });
         await page.getByRole("button", { name: "Lanjut", exact: true }).click();
         await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
-        await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
+        await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+        await confirmProfile(page);
         await page.getByRole("button", { name: "Jelajahi data peta", exact: true }).click();
         const summary = page.locator('[data-hci-region="map-planning-reach"]');
         await expect(summary).toContainText("Perkiraan jangkauan 5,1–10,2 km");
@@ -171,7 +172,8 @@ test("estimated reach keeps saved map and list selection equivalent", async ({ p
     await expect(page.locator(".onboarding-form-panel")).toContainText("Perkiraan jangkauan");
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
     await page.getByRole("button", { name: "Tinjau profil", exact: true }).click();
-    await page.getByRole("button", { name: "Konfirmasi dan simpan", exact: true }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await confirmProfile(page);
     await expect(page.locator(".onboarding-form-panel")).toHaveCount(0);
     const separator = page.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
     await separator.press("End");

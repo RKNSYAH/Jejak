@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/auth";
-import { stubZones } from "./fixtures/map";
+import { confirmProfile, stubZones } from "./fixtures/map";
 
 test("saving confirmed onboarding replaces the incomplete cache and hides the reminder on refresh", async ({ page }) => {
     const cacheKey = "jejak:relocation-profile:v1:11111111-1111-4111-8111-111111111111";
@@ -29,7 +29,8 @@ test("saving confirmed onboarding replaces the incomplete cache and hides the re
     await page.getByRole("textbox", { name: "Ceritakan rencana pindahmu" }).fill("Saya pindah ke Jakarta untuk bekerja.");
     await page.getByRole("button", { name: "Baca rencanaku" }).click();
     await page.getByRole("button", { name: "Tinjau rencanamu" }).click();
-    await page.getByRole("button", { name: "Selesai, buka peta" }).click();
+    await page.getByRole("button", { name: "Lanjut", exact: true }).click();
+    await confirmProfile(page);
     await expect(page.getByRole("searchbox", { name: "Cari kecamatan" })).toBeVisible();
     await expect(banner).toHaveCount(0);
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).profile, cacheKey)).toEqual(profile);
