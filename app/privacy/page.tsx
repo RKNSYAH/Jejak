@@ -17,8 +17,8 @@ export default function PrivacyPage() {
       </p>
       <p className="mt-3 text-sm leading-relaxed text-ink-muted">
         Untuk pertanyaan terkait privasi, hubungi kami di{" "}
-        <a href="mailto:dukungan@jejak.id" className="font-semibold text-primary underline">
-          dukungan@jejak.id
+        <a href="mailto:dukungan@jejak-id.app" className="font-semibold text-primary underline">
+          dukungan@jejak-id.app
         </a>.
       </p>
     </main>

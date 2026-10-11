@@ -238,7 +238,7 @@ export default function LoginForm({
             {isSignup ? (
               <p>Informasi pribadimu tidak akan dibagikan ke pihak ketiga.</p>
             ) : (
-              <p>Butuh bantuan masuk? <a href="mailto:dukungan@jejak.id" className="font-semibold text-primary underline">Hubungi dukungan</a></p>
+              <p>Butuh bantuan masuk? <a href="mailto:dukungan@jejak-id.app" className="font-semibold text-primary underline">Hubungi dukungan</a></p>
             )}
           </footer>
         </div>
