@@ -6,7 +6,7 @@ import type { PersistedRelocationProfile } from "../lib/relocationProfile";
 import type { CommuteResponse } from "../routing/types";
 import type { ZoneGeometry } from "../types";
 import { previewDestination } from "../routing/sampling";
-import { estimatePlanningReach, planningReachBand, pointDistanceKm } from "./planningReach";
+import { estimatePlanningReach, planningReachBand, planningReachCoverage, pointDistanceKm, reachFit } from "./planningReach";
 import type {
     FormAnswers,
     FormStep,
@@ -24,7 +24,7 @@ export type PreviewInput = {
     areas: OnboardingArea[];
     destinations: OnboardingCampus[];
     commute?: CommuteResponse | null;
-    // Loaded boundaries let a district count as reached when its outline touches the reach circle.
+    // Loaded boundaries quantify how much of each district lies within the estimated reach circle.
     geometry?: ZoneGeometry | null;
 };
 
@@ -179,26 +179,33 @@ export function hasHousingStatistics(item: Pick<LiveDistrictRecommendation, "ren
     return item.rentFact !== null && item.rent !== null && Number.isFinite(item.rent) && item.rent > 0;
 }
 
-const COST_ROUNDING = 500_000;
+export type MonthlyCostEstimate = { average: number; is_sample: boolean };
 
-// `high` is null when no district fits the budget; only the cheapest starting cost is known then.
-export type MonthlyCostRange = { low: number; high: number | null; is_sample: boolean };
-
-// Estimated monthly spending (cheapest requested rent + city living cost) across the districts that fit the
-// user's budget, widened to whole Rp500.000 steps so it reads as an estimate rather than an exact figure.
-// Without a budget every priced district counts.
-export function monthlyCostRange(preview: Pick<LiveOnboardingPreview, "districts">): MonthlyCostRange | null {
-    const priced = preview.districts.filter((item): item is LiveDistrictRecommendation & { monthlyCost: number } => item.monthlyCost !== null);
-    if (!priced.length) return null;
-    const budgeted = priced.some((item) => item.financialEligible !== null);
-    const fitting = budgeted ? priced.filter((item) => item.financialEligible === true) : priced;
-    const counted = fitting.length ? fitting : priced;
-    const costs = counted.map((item) => item.monthlyCost);
+// Average complete rent-plus-living-cost totals across top recommendations; missing totals are omitted.
+export function monthlyCostEstimate(preview: Pick<LiveOnboardingPreview, "districts">): MonthlyCostEstimate | null {
+    const counted = preview.districts.filter((item): item is LiveDistrictRecommendation & { monthlyCost: number } =>
+        isTopRanked(item) && item.monthlyCost !== null);
+    if (!counted.length) return null;
     return {
-        low: Math.floor(Math.min(...costs) / COST_ROUNDING) * COST_ROUNDING,
-        high: fitting.length ? Math.ceil(Math.max(...costs) / COST_ROUNDING) * COST_ROUNDING : null,
+        average: Math.round(counted.reduce((sum, item) => sum + item.monthlyCost, 0) / counted.length),
         is_sample: counted.some(isLiveRecommendationSample),
     };
+}
+
+// Map score bubbles: the top recommendations, then the ranked districts nearest the chosen point (by rank without
+// one), so a metro-wide preview stays readable.
+export function labeledDistrictIds(preview: Pick<LiveOnboardingPreview, "ranked">, count = 10): Set<string> {
+    const top = preview.ranked.filter(isTopRanked).slice(0, TOP_RANK_COUNT);
+    const nearest = preview.ranked.filter((item) => !top.includes(item))
+        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) || a.rank! - b.rank!)
+        .slice(0, count - top.length);
+    return new Set([...top, ...nearest].map((item) => item.district.zone_id));
+}
+
+// Shared by the map fill and its legend so both use the same score scale.
+export function scoreRange(preview: Pick<LiveOnboardingPreview, "ranked">): { low: number; high: number } | null {
+    const scores = preview.ranked.flatMap((item) => item.score === null ? [] : [item.score]);
+    return scores.length ? { low: Math.min(...scores), high: Math.max(...scores) } : null;
 }
 
 function meanSupported(values: Array<number | null>): number | null {
@@ -225,21 +232,6 @@ function educationSignal(area: OnboardingArea, answers: LivePreviewPreferences):
     return area.campuses.length > 0 ? area.campuses.length : null;
 }
 
-function profileDimensionScore(area: OnboardingArea, dimension: keyof ProfilePriorityWeights, housing: Housing[] = ["unsure"]): number | null {
-    if (dimension === "housing") {
-        const rent = rentFacts(area, housing.filter((type): type is Exclude<Housing, "unsure"> => type !== "unsure"))
-            .reduce<number | null>((lowest, fact) =>
-            lowest === null || fact.value < lowest ? fact.value : lowest, null);
-        return rent !== null && rent > 0 ? 1 / rent : null;
-    }
-    if (dimension === "cost_of_living") {
-        const cost = area.living_cost?.value;
-        return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? 1 / cost : null;
-    }
-    if (dimension === "commute") return null; // Stop counts never proxy journey time.
-    return null;
-}
-
 function normalize(values: Array<number | null>, invert = false): Array<number | null> {
     const present = values.filter((value): value is number => value !== null && Number.isFinite(value));
     if (!present.length) return values.map(() => null);
@@ -250,6 +242,20 @@ function normalize(values: Array<number | null>, invert = false): Array<number |
         if (minimum === maximum) return 50;
         const result = (value - minimum) / (maximum - minimum) * 100;
         return Math.round(invert ? 100 - result : result);
+    });
+}
+
+// Scores by the share of rankable districts with a higher value (ties count half), so lower values score higher:
+// pass costs as they are and benefits negated. Under min-max, one extreme or excluded value (a Rp28 jt
+// apartment-only district) would set the scale and squeeze every other district toward 100.
+function rankPercentile(costs: Array<number | null>, rankable: boolean[]): Array<number | null> {
+    const pool = costs.filter((cost, index): cost is number => rankable[index] && cost !== null && Number.isFinite(cost));
+    return costs.map((cost, index) => {
+        if (!rankable[index] || cost === null || !Number.isFinite(cost)) return null;
+        if (pool.length < 2) return 50;
+        const pricier = pool.filter((other) => other > cost).length;
+        const ties = pool.filter((other) => other === cost).length - 1;
+        return Math.round((pricier + ties / 2) / (pool.length - 1) * 100);
     });
 }
 
@@ -303,6 +309,7 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const monthlyCost = rent !== null && area.living_cost ? rent + area.living_cost.value : null;
         const exclusions: string[] = [];
         const unknowns: string[] = [];
+        const warnings: string[] = [];
         const reasons: string[] = [];
         if (answers.goal !== "study") {
             if (answers.occupation || answers.targetOccupations?.length) unknowns.push("Kecocokan pekerjaan belum tersedia");
@@ -320,7 +327,11 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         if (step >= 2) {
             if (answers.maximumRent !== null) {
                 if (rent === null) unknowns.push("Belum ada rata-rata sewa untuk tipe hunian ini");
-                else if (!withinBudget(rent, answers.maximumRent)) exclusions.push("Sewa di atas batasmu");
+                else if (!withinBudget(rent, answers.maximumRent)) {
+                    // A district median above the cap does not prove that no individual listing fits.
+                    warnings.push("Sewa rata-rata di atas batas");
+                    unknowns.push("Ketersediaan sewa di bawah batas belum terverifikasi");
+                }
                 else reasons.push("Sewa dalam batasmu");
             }
             if (answers.monthlyBudget !== null) {
@@ -340,7 +351,9 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const commuteMinutes = commuteEstimate?.minutes?.high ?? null;
         const distanceKm = distanceToDestination(area.center, destination);
         if (step >= 2 && distanceKm !== null) reasons.push(distanceLabel(distanceKm));
-        const reachBand = planningReachBand(area.center, planningReach, boundaries.get(area.zone_id));
+        const areaBoundaries = boundaries.get(area.zone_id) ?? [];
+        const reachCoverage = planningReach ? planningReachCoverage(areaBoundaries, planningReach) : null;
+        const reachBand = planningReachBand(area.center, planningReach, areaBoundaries);
         let commuteUnknown = false;
         if (step >= 3) {
             if (!destination) { unknowns.push("Pilih lokasi tujuan untuk memeriksa perjalanan"); commuteUnknown = true; }
@@ -360,11 +373,14 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const eligible = !constrained ? null : exclusions.length ? false : financialUnknown ||
             (step >= 3 && answers.commuteMinutes !== null && commuteUnknown) ? null : true;
         if (rent !== null && rentFact) reasons.unshift(`Rata-rata sewa Rp${Math.round(rent).toLocaleString("id-ID")} · ${rentFact.source}`);
+        if (typeof area.park_count === "number" && typeof area.public_facility_count === "number") {
+            reasons.push(`${area.park_count} taman · ${area.public_facility_count} fasilitas umum · OpenStreetMap`);
+        }
 
         return {
             district: area, rent, rentFact, monthlyCost, commuteMinutes, commuteEstimate, distanceKm, financialEligible,
-            reachBand, beyondReach: commute === null && reachBand === "outside",
-            eligible, exclusions, unknowns, reasons, score: null, rank: null,
+            reachBand, reachCoverage, beyondReach: commute === null && reachBand === "outside",
+            eligible, exclusions, unknowns, warnings, reasons, score: null, rank: null,
             affordabilityRaw: answers.monthlyBudget !== null ? monthlyCost : rent,
             mobilityRaw: destination ? routeKnown && commuteMinutes !== null ? -commuteMinutes : null :
                 area.transit_stop_count > 0 ? Math.log1p(area.transit_stop_count) : null,
@@ -372,22 +388,34 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         };
     });
 
-    const affordability = normalize(raw.map((item) => item.affordabilityRaw), true);
+    const rankable = raw.map((item) => hasHousingStatistics(item) && item.eligible !== false);
+    const affordability = rankPercentile(raw.map((item) => item.affordabilityRaw), rankable);
+    // ponytail: mapped park and facility points per km² from public_places. Replace with OSM green area and
+    // walking access to parks once the OSM extraction pipeline runs.
+    const perKm2 = (count: number | null | undefined, area: OnboardingArea) => typeof count === "number" && area.area_km2 ? -count / area.area_km2 : null;
+    const parks = rankPercentile(input.areas.map((area) => perKm2(area.park_count, area)), rankable);
+    const facilities = rankPercentile(input.areas.map((area) => perKm2(area.public_facility_count, area)), rankable);
+    const environment = input.areas.map((_, index) => meanSupported([parks[index], facilities[index]]));
     const opportunity = input.areas.map((_, index) => answers.goal === "work" ? career[index] : answers.goal === "study" ? education[index] :
         meanSupported([career[index], education[index]]));
-    // Route times rank when any exist. Otherwise a chosen destination ranks by straight-line distance, so
-    // far-away districts that only pass the rent limit don't read as good fits. Distance never excludes one.
-    const useDistance = destination !== null && !raw.some((item) => item.mobilityRaw !== null);
+    // Prefer observed route times. Without routes, use area coverage when all boundaries exist; otherwise use
+    // the existing center-distance proxy rather than mixing coverage and distance scales.
+    const hasRoute = destination !== null && raw.some((item) => item.mobilityRaw !== null);
+    const useCoverage = destination !== null && !hasRoute && raw.length > 0 && raw.every((item) => item.reachCoverage !== null);
+    const useDistance = destination !== null && !hasRoute && !useCoverage;
     // A distance shared by every district separates nothing, so a lone or equidistant district gets no score from it.
     const distances = raw.map((item) => item.distanceKm === null ? null : -item.distanceKm);
     const nearness = normalize(new Set(distances.filter((value) => value !== null)).size > 1 ? distances : distances.map(() => null));
-    const mobility = useDistance ? nearness : normalize(raw.map((item) => item.mobilityRaw));
+    const coverageScores = raw.map((item) => item.reachCoverage === null ? null : item.reachCoverage * 100);
+    const mobility = useCoverage ? coverageScores : useDistance ? nearness : normalize(raw.map((item) => item.mobilityRaw));
+    // City living costs differ by a few percent; scored on their own they would split cities into 0 vs 100 and
+    // outrank much cheaper rent. Rent and living cost score together as the monthly total.
+    const pricedTotals = raw.some((item) => item.monthlyCost !== null);
     const profileDimensions = answers.priorityWeights ? {
         career,
         education,
-        housing: normalize(input.areas.map((area) => profileDimensionScore(area, "housing", answers.housing))),
-        cost_of_living: normalize(input.areas.map((area) => profileDimensionScore(area, "cost_of_living"))),
-        commute: useDistance ? nearness : normalize(raw.map((item) => item.commuteEstimate?.status === "ok" && commute?.provenance?.freshness !== "stale" &&
+        affordability: rankPercentile(raw.map((item) => pricedTotals ? item.monthlyCost : item.rent), rankable),
+        commute: useCoverage ? coverageScores : useDistance ? nearness : normalize(raw.map((item) => item.commuteEstimate?.status === "ok" && commute?.provenance?.freshness !== "stale" &&
             item.commuteMinutes !== null ? -item.commuteMinutes : null)),
     } : null;
     const weights = answers.weights;
@@ -395,24 +423,26 @@ export function evaluateLiveOnboarding(answers: LivePreviewPreferences, step: Fo
         const dimensions = profileDimensions && answers.priorityWeights ? [
             [answers.priorityWeights.career, profileDimensions.career[index]],
             [answers.priorityWeights.education, profileDimensions.education[index]],
-            [answers.priorityWeights.housing, profileDimensions.housing[index]],
-            [answers.priorityWeights.cost_of_living, profileDimensions.cost_of_living[index]],
+            [answers.priorityWeights.housing + answers.priorityWeights.cost_of_living, profileDimensions.affordability[index]],
             [answers.priorityWeights.commute, profileDimensions.commute[index]],
+            [answers.priorityWeights.environment ?? 0, environment[index]],
         ] as const : [
             [weights.affordability, affordability[index]],
             [weights.opportunity, opportunity[index]],
             // Stop counts describe mapped access only; they are not commute minutes.
             [weights.mobility, mobility[index]],
+            [weights.environment, environment[index]],
         ] as const;
         const supportedWeight = dimensions.reduce((sum, [weight, value]) => sum + (value === null ? 0 : weight), 0);
+        // Without route times the estimated reach scales the whole score; route estimates judge the limit themselves.
+        const fit = planningReach && !hasRoute ? reachFit(item.distanceKm, planningReach) : 1;
         const score = supportedWeight
-            ? Math.round(dimensions.reduce((sum, [weight, value]) => sum + (value === null ? 0 : weight * value), 0) / supportedWeight)
+            ? Math.round(fit * dimensions.reduce((sum, [weight, value]) => sum + (value === null ? 0 : weight * value), 0) / supportedWeight)
             : null;
         return { ...item, score };
     });
 
-    // Changing the commute time or mode moves the reach, so districts outside it drop below the rest. This only
-    // reorders: the reach is an assumption-based estimate, so it never excludes a district or changes a score.
+    // Estimated reach coverage affects mobility scoring only when route evidence is unavailable. Reach never hard-excludes a district.
     const ranked = districts.filter((item) => hasHousingStatistics(item) && item.eligible !== false && item.score !== null)
         .sort((a, b) => Number(a.beyondReach) - Number(b.beyondReach) || (b.score ?? 0) - (a.score ?? 0) || a.district.zone_id.localeCompare(b.district.zone_id));
     ranked.forEach((item, index) => { item.rank = index + 1; });

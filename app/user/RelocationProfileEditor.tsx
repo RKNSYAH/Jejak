@@ -8,17 +8,17 @@ import UserHeader from "../components/UserHeader";
 import { onboardingTaxonomy } from "../engine/extractUserProfile";
 import { getOnboardingData, type OnboardingDataResponse } from "../engine/lib/onboardingApi";
 import { validateRelocationProfileProposal, type RelocationProfileProposal } from "../engine/lib/relocationProfileInterpretationValidation";
-import { isRelocationGoal, relocationGoalLabels } from "../engine/lib/relocationGoal";
+import { relocationGoalLabels } from "../engine/lib/relocationGoal";
 import { saveRelocationProfile } from "../engine/lib/relocationProfileApi";
 import { useAccountIdentity } from "../engine/lib/useAccountIdentity";
 import { accountFetch } from "../engine/lib/accountIdentity";
 import { normalizeRelocationProfileInputs, type PersistedRelocationProfile, type StoredRelocationProfile } from "../engine/lib/relocationProfile";
-import { transportModeLabels } from "../engine/onboarding/demoData";
+import { departureLabels, formatProfileValue, housingLabels, overBudgetLabels, transportModeLabels } from "../engine/onboarding/demoData";
 import { evaluateLiveOnboarding, profilePreviewPreferences } from "../engine/onboarding/livePreview";
 import { useUserProfileStore } from "../stores/userStores";
 import SignOutButton from "./SignOutButton";
 import UserSettings, { type SettingsTab } from "./UserSettings";
-import { cloneProfile, displayedWeights, formatProfileValue, parseAmount, profileFieldsDiffer, profileStory, summarizeProfileChanges, updatePriority, updateProfileField, type PriorityKey } from "./profileEditorModel";
+import { cloneProfile, displayedWeights, parseAmount, priorityNames, profileFieldsDiffer, profileStory, summarizeProfileChanges, updatePriority, updateProfileField, type PriorityKey } from "./profileEditorModel";
 import { isRecord } from "../engine/lib/zoneGeometry";
 
 type Props = {
@@ -31,14 +31,6 @@ type Props = {
 
 type ActiveTab = SettingsTab;
 type ValidationErrors = Record<string, string>;
-
-const priorityNames: Record<PriorityKey, string> = {
-    career: "Karier",
-    education: "Pendidikan",
-    cost: "Biaya hidup",
-    mobility: "Mobilitas",
-    environment: "Lingkungan",
-};
 
 const sectors = onboardingTaxonomy.sectors;
 const occupations = onboardingTaxonomy.occupations;
@@ -81,8 +73,8 @@ function errorIdFor(label: string) {
     return `${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}-error`;
 }
 
-function SummaryReadRow({ label, value }: { label: string; value: unknown }) {
-    return <div className="grid grid-cols-[minmax(8rem,.7fr)_minmax(0,1fr)] gap-3 py-2 text-sm"><dt className="font-semibold text-ink">{label}</dt><dd className="break-words text-ink-muted">{formatProfileValue(value)}</dd></div>;
+function SummaryReadRow({ label, field, value }: { label: string; field: string; value: unknown }) {
+    return <div className="grid grid-cols-[minmax(8rem,.7fr)_minmax(0,1fr)] gap-3 py-2 text-sm"><dt className="font-semibold text-ink">{label}</dt><dd className="break-words text-ink-muted">{formatProfileValue(field, value)}</dd></div>;
 }
 
 function emptyValue(value: unknown): boolean {
@@ -127,8 +119,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
 
     const dirty = !!draft && !!original && (profileFieldsDiffer(draft, original) || story.trim().length > 0 || Object.values(invalidNumericFields).some(Boolean));
     const hasPriorityWeights = !!draft && Object.values(draft.priority_weights).some((weight) => weight > 0);
-    const keepEnvironmentPriority = (original?.priority_weights.environment ?? 0) > 0;
-    const displayed = draft ? displayedWeights(draft, keepEnvironmentPriority) : null;
+    const displayed = draft ? displayedWeights(draft, true) : null;
     const beforeCityId = resolveCityId(original, cityCatalog?.cities ?? []);
     const afterCityId = resolveCityId(draft, cityCatalog?.cities ?? []);
     const beforeData = beforeCityId ? previewByCity[beforeCityId] ?? null : null;
@@ -137,7 +128,7 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
     const afterPreview = getCount(draft, cityCatalog?.cities ?? [], afterData);
     const beforeSample = previewUsesSampleData(original, cityCatalog?.cities ?? [], beforeData);
     const afterSample = previewUsesSampleData(draft, cityCatalog?.cities ?? [], afterData);
-    const changeSummary = summarizeProfileChanges(original, draft, 2, keepEnvironmentPriority);
+    const changeSummary = summarizeProfileChanges(original, draft, 2, true);
     const savedMapHref = `/map?profile=updated&revision=${revision ?? ""}`;
 
     useEffect(() => {
@@ -515,7 +506,6 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
     const destinationValue = soft.destination ?? hard.destination;
     const destinationName = destinationValue && typeof destinationValue === "object" && "name" in destinationValue && typeof destinationValue.name === "string" ? destinationValue.name : "";
     const valueForAmount = (key: "monthly_budget" | "housing_budget") => numberValues[key] ?? String(budgetAmount(hard[key]) ?? "");
-    const selectedHousingLabel = housingTypes.length ? housingTypes.map((type) => ({ kos: "Kos", apartment: "Apartemen", house: "Rumah", unsure: "Belum yakin" } as Record<string, string>)[type] ?? type).join(", ") : "Belum diisi";
     const toggleEditing = (key: string) => setEditingField((current) => current === key ? "" : key);
     const showMissingCity = !citySelected ? "Pilih kota untuk melihat kecamatan." : cityIsUnknown ? "Kota tersimpan belum tersedia untuk hitungan kecamatan." : "";
     const activePreviewError = (beforeCityId && previewErrors[beforeCityId]) || (afterCityId && previewErrors[afterCityId]) || "";
@@ -539,34 +529,34 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                     <fieldset disabled={pending} className="grid gap-x-10 gap-y-8 md:grid-cols-2">
                         <legend className="sr-only">Preferensi profil relokasi</legend>
                         <ProfileSection title="Tujuan">
-                            <ProfileRow label="Tujuan pindah" value={isRelocationGoal(goal) ? relocationGoalLabels[goal] : "Belum ditentukan"} editing={editingField === "goal"} error={attempted ? errors.goal : undefined} onToggle={() => toggleEditing("goal")} editor={<select id="goal" name="goal" className={selectClass} value={typeof goal === "string" ? goal : ""} aria-invalid={attempted && !!errors.goal} aria-describedby={attempted && errors.goal ? errorIdFor("Tujuan pindah") : undefined} onChange={(event) => changeGoal(event.target.value as "work" | "study" | "both")}><option value="">Belum ditentukan</option><option value="work">Kerja</option><option value="study">Kuliah</option><option value="both">Kerja dan kuliah</option></select>} />
-                            {goalHasWork && <ProfileRow label="Pekerjaan" value={typeof soft.occupation === "string" ? soft.occupation : occupations.find(({ id }) => id === selectedOccupation)?.label ?? formatProfileValue(soft.target_occupations)} editing={editingField === "occupation"} onToggle={() => toggleEditing("occupation")} editor={<select id="occupation" name="occupation" className={selectClass} value={selectedOccupation} onChange={(event) => { const item = occupations.find(({ id }) => id === event.target.value); let next = updateProfileField(draft, "soft_preferences", "target_occupations", event.target.value ? [event.target.value] : []); next = updateProfileField(next, "soft_preferences", "occupation", item?.label ?? null); changeDraft(next); }}><option value="">Belum diisi</option>{selectedOccupation && !occupations.some(({ id }) => id === selectedOccupation) && <option value={selectedOccupation}>{selectedOccupation} · tersimpan</option>}{occupations.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>} />}
-                            {goalHasWork && <ProfileRow label="Bidang kerja" value={selectedField ? sectors.find(({ id }) => id === selectedField)?.label ?? selectedField : "Belum diisi"} editing={editingField === "sector"} onToggle={() => toggleEditing("sector")} editor={<select id="sector" name="target_fields" className={selectClass} value={selectedField} onChange={(event) => setField("soft_preferences", "target_fields", event.target.value ? [event.target.value] : [])}><option value="">Belum diisi</option>{selectedField && !sectors.some(({ id }) => id === selectedField) && <option value={selectedField}>{selectedField} ? tersimpan</option>}{sectors.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>} />}
+                            <ProfileRow label="Tujuan pindah" value={formatProfileValue("goal", goal)} editing={editingField === "goal"} error={attempted ? errors.goal : undefined} onToggle={() => toggleEditing("goal")} editor={<select id="goal" name="goal" className={selectClass} value={typeof goal === "string" ? goal : ""} aria-invalid={attempted && !!errors.goal} aria-describedby={attempted && errors.goal ? errorIdFor("Tujuan pindah") : undefined} onChange={(event) => changeGoal(event.target.value as "work" | "study" | "both")}><option value="">Belum ditentukan</option>{Object.entries(relocationGoalLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>} />
+                            {goalHasWork && <ProfileRow label="Pekerjaan" value={typeof soft.occupation === "string" ? soft.occupation : occupations.find(({ id }) => id === selectedOccupation)?.label ?? formatProfileValue("target_occupations", soft.target_occupations)} editing={editingField === "occupation"} onToggle={() => toggleEditing("occupation")} editor={<select id="occupation" name="occupation" className={selectClass} value={selectedOccupation} onChange={(event) => { const item = occupations.find(({ id }) => id === event.target.value); let next = updateProfileField(draft, "soft_preferences", "target_occupations", event.target.value ? [event.target.value] : []); next = updateProfileField(next, "soft_preferences", "occupation", item?.label ?? null); changeDraft(next); }}><option value="">Belum diisi</option>{selectedOccupation && !occupations.some(({ id }) => id === selectedOccupation) && <option value={selectedOccupation}>{selectedOccupation} · tersimpan</option>}{occupations.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>} />}
+                            {goalHasWork && <ProfileRow label="Bidang kerja" value={formatProfileValue("target_fields", selectedField)} editing={editingField === "sector"} onToggle={() => toggleEditing("sector")} editor={<select id="sector" name="target_fields" className={selectClass} value={selectedField} onChange={(event) => setField("soft_preferences", "target_fields", event.target.value ? [event.target.value] : [])}><option value="">Belum diisi</option>{selectedField && !sectors.some(({ id }) => id === selectedField) && <option value={selectedField}>{selectedField} ? tersimpan</option>}{sectors.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>} />}
                             {goalHasStudy && <>
-                                <ProfileRow label="Bidang studi" value={formatProfileValue(soft.study_field)} editing={editingField === "study_field"} onToggle={() => toggleEditing("study_field")} editor={<input id="study-field" name="study_field" className={fieldClass} maxLength={160} value={typeof soft.study_field === "string" ? soft.study_field : ""} onChange={(event) => setField("soft_preferences", "study_field", event.target.value || null)} />} />
-                                <ProfileRow label="Pendidikan" value={formatProfileValue(soft.education_level)} editing={editingField === "education_level"} onToggle={() => toggleEditing("education_level")} editor={<input id="education-level" name="education_level" className={fieldClass} maxLength={100} value={typeof soft.education_level === "string" ? soft.education_level : ""} onChange={(event) => setField("soft_preferences", "education_level", event.target.value || null)} />} />
+                                <ProfileRow label="Bidang studi" value={formatProfileValue("study_field", soft.study_field)} editing={editingField === "study_field"} onToggle={() => toggleEditing("study_field")} editor={<input id="study-field" name="study_field" className={fieldClass} maxLength={160} value={typeof soft.study_field === "string" ? soft.study_field : ""} onChange={(event) => setField("soft_preferences", "study_field", event.target.value || null)} />} />
+                                <ProfileRow label="Pendidikan" value={formatProfileValue("education_level", soft.education_level)} editing={editingField === "education_level"} onToggle={() => toggleEditing("education_level")} editor={<input id="education-level" name="education_level" className={fieldClass} maxLength={100} value={typeof soft.education_level === "string" ? soft.education_level : ""} onChange={(event) => setField("soft_preferences", "education_level", event.target.value || null)} />} />
                             </>}
                             <ProfileRow label="Kota tujuan" value={afterCityId ? cityName(afterCityId, cityCatalog?.cities ?? []) : citySelected ? `${cityValues.join(", ")} · tersimpan` : "Belum dipilih"} editing={editingField === "city"} onToggle={() => toggleEditing("city")} editor={<select id="destination-city" name="destination_cities" className={selectClass} value={afterCityId ?? citySelected} onChange={(event) => setField("hard_constraints", "destination_cities", event.target.value ? [event.target.value] : [])}><option value="">Belum dipilih</option>{cityIsUnknown && <option value={citySelected}>{citySelected} · tersimpan</option>}{(cityCatalog?.cities ?? []).map((city) => <option key={city.city_id} value={city.city_id}>{city.city_name}</option>)}</select>} />
                         </ProfileSection>
 
                         <ProfileSection title="Batas keras" note="Toleransi anggaran 10%">
-                            {([ ["monthly_budget", "Anggaran bulanan"], ["housing_budget", "Batas sewa"] ] as const).map(([key, label]) => <ProfileRow key={key} label={label} value={formatProfileValue(hard[key])} editing={editingField === key} error={errors[key]} onToggle={() => toggleEditing(key)} editor={<input id={inputIds[label]} name={key} type="number" min="0" max="1000000000" step="1" inputMode="numeric" className={fieldClass} value={valueForAmount(key)} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? errorIdFor(label) : undefined} onChange={(event) => setNumber("hard_constraints", key, event.target.value, 1_000_000_000)} />} />)}
-                            <ProfileRow label="Batas perjalanan" value={typeof hard.commute_minutes === "number" ? `${hard.commute_minutes} menit` : "Belum diisi"} editing={editingField === "commute_minutes"} error={errors.commute_minutes} onToggle={() => toggleEditing("commute_minutes")} editor={<input id="commute-minutes" name="commute_minutes" type="number" min="0" max="240" step="1" inputMode="numeric" className={fieldClass} value={numberValues.commute_minutes ?? String(typeof hard.commute_minutes === "number" ? hard.commute_minutes : "")} aria-invalid={!!errors.commute_minutes} aria-describedby={errors.commute_minutes ? errorIdFor("Batas perjalanan") : undefined} onChange={(event) => setNumber("hard_constraints", "commute_minutes", event.target.value, 240)} />} />
-                            <ProfileRow label="Di atas anggaran" value={soft.over_budget === "hide" ? "Sembunyikan" : soft.over_budget === "mark" ? "Tampilkan dan tandai" : "Belum diisi"} editing={editingField === "over_budget"} onToggle={() => toggleEditing("over_budget")} editor={<select id="over-budget" name="over_budget" className={selectClass} value={typeof soft.over_budget === "string" ? soft.over_budget : "mark"} onChange={(event) => setField("soft_preferences", "over_budget", event.target.value)}><option value="mark">Tampilkan dan tandai</option><option value="hide">Sembunyikan</option></select>} />
+                            {([ ["monthly_budget", "Anggaran bulanan"], ["housing_budget", "Batas sewa"] ] as const).map(([key, label]) => <ProfileRow key={key} label={label} value={formatProfileValue(key, hard[key])} editing={editingField === key} error={errors[key]} onToggle={() => toggleEditing(key)} editor={<input id={inputIds[label]} name={key} type="number" min="0" max="1000000000" step="1" inputMode="numeric" className={fieldClass} value={valueForAmount(key)} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? errorIdFor(label) : undefined} onChange={(event) => setNumber("hard_constraints", key, event.target.value, 1_000_000_000)} />} />)}
+                            <ProfileRow label="Batas perjalanan" value={formatProfileValue("commute_minutes", hard.commute_minutes)} editing={editingField === "commute_minutes"} error={errors.commute_minutes} onToggle={() => toggleEditing("commute_minutes")} editor={<input id="commute-minutes" name="commute_minutes" type="number" min="0" max="240" step="1" inputMode="numeric" className={fieldClass} value={numberValues.commute_minutes ?? String(typeof hard.commute_minutes === "number" ? hard.commute_minutes : "")} aria-invalid={!!errors.commute_minutes} aria-describedby={errors.commute_minutes ? errorIdFor("Batas perjalanan") : undefined} onChange={(event) => setNumber("hard_constraints", "commute_minutes", event.target.value, 240)} />} />
+                            <ProfileRow label="Di atas anggaran" value={formatProfileValue("over_budget", soft.over_budget)} editing={editingField === "over_budget"} onToggle={() => toggleEditing("over_budget")} editor={<select id="over-budget" name="over_budget" className={selectClass} value={typeof soft.over_budget === "string" ? soft.over_budget : "mark"} onChange={(event) => setField("soft_preferences", "over_budget", event.target.value)}>{Object.entries(overBudgetLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>} />
                         </ProfileSection>
 
                         <ProfileSection title="Perjalanan" note="Estimasi rute belum tersedia">
-                            <ProfileRow label="Tipe hunian" value={selectedHousingLabel} editing={editingField === "housing_types"} onToggle={() => toggleEditing("housing_types")} editor={<fieldset className="flex flex-wrap gap-x-4 gap-y-1"><legend className="sr-only">Tipe hunian pilihan</legend>{[["kos", "Kos"], ["apartment", "Apartemen"], ["house", "Rumah"], ["unsure", "Belum yakin"]].map(([value, label]) => <label key={value} className="inline-flex min-h-11 items-center gap-2 text-sm"><input id={value === "kos" ? "housing-kos" : undefined} type="checkbox" name="housing_types" value={value} className="checkbox checkbox-primary" checked={housingTypes.includes(value)} onChange={(event) => toggleHousing(value, event.target.checked)} />{label}</label>)}</fieldset>} />
+                            <ProfileRow label="Tipe hunian" value={formatProfileValue("housing_types", housingTypes)} editing={editingField === "housing_types"} onToggle={() => toggleEditing("housing_types")} editor={<fieldset className="flex flex-wrap gap-x-4 gap-y-1"><legend className="sr-only">Tipe hunian pilihan</legend>{Object.entries(housingLabels).map(([value, label]) => <label key={value} className="inline-flex min-h-11 items-center gap-2 text-sm"><input id={value === "kos" ? "housing-kos" : undefined} type="checkbox" name="housing_types" value={value} className="checkbox checkbox-primary" checked={housingTypes.includes(value)} onChange={(event) => toggleHousing(value, event.target.checked)} />{label}</label>)}</fieldset>} />
                             <ProfileRow label="Moda transportasi" value={transportModeLabels[transportKey] ?? "Belum diisi"} editing={editingField === "transport_mode"} onToggle={() => toggleEditing("transport_mode")} editor={<select id="transport-mode" name="transport_mode" className={selectClass} value={transportKey} onChange={(event) => setTransportMode(event.target.value)}><option value="">Belum diisi</option>{Object.entries(transportModeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>} />
                             <ProfileRow label="Lokasi tujuan" value={destinationName} editing={editingField === "destination"} onToggle={() => toggleEditing("destination")} editor={<div><input id="destination-name" name="destination" className={fieldClass} maxLength={200} value={destinationName} onChange={(event) => editDestinationName(event.target.value)} /><p className="mt-1 text-xs text-ink-muted">Mengubah nama melepas pin tersimpan.</p></div>} />
-                            <ProfileRow label="Waktu berangkat" value={({ morning: "Pagi", midday: "Siang", evening: "Sore atau malam", flexible: "Fleksibel" } as Record<string, string>)[String(soft.departure_time)] ?? "Belum diisi"} editing={editingField === "departure_time"} onToggle={() => toggleEditing("departure_time")} editor={<select id="departure-time" name="departure_time" className={selectClass} value={typeof soft.departure_time === "string" ? soft.departure_time : ""} onChange={(event) => setField("soft_preferences", "departure_time", event.target.value || null)}><option value="">Belum diisi</option><option value="morning">Pagi</option><option value="midday">Siang</option><option value="evening">Sore atau malam</option><option value="flexible">Fleksibel</option></select>} />
+                            <ProfileRow label="Waktu berangkat" value={formatProfileValue("departure_time", soft.departure_time)} editing={editingField === "departure_time"} onToggle={() => toggleEditing("departure_time")} editor={<select id="departure-time" name="departure_time" className={selectClass} value={typeof soft.departure_time === "string" ? soft.departure_time : ""} onChange={(event) => setField("soft_preferences", "departure_time", event.target.value || null)}><option value="">Belum diisi</option>{Object.entries(departureLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>} />
                         </ProfileSection>
 
-                        <ProfileSection title="Prioritas" rows={false} note={keepEnvironmentPriority || (draft.priority_weights.environment ?? 0) > 0 ? "Data lingkungan belum tersedia" : undefined}>
+                        <ProfileSection title="Prioritas" rows={false}>
                             <div className="divide-y divide-rule">
-                                {(Object.keys(priorityNames) as PriorityKey[]).filter((key) => key !== "environment" || keepEnvironmentPriority || (draft.priority_weights.environment ?? 0) > 0).map((key) => <label key={key} htmlFor={`priority-${key}`} className="grid min-h-12 grid-cols-[minmax(6rem,.8fr)_minmax(0,1fr)_3.5rem] items-center gap-3 py-1.5 text-sm">
+                                {(Object.keys(priorityNames) as PriorityKey[]).map((key) => <label key={key} htmlFor={`priority-${key}`} className="grid min-h-12 grid-cols-[minmax(6rem,.8fr)_minmax(0,1fr)_3.5rem] items-center gap-3 py-1.5 text-sm">
                                     <span className="font-semibold text-ink">{priorityNames[key]}</span>
-                                    <input id={`priority-${key}`} name={`priority_${key}`} type="range" min="0" max="100" step="1" className="range range-primary w-full [--range-thumb-size:1.25rem] [--range-p:2px] [--range-fill:0]" value={displayed?.[key] ?? 0} aria-label={priorityNames[key]} aria-valuetext={`${priorityNames[key]} ${displayed?.[key] ?? 0}%`} onChange={(event) => changeDraft(updatePriority(draft, key, Number(event.target.value), keepEnvironmentPriority))} />
+                                    <input id={`priority-${key}`} name={`priority_${key}`} type="range" min="0" max="100" step="1" className="range range-primary w-full [--range-thumb-size:1.25rem] [--range-p:2px] [--range-fill:0]" value={displayed?.[key] ?? 0} aria-label={priorityNames[key]} aria-valuetext={`${priorityNames[key]} ${displayed?.[key] ?? 0}%`} onChange={(event) => changeDraft(updatePriority(draft, key, Number(event.target.value), true))} />
                                     <output htmlFor={`priority-${key}`} className="text-right tabular-nums text-ink">{displayed?.[key] ?? 0}%</output>
                                 </label>)}
                             </div>
@@ -583,11 +573,11 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                 <details className="mt-6 border-t border-rule pt-3">
                     <summary className="min-h-11 cursor-pointer py-2 font-semibold text-ink">Preferensi tersimpan lainnya</summary>
                     <dl className="mt-1 divide-y divide-rule">
-                        <SummaryReadRow label="Tahap karier" value={soft.career_stage} />
-                        <SummaryReadRow label="Pengaturan kerja" value={soft.work_arrangement} />
-                        <SummaryReadRow label="Bahasa pilihan" value={soft.language_preferences} />
-                        <SummaryReadRow label="Batas tambahan" value={hard.deal_breakers} />
-                        <SummaryReadRow label="Faktor tambahan" value={soft.extras} />
+                        <SummaryReadRow label="Tahap karier" field="career_stage" value={soft.career_stage} />
+                        <SummaryReadRow label="Pengaturan kerja" field="work_arrangement" value={soft.work_arrangement} />
+                        <SummaryReadRow label="Bahasa pilihan" field="language_preferences" value={soft.language_preferences} />
+                        <SummaryReadRow label="Batas tambahan" field="deal_breakers" value={hard.deal_breakers} />
+                        <SummaryReadRow label="Faktor tambahan" field="extras" value={soft.extras} />
                     </dl>
                 </details>
 
@@ -656,9 +646,9 @@ export default function RelocationProfileEditor({ userId, email, account, savedP
                 {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
                 <dl className="mt-5 divide-y divide-rule border-y border-rule">
                     {proposal.inferred_fields.map((field) => <div key={field} className="py-3"><dt className="font-semibold text-ink">{fieldLabel(field)}</dt><dd className="mt-1 text-sm text-ink-muted">Disimpulkan dari catatanmu — konfirmasi hanya jika sesuai.</dd></div>)}
-                    {Object.entries(proposal.hard_constraints).filter(([key, value]) => profileFieldsDiffer({ value }, { value: draft?.hard_constraints[key] })).map(([key, value]) => <div key={`hard-${key}`} className="py-3"><dt className="font-semibold">{fieldLabel(key)}</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {formatProfileValue(draft?.hard_constraints[key])} · Usulan: {formatProfileValue(value)}</dd></div>)}
-                    {Object.entries(proposal.soft_preferences).filter(([key, value]) => profileFieldsDiffer({ value }, { value: draft?.soft_preferences[key] })).map(([key, value]) => <div key={`soft-${key}`} className="py-3"><dt className="font-semibold">{fieldLabel(key)}</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {formatProfileValue(draft?.soft_preferences[key])} · Usulan: {formatProfileValue(value)}</dd></div>)}
-                    {profileFieldsDiffer(proposal.priority_weights, draft?.priority_weights ?? {}) && draft && <div className="py-3"><dt className="font-semibold">Prioritas</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {Object.entries(displayedWeights(draft, keepEnvironmentPriority)).map(([key, value]) => `${priorityNames[key as PriorityKey]} ${value}%`).join(" · ")}<br />Usulan: {Object.entries(displayedWeights({ ...draft, priority_weights: proposal.priority_weights }, keepEnvironmentPriority)).map(([key, value]) => `${priorityNames[key as PriorityKey]} ${value}%`).join(" · ")}</dd></div>}
+                    {Object.entries(proposal.hard_constraints).filter(([key, value]) => profileFieldsDiffer({ value }, { value: draft?.hard_constraints[key] })).map(([key, value]) => <div key={`hard-${key}`} className="py-3"><dt className="font-semibold">{fieldLabel(key)}</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {formatProfileValue(key, draft?.hard_constraints[key])} · Usulan: {formatProfileValue(key, value)}</dd></div>)}
+                    {Object.entries(proposal.soft_preferences).filter(([key, value]) => profileFieldsDiffer({ value }, { value: draft?.soft_preferences[key] })).map(([key, value]) => <div key={`soft-${key}`} className="py-3"><dt className="font-semibold">{fieldLabel(key)}</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {formatProfileValue(key, draft?.soft_preferences[key])} · Usulan: {formatProfileValue(key, value)}</dd></div>)}
+                    {profileFieldsDiffer(proposal.priority_weights, draft?.priority_weights ?? {}) && draft && <div className="py-3"><dt className="font-semibold">Prioritas</dt><dd className="mt-1 text-sm text-ink-muted">Draf: {Object.entries(displayedWeights(draft, true)).map(([key, value]) => `${priorityNames[key as PriorityKey]} ${value}%`).join(" · ")}<br />Usulan: {Object.entries(displayedWeights({ ...draft, priority_weights: proposal.priority_weights }, true)).map(([key, value]) => `${priorityNames[key as PriorityKey]} ${value}%`).join(" · ")}</dd></div>}
                 </dl>
                 {proposal.clarification_questions.length > 0 && <fieldset className="mt-5 space-y-4" disabled={pending}>
                     <legend className="font-semibold">Jawab pertanyaan lanjutan sebelum menyimpan</legend>

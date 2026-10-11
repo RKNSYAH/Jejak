@@ -21,11 +21,11 @@ const stepNumbers: FormStep[] = [1, 2, 3, 4];
 const titles = ["Apa yang membawamu pindah?", "Berapa batas yang realistis?", "Seberapa jauh perjalanan yang nyaman?", "Apa yang paling penting untukmu?"];
 const descriptions = ["", "Peta memakai data sewa dan biaya yang tersedia.", "Pilih tujuan; perjalanan baru dinilai jika data rute tersedia.", "Bobot merangkum dimensi yang memiliki bukti. Data kosong tidak dianggap nol."];
 
-export default function RelocationFormOnboarding({ session, onChange, onStepChange, onDismiss, onStory, onFinish, storageAvailable, preview,
+export default function RelocationFormOnboarding({ session, onChange, onStepChange, onDismiss, onRestart, onStory, onFinish, storageAvailable, preview,
     previewLoading, previewError, onRetryPreview, onMapPick, pickingDestination, selectedDistrictId, onSelectDistrict,
     commuteLoading, commuteError, onRetryCommute }: {
     session: FormSession; onChange: (patch: Partial<FormAnswers>) => void; onStepChange: (step: FormStep) => void;
-    onDismiss: () => void; onStory: () => void; onFinish: () => Promise<void>; storageAvailable: boolean;
+     onDismiss: () => void; onRestart: () => void; onStory: () => void; onFinish: () => Promise<void>; storageAvailable: boolean;
     preview: LiveOnboardingPreview; previewLoading: boolean; previewError: string | null; onRetryPreview: () => void;
     onMapPick: () => void; pickingDestination: boolean;
     selectedDistrictId: string | null; onSelectDistrict: (id: string) => void;
@@ -138,14 +138,19 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
             className="flex h-11 w-full shrink-0 cursor-ns-resize touch-none items-center justify-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary md:hidden">
             <span aria-hidden="true" className="h-1 w-9 rounded-full bg-ink/20" />
         </button>
-        <header className="flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-1 md:px-6 md:pt-5">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-5 pb-3 pt-1 md:px-6 md:pt-5">
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs font-semibold">
                 <span aria-live="polite">{reviewing ? "Tinjau profilmu" : `Langkah ${session.step} dari 4 · ${steps[session.step - 1]}`}</span>
                 <ol aria-label="Progres formulir" className="flex w-28 gap-1">
                     {steps.map((step, index) => <li key={step} aria-current={index + 1 === session.step ? "step" : undefined} className={`h-1 flex-1 rounded-full ${index < session.step ? "bg-primary" : "bg-ink/15"}`}><span className="sr-only">{step}</span></li>)}
                 </ol>
             </div>
-            <button type="button" disabled={isSaving} onClick={onDismiss} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-ink">Lewati <X aria-hidden="true" className="hidden size-3.5 md:block" /></button>
+            <div className="flex items-center gap-1">
+                <button type="button" disabled={isSaving} onClick={() => {
+                    if (window.confirm("Hapus draf formulir dan mulai ulang?")) onRestart();
+                }} className="btn btn-ghost min-h-11 shrink-0 px-1 text-xs text-ink">Mulai ulang</button>
+                <button type="button" disabled={isSaving} onClick={onDismiss} className="btn btn-ghost min-h-11 shrink-0 gap-1 px-1 text-xs text-ink">Lanjut nanti <X aria-hidden="true" className="hidden size-3.5 md:block" /></button>
+            </div>
         </header>
         <form noValidate aria-busy={isSaving} className={`flex min-h-0 flex-1 flex-col ${collapsed ? "invisible" : ""}`} onSubmit={(event) => { event.preventDefault(); void next(); }}>
             <div ref={contentRef} className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-7 pt-3 md:px-6 md:pt-4">

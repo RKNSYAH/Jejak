@@ -20,6 +20,15 @@ test('migration chain and database contracts', async (t) => {
   });
   if (!migrated) return;
 
+  await t.test('onboarding drafts are RLS-protected and backend-only', async () => {
+    const access = await one(`select c.relrowsecurity as rls,
+      has_table_privilege('authenticated', 'public.onboarding_drafts', 'select') as user_can_read,
+      has_table_privilege('service_role', 'public.onboarding_drafts', 'select') as backend_can_read
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'onboarding_drafts'`);
+    assert.deepEqual(access, { rls: true, user_can_read: false, backend_can_read: true });
+  });
+
   await t.test('all workbook headers exist on their matching Supabase tables', async () => {
     const workbookColumns = {
       regions: ['region_code', 'region_name', 'region_type', 'parent_region_code', 'kemendagri_code', 'bps_code', 'source_name', 'source_updated_at', 'is_supported'],
@@ -196,6 +205,32 @@ test('migration chain and database contracts', async (t) => {
       assert.equal(Number(tebet.average_monthly_wage_idr), 4000000, 'returned wage field remains district-local');
       assert.equal(Number(tebet.median_monthly_rent_idr), 2000000, 'rent remains district-local');
       assert.equal(Number(tebet.wage_to_rent_ratio), 4, 'ratio uses parent city wage / district rent');
+    });
+  });
+
+  await t.test('onboarding preview counts parks and public facilities from child neighborhoods', async () => {
+    await asRole('service_role', async () => {
+      await db.exec(`insert into public.regions (region_code, region_name, region_type, source_name, is_supported)
+        values ('env-jakarta-selatan', 'Jakarta Selatan', 'city', 'BPS', true)`);
+      await db.exec(`insert into public.regions (region_code, region_name, parent_region_code, region_type, source_name, is_supported)
+        values ('env-tebet', 'Tebet', 'env-jakarta-selatan', 'district', 'BPS', true),
+          ('env-tebet-manggarai', 'Manggarai', 'env-tebet', 'neighborhood', 'BPS', true)`);
+      await db.query(`select public.store_region_boundary('env-tebet', $1::jsonb)`, [JSON.stringify({ type: 'MultiPolygon',
+        coordinates: [[[[106.84, -6.23], [106.849, -6.23], [106.849, -6.221], [106.84, -6.221], [106.84, -6.23]]]] })]);
+      await db.exec(`insert into public.public_places (region_code, place_name, category, osm_type, osm_id, osm_tags, latitude, longitude, source_name)
+        values ('env-tebet-manggarai', 'Taman', 'public_facility', 'way', 91, '{"leisure":"park"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet-manggarai', 'Perpustakaan', 'public_facility', 'node', 92, '{"amenity":"library"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet', 'RS', 'hospital', 'node', 93, '{"amenity":"hospital"}', -6.225, 106.845, 'OpenStreetMap'),
+          ('env-tebet', 'Halte', 'transit_stop', 'node', 94, '{}', -6.225, 106.845, 'OpenStreetMap')`);
+    });
+
+    await asRole('authenticated', async () => {
+      const tebet = await one(`select * from public.get_onboarding_city_preview('env-jakarta-selatan', false)`);
+      assert.equal(tebet.region_code, 'env-tebet');
+      assert.equal(tebet.park_count, 1);
+      assert.equal(tebet.public_facility_count, 2);
+      assert.equal(tebet.transit_stop_count, 1);
+      assert.ok(tebet.area_km2 > 0.9 && tebet.area_km2 < 1.1, `about 1 km², got ${tebet.area_km2}`);
     });
   });
 

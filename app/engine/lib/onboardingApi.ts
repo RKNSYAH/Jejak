@@ -24,12 +24,18 @@ function isCampus(value: unknown): value is OnboardingCampus {
         typeof value.source === "string" && isNullableString(value.source_url) && typeof value.is_sample === "boolean";
 }
 
+function isOptionalCount(value: unknown): boolean {
+    return value === undefined || value === null || (Number.isInteger(value) && Number(value) >= 0);
+}
+
 function isArea(value: unknown): value is OnboardingArea {
     return isRecord(value) && typeof value.zone_id === "string" && typeof value.zone_name === "string" &&
         typeof value.city_id === "string" && typeof value.city_name === "string" && typeof value.is_sample === "boolean" &&
         (value.center === null || isCentroid(value.center)) && Array.isArray(value.facts) && value.facts.every(isFact) &&
         Array.isArray(value.campuses) && value.campuses.every(isCampus) &&
         Number.isInteger(value.transit_stop_count) && Number(value.transit_stop_count) >= 0 &&
+        isOptionalCount(value.park_count) && isOptionalCount(value.public_facility_count) &&
+        (value.area_km2 === undefined || value.area_km2 === null || (typeof value.area_km2 === "number" && Number.isFinite(value.area_km2) && value.area_km2 > 0)) &&
         (value.living_cost === null || (isRecord(value.living_cost) && typeof value.living_cost.value === "number" &&
             Number.isFinite(value.living_cost.value) && typeof value.living_cost.source === "string" &&
             isNullableString(value.living_cost.source_url) && isNullableString(value.living_cost.limitations) &&

@@ -98,7 +98,7 @@ test("saved over-budget preference survives profile preview conversion", () => {
     assert.equal(preferences?.overBudget, "hide");
 });
 
-test("an explicit zero rent limit remains a constraint, not missing data", () => {
+test("a median above an explicit zero rent limit is unverified, not a proven exclusion", () => {
     const saved = profile({ housing: 1 });
     saved.hard_constraints.housing_budget = { amount: 0, currency: "IDR", period: "month" };
     const preferences = profilePreviewPreferences(saved, [city]);
@@ -108,8 +108,9 @@ test("an explicit zero rent limit remains a constraint, not missing data", () =>
     district.facts.push({ metric: "median_monthly_rent_idr", value: 1_000_000, unit: "IDR", source: "Housing survey",
         period_end: null, evidence_type: "derived", limitations: null, is_sample: false });
     const preview = evaluateLiveOnboarding(preferences, 4, { ...input, areas: [district] });
-    assert.equal(preview.districts[0].eligible, false);
-    assert.equal(preview.ranked.length, 0);
+    assert.equal(preview.districts[0].eligible, null);
+    assert.match(preview.districts[0].unknowns.join(" "), /Ketersediaan sewa di bawah batas belum terverifikasi/);
+    assert.equal(preview.ranked.length, 1);
 });
 
 test("legacy soft city targets resolve when a hard target is absent", () => {

@@ -46,6 +46,7 @@ export type FormSession = {
     status: "active" | "paused" | "skipped" | "completed";
     step: FormStep;
     answers: FormAnswers;
+    baseRevision?: number | null;
 };
 export type DemoDestination = {
     id: string;
@@ -81,6 +82,10 @@ export type OnboardingArea = {
     facts: RegionFact[];
     campuses: OnboardingCampus[];
     transit_stop_count: number;
+    // Mapped parks and public facilities rolled up per kecamatan; absent before the counts migration is applied.
+    area_km2?: number | null;
+    park_count?: number | null;
+    public_facility_count?: number | null;
     living_cost: {
         value: number;
         source: string;
@@ -99,6 +104,7 @@ export type LiveDistrictRecommendation = {
     commuteEstimate: CommuteEstimate | null;
     // Straight-line km from the district point to the destination. Ranks only; it is not a journey time.
     distanceKm: number | null;
+    reachCoverage: number | null;
     financialEligible: boolean | null;
     reachBand: PlanningReachBand;
     // Outside the estimated reach with no route evidence to say otherwise: ranks after the rest, never excluded.
@@ -106,6 +112,7 @@ export type LiveDistrictRecommendation = {
     eligible: boolean | null;
     exclusions: string[];
     unknowns: string[];
+    warnings: string[];
     reasons: string[];
     score: number | null;
     rank: number | null;
@@ -173,3 +180,5 @@ export type OnboardingDraft = {
     screen: StoryStep | "review"
     payload: FormAnswers | StoryStep;
 }
+
+export type OnboardingDraftKind = "form" | "story";

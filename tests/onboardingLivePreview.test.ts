@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { evaluateLiveOnboarding, isTopRanked, monthlyCostRange, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
+import { evaluateLiveOnboarding, isTopRanked, labeledDistrictIds, monthlyCostEstimate, profilePreviewPreferences } from "../app/engine/onboarding/livePreview";
 import { initialFormAnswers } from "../app/engine/onboarding/demoData";
 import type { LivePreviewPreferences, OnboardingArea, OnboardingCity } from "../app/engine/onboarding/types";
 import type { PersistedRelocationProfile } from "../app/engine/lib/relocationProfile";
@@ -68,7 +68,9 @@ test("live onboarding ranks database evidence and never fabricates a commute dur
     assert.equal(preview.ranked[0]?.financialEligible, true);
     assert.equal(preview.ranked[0]?.commuteMinutes, null);
     assert.ok(preview.ranked[0]?.unknowns.includes("Waktu tempuh belum dinilai"));
-    assert.equal(preview.districts.find((item) => item.district.zone_id === "jakarta-selatan-b")?.eligible, false);
+    assert.equal(preview.districts.find((item) => item.district.zone_id === "jakarta-selatan-b")?.eligible, null);
+    assert.ok(preview.districts.find((item) => item.district.zone_id === "jakarta-selatan-b")?.warnings.includes("Sewa rata-rata di atas batas"));
+    assert.ok(preview.ranked.some((item) => item.district.zone_id === "jakarta-selatan-b"));
 });
 
 test("a missing cost source stays unverified instead of becoming a zero-cost fit", () => {
@@ -98,7 +100,7 @@ test("missing city costs do not score rent as a complete monthly-budget estimate
     assert.equal(preview.ranked.length, 0);
 });
 
-test("unsupported environment weight does not change district ranking", () => {
+test("environment weight without park and facility counts does not change district ranking", () => {
     const rank = (environment: number) => evaluateLiveOnboarding({
         goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
         housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
@@ -108,6 +110,66 @@ test("unsupported environment weight does not change district ranking", () => {
     }, 4, { cities, areas, destinations: [] }).ranked.map(({ district, score }) => [district.zone_id, score]);
 
     assert.deepEqual(rank(0.5), rank(0));
+});
+
+test("environment scores mapped parks and facilities per km², not raw counts", () => {
+    const withPlaces = [
+        { ...areas[0], area_km2: 10, park_count: 10, public_facility_count: 10 },
+        { ...areas[1], area_km2: 2, park_count: 4, public_facility_count: 4 },
+    ] satisfies OnboardingArea[];
+    const preview = evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 0, mobility: 0, environment: 100 },
+        priorityWeights: { career: 0, education: 0, housing: 0, cost_of_living: 0, commute: 0, environment: 1 },
+    }, 4, { cities, areas: withPlaces, destinations: [] });
+
+    // Fewer places overall, but twice as dense.
+    assert.deepEqual(preview.ranked.map(({ district, score }) => [district.zone_id, score]), [["jakarta-selatan-b", 100], ["jakarta-selatan-a", 0]]);
+    assert.ok(preview.ranked[0].reasons.includes("4 taman · 4 fasilitas umum · OpenStreetMap"));
+});
+
+test("a slightly cheaper city living cost does not outrank much cheaper rent", () => {
+    const pricier = { ...areas[1], zone_id: "jakarta-pusat-b", city_id: "jakarta-pusat", city_name: "Kota Administrasi Jakarta Pusat",
+        living_cost: { ...areas[1].living_cost!, value: 2_900_000 } } satisfies OnboardingArea;
+    const preview = evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 100, mobility: 0, environment: 0 },
+        priorityWeights: { career: 0, education: 0, housing: 0.5, cost_of_living: 0.5, commute: 0, environment: 0 },
+    }, 4, { cities, areas: [areas[0], pricier], destinations: [] });
+
+    assert.deepEqual(preview.ranked.map((item) => item.district.zone_id), ["jakarta-selatan-a", "jakarta-pusat-b"]);
+});
+
+test("map bubbles go to the top five, then the nearest other ranked districts", () => {
+    const district = (id: string, rank: number, distanceKm: number | null, beyondReach = false) =>
+        ({ district: { zone_id: id }, rank, distanceKm, beyondReach }) as unknown as Parameters<typeof labeledDistrictIds>[0]["ranked"][number];
+    const ranked = [
+        ...["a", "b", "c", "d", "e"].map((id, index) => district(id, index + 1, 20)),
+        ...Array.from({ length: 10 }, (_, index) => district(`far-${index}`, index + 6, 30 - index)),
+        district("near-beyond", 16, 1, true),
+    ];
+    const ids = [...labeledDistrictIds({ ranked })];
+    assert.deepEqual(ids, ["a", "b", "c", "d", "e", "near-beyond", "far-9", "far-8", "far-7", "far-6"]);
+    assert.deepEqual([...labeledDistrictIds({ ranked: ranked.map((item) => ({ ...item, distanceKm: null })) })].slice(5),
+        ["far-0", "far-1", "far-2", "far-3", "far-4"]);
+});
+
+test("one extreme rent does not push every other district toward 100", () => {
+    const extreme = { ...areas[1], zone_id: "jakarta-selatan-c", facts: [{ ...areas[1].facts[0], value: 28_000_000 }] } satisfies OnboardingArea;
+    const scores = (input: OnboardingArea[]) => evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: 8_000_000, maximumRent: 2_000_000,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: null, commuteMinutes: null, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 100, mobility: 0, environment: 0 },
+        priorityWeights: { career: 0.45, education: 0, housing: 0.36, cost_of_living: 0.14, commute: 0.05, environment: 0 },
+    }, 2, { cities, areas: input, destinations: [] }).districts.slice(0, 2).map((item) => item.score);
+
+    assert.deepEqual(scores([...areas, extreme]), scores(areas));
+    assert.ok(scores(areas)[1]! < 90);
 });
 
 test("a sourced zero company count remains observed evidence rather than missing data", () => {
@@ -203,7 +265,7 @@ test("saved priority weights reorder districts without a destination", () => {
     assert.equal(topFor({ career: 0.2, housing: 1 }), "jakarta-selatan-a");
 });
 
-test("rent and monthly-cost limits are strict", () => {
+test("rent median above limit stays ranked as unverified; total monthly budget remains strict", () => {
     const withRent = (value: number) => ({ ...areas[0], facts: [{ ...areas[0].facts[0], value }] }) satisfies OnboardingArea;
     const evaluate = (rent: number) => evaluateLiveOnboarding({
         goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: 2_000_000,
@@ -217,9 +279,24 @@ test("rent and monthly-cost limits are strict", () => {
 
     for (const rent of [2_000_001, 2_100_000, 2_200_000]) {
         const over = evaluate(rent);
-        assert.equal(over.eligible, false);
-        assert.ok(over.exclusions.includes("Sewa di atas batasmu"));
+        assert.equal(over.eligible, null);
+        assert.equal(over.financialEligible, null);
+        assert.ok(over.warnings.includes("Sewa rata-rata di atas batas"));
+        assert.ok(over.unknowns.includes("Ketersediaan sewa di bawah batas belum terverifikasi"));
+        assert.equal(over.rank, 1);
     }
+
+    const comparison = evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: 2_000_000,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: "transit", commuteMinutes: 45, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 100, mobility: 0, environment: 0 },
+    }, 2, { cities, areas, destinations: [] });
+    const cheaper = comparison.districts.find((item) => item.district.zone_id === "jakarta-selatan-a");
+    const overLimit = comparison.districts.find((item) => item.district.zone_id === "jakarta-selatan-b");
+    assert.ok(cheaper && overLimit && cheaper.score !== null && overLimit.score !== null);
+    assert.ok(overLimit.score < cheaper.score);
+    assert.equal(overLimit?.rank, 2);
 
     const monthlyCostPreview = (budget: number) => evaluateLiveOnboarding({
         goal: "work", cityId: cities[0].city_id, monthlyBudget: budget, maximumRent: null,
@@ -232,21 +309,22 @@ test("rent and monthly-cost limits are strict", () => {
     assert.equal(monthlyCostPreview(4_799_999).eligible, false);
 });
 
-test("monthly cost range covers districts within the budget, widened to whole Rp500.000 steps", () => {
-    const district = (monthlyCost: number | null, eligible: boolean | null, is_sample = false) => ({
-        district: { ...areas[0], is_sample }, rentFact: null, monthlyCost, eligible, financialEligible: eligible,
-    }) as unknown as Parameters<typeof monthlyCostRange>[0]["districts"][number];
+test("monthly cost average uses complete costs from top recommendations, including over-limit medians", () => {
+    const district = (monthlyCost: number | null, eligible: boolean | null, rank: number | null, beyondReach = false, is_sample = false) => ({
+        district: { ...areas[0], is_sample }, rentFact: null, monthlyCost, eligible, financialEligible: eligible, rank, beyondReach,
+    }) as unknown as Parameters<typeof monthlyCostEstimate>[0]["districts"][number];
+    const estimate = (districts: ReturnType<typeof district>[]) => ({ districts }) as Parameters<typeof monthlyCostEstimate>[0];
 
-    // An over-budget 28.5 jt district must not stretch the top of the range.
-    assert.deepEqual(monthlyCostRange({ districts: [district(5_720_000, true), district(6_830_000, true), district(28_400_000, false), district(null, null)] }),
-        { low: 5_500_000, high: 7_000_000, is_sample: false });
-    assert.deepEqual(monthlyCostRange({ districts: [district(6_000_000, true)] }), { low: 6_000_000, high: 6_000_000, is_sample: false });
-    // Nothing fits: only the cheapest starting cost is shown.
-    assert.deepEqual(monthlyCostRange({ districts: [district(9_200_000, false), district(12_000_000, false)] }), { low: 9_000_000, high: null, is_sample: false });
-    // No budget given: every priced district counts.
-    assert.deepEqual(monthlyCostRange({ districts: [district(4_100_000, null), district(8_900_000, null)] }), { low: 4_000_000, high: 9_000_000, is_sample: false });
-    assert.equal(monthlyCostRange({ districts: [district(5_000_000, true, true)] })?.is_sample, true);
-    assert.equal(monthlyCostRange({ districts: [district(null, null)] }), null);
+    // Unranked and beyond-reach districts do not affect the estimate; over-limit rent data still contributes.
+    assert.deepEqual(monthlyCostEstimate(estimate([district(5_720_000, true, 1), district(6_830_000, true, 2),
+        district(28_400_000, null, 3), district(3_000_000, true, 6), district(2_000_000, true, 4, true), district(null, null, 5)])),
+        { average: 13_650_000, is_sample: false });
+    assert.deepEqual(monthlyCostEstimate(estimate([district(6_000_000, true, 1)])), { average: 6_000_000, is_sample: false });
+    assert.deepEqual(monthlyCostEstimate(estimate([district(4_100_000, null, 1), district(8_900_000, null, 2)])),
+        { average: 6_500_000, is_sample: false });
+    assert.equal(monthlyCostEstimate(estimate([district(5_000_000, true, 1, false, true)]))?.is_sample, true);
+    assert.equal(monthlyCostEstimate(estimate([district(5_000_000, true, 1), district(null, null, 2)]))?.average, 5_000_000);
+    assert.equal(monthlyCostEstimate(estimate([district(null, null, 1)])), null);
 });
 
 // Three kecamatan on one line: the nearest to the destination is the priciest, the farthest the cheapest.
@@ -296,7 +374,7 @@ test("a saved profile's commute weight ranks nearer districts first only once a 
     assert.deepEqual(rankOf(nearDestination), ["near", "mid", "far"]);
 });
 
-test("changing the commute time reorders the recommendations without excluding or rescoring districts", () => {
+test("changing the commute time reorders and rescales recommendations without excluding districts", () => {
     const weights = { opportunity: 0, affordability: 80, mobility: 20, environment: 0 };
     const evaluate = (step: 2 | 3, commuteMinutes: number) => evaluateLiveOnboarding(
         { ...spreadPreferences(nearDestination), transport: "car", commuteMinutes, weights }, step, { cities, areas: spread, destinations: [] });
@@ -305,14 +383,17 @@ test("changing the commute time reorders the recommendations without excluding o
     // Cost dominates, so with no reach applied (step 2) the cheapest, farthest district leads.
     assert.deepEqual(order(evaluate(2, 60)), ["far", "mid", "near"]);
 
-    // 60 min by car still reaches "mid" (edge) but not "far"; 15 min reaches only "near".
+    // 60 min by car still reaches "mid" (edge) but not "far"; 15 min reaches only "near". In the tight reach the
+    // cheapest district is too far to outrank a nearer one.
     const wide = evaluate(3, 60), tight = evaluate(3, 15);
     assert.deepEqual(order(wide), ["mid", "near", "far"]);
-    assert.deepEqual(order(tight), ["near", "far", "mid"]);
+    assert.deepEqual(order(tight), ["near", "mid", "far"]);
     assert.deepEqual(wide.ranked.filter(isTopRanked).map((item) => item.district.zone_id), ["mid", "near"]);
     assert.deepEqual(tight.ranked.filter(isTopRanked).map((item) => item.district.zone_id), ["near"]);
 
-    // The reach is an estimate: it never excludes a district and never changes a score.
-    assert.deepEqual(tight.districts.map((item) => item.score), wide.districts.map((item) => item.score));
+    // The reach never excludes a district; a far one regains score as the reach widens.
+    const score = (preview: ReturnType<typeof evaluate>, id: string) => preview.districts.find((item) => item.district.zone_id === id)!.score!;
+    assert.equal(score(tight, "near"), score(wide, "near"));
+    assert.ok(score(tight, "far") < score(wide, "far"));
     assert.ok([...wide.districts, ...tight.districts].every((item) => item.eligible === null && item.commuteMinutes === null));
 });

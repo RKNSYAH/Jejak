@@ -6,11 +6,14 @@ import { displayStep, followSuggestedWeights, parseFormSession } from "@/app/eng
 import { evaluateLiveOnboarding, formPreviewPreferences } from "@/app/engine/onboarding/livePreview";
 import { getOnboardingData, type OnboardingDataResponse } from "@/app/engine/lib/onboardingApi";
 import { type FormAnswers, type FormSession, type FormStep, type LiveOnboardingPreview } from "@/app/engine/onboarding/types";
-import { readOnboardingDraft, writeOnboardingDraft } from "@/app/engine/onboarding/draftStorage";
+import { clearOnboardingDraft, readOnboardingDraftRecord, writeOnboardingDraft } from "@/app/engine/onboarding/draftStorage";
+import { fetchOnboardingDraft, persistOnboardingDraft } from "@/app/engine/onboarding/draftApi";
+import type { AccountScope } from "@/app/engine/lib/accountIdentity";
 
 const emptyData: OnboardingDataResponse = { cities: [], areas: [], destinations: [] };
 
-export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
+export function useFormOnboarding(account: AccountScope, profileLoaded = true, hasSavedProfile = false, baseRevision: number | null = null) {
+    const userId = account.userId;
     const [session, setSession] = useState<FormSession | null>(null);
     const [ready, setReady] = useState(false);
     const [storyOpenRequest, setStoryOpenRequest] = useState(0);
@@ -24,23 +27,38 @@ export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
     const [previewCityOverride, setPreviewCityOverride] = useState<string | null | undefined>(undefined);
 
     useEffect(() => {
+        if (ready || !profileLoaded) return;
+        const demoRequested = new URLSearchParams(window.location.search).get("onboarding") === "demo";
         const timer = window.setTimeout(() => {
-            try {
-                const saved = readOnboardingDraft(userId, "form");
-                // Keep owned unfinished inputs, but don't replace a newly saved profile.
-                const parsed = skipRestoredDraft ? null : parseFormSession(saved);
-                setSession(parsed ? { ...parsed, answers: { ...parsed.answers, experience: null, extras: [] } } : null);
-            } catch { if (!skipRestoredDraft) setStorageAvailable(false); }
-            setReady(true);
+            void (async () => {
+                let local: ReturnType<typeof readOnboardingDraftRecord> = null;
+                try { local = readOnboardingDraftRecord(userId, "form"); }
+                catch { setStorageAvailable(false); }
+                let remote = null;
+                try { remote = await fetchOnboardingDraft(account, "form"); }
+                catch { /* Keep the browser copy when the account draft service is unavailable. */ }
+                const saved = remote && (!local?.updatedAt || Date.parse(remote.updatedAt) > Date.parse(local.updatedAt))
+                    ? remote.draft : local?.draft;
+                const parsed = parseFormSession(saved);
+                setSession(parsed ? {
+                    ...parsed,
+                    status: hasSavedProfile && !demoRequested && parsed.status === "active" ? "paused" : parsed.status,
+                    baseRevision: parsed.baseRevision ?? null,
+                    answers: { ...parsed.answers, experience: null, extras: [] },
+                } : null);
+                setReady(true);
+            })();
         }, 0);
         return () => window.clearTimeout(timer);
-    }, [skipRestoredDraft, userId]);
+    }, [account, hasSavedProfile, profileLoaded, ready, userId]);
 
     useEffect(() => {
         if (!ready || !session) return;
         try { writeOnboardingDraft(userId, "form", session); }
         catch { /* The form remains usable when browser storage is unavailable. */ }
-    }, [ready, session, userId]);
+        const timer = window.setTimeout(() => { void persistOnboardingDraft(account, "form", session).catch(() => undefined); }, 300);
+        return () => window.clearTimeout(timer);
+    }, [account, ready, session, userId]);
 
     const cityId = previewCityOverride !== undefined
         ? previewCityOverride
@@ -75,8 +93,8 @@ export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
         setPreviewCityOverride(undefined);
         setSession((current) => current
             ? { ...current, status: "active" }
-            : { version: 1, status: "active", step: 1, answers: structuredClone(initialFormAnswers) });
-    }, []);
+            : { version: 1, status: "active", step: 1, answers: structuredClone(initialFormAnswers), baseRevision });
+    }, [baseRevision]);
     const update = useCallback((patch: Partial<FormAnswers>) => {
         if (patch.goal !== undefined || patch.city !== undefined) setPickingDestination(false);
         setSession((current) => {
@@ -103,6 +121,10 @@ export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
     const goToStep = useCallback((step: FormStep) => setSession((current) => current ? { ...current, step } : null), []);
     const finish = useCallback(() => setSession((current) => current ? { ...current, status: "completed", step: 4 } : null), []);
     const dismiss = useCallback(() => setSession((current) => current ? { ...current, status: "skipped" } : null), []);
+    const restart = useCallback(() => {
+        clearOnboardingDraft(userId, "form");
+        setSession({ version: 1, status: "active", step: 1, answers: structuredClone(initialFormAnswers), baseRevision });
+    }, [baseRevision, userId]);
     const returnToStory = useCallback(() => {
         setSession((current) => current ? { ...current, status: "paused" } : null);
         setStoryOpenRequest((current) => current + 1);
@@ -116,5 +138,5 @@ export function useFormOnboarding(userId: string, skipRestoredDraft = false) {
     const selectPreviewCity = useCallback((cityId: string | null | undefined) => setPreviewCityOverride(cityId), []);
     return { session, ready, active, previewVisible, preview, data: visibleData, storageAvailable, storyOpenRequest,
         dataLoading, dataError, retryData, selectPreviewCity, pickingDestination, startPickingDestination, setDestinationPoint,
-        open, update, goToStep, finish, dismiss, returnToStory };
+        open, update, goToStep, finish, dismiss, restart, returnToStory };
 }

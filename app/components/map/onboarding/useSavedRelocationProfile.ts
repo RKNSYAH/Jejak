@@ -57,5 +57,5 @@ export function useSavedRelocationProfile(account: AccountScope, initialProfile?
         };
     }, [account, initialProfile, setSavedProfile, userId]);
 
-    return { savedProfile, loaded, settled: loaded || failedUserId === userId, setSavedProfile };
+    return { savedProfile, loaded, failed: !loaded && failedUserId === userId, settled: loaded || failedUserId === userId, setSavedProfile };
 }

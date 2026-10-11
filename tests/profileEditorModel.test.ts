@@ -50,7 +50,7 @@ test("profile field diff ignores object key order but finds real value changes",
     after.hard_constraints.monthly_budget = { amount: 5_000_000, currency: "IDR", period: "month" };
     const summary = summarizeProfileChanges(before, after);
     assert.equal(summary.count, 1);
-    assert.deepEqual(summary.details[0], { key: "Anggaran", before: "Rp4.000.000 / bulan", after: "Rp5.000.000 / bulan" });
+    assert.deepEqual(summary.details[0], { key: "Anggaran", before: "Rp4.000.000 per bulan", after: "Rp5.000.000 per bulan" });
 });
 
 test("numeric budget parser accepts nullable whole rupiah amounts within configured limits", () => {

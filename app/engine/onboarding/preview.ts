@@ -1,5 +1,5 @@
 import { demoDestinations, initialFormAnswers } from "./demoData";
-import type { FormAnswers, FormSession, FormStep, Housing, Priority, Weights } from "./types";
+import type { FormAnswers, FormSession, FormStep, Housing, LiveOnboardingPreview, Priority, Weights } from "./types";
 import { isCentroid, isRegionCode } from "../lib/zoneGeometry";
 
 export const priorityKeys: Priority[] = ["opportunity", "affordability", "mobility", "environment"];
@@ -18,6 +18,23 @@ export function redistributeWeights(weights: Weights, key: Priority, value: numb
     shares.sort((a, b) => (b.value % 1) - (a.value % 1));
     for (let index = 0; index < missing; index++) result[shares[index].key]++;
     return result;
+}
+
+export function getSavedResults(preview: LiveOnboardingPreview | null, loading: boolean, error: string | null): string | null {
+    if (loading) return "Memuat data kecamatan…";
+    if (error !== null) return error || "Data kecamatan belum dapat dimuat.";
+    if (!preview) return "Hasil profilmu belum tersedia.";
+    if (!preview.city) return "Pilih kota dari daftar untuk melihat kecamatannya, atau tetapkan kota di preferensi profil.";
+    if (!preview.available) return "Data kecamatan untuk kota ini belum tersedia.";
+    if (!preview.ranked.length) {
+        const exclusions = [...new Set(preview.districts.flatMap((item) => item.exclusions))];
+        if (exclusions.length) return `Batasmu menyisihkan hasil: ${exclusions.slice(0, 2).join("; ")}. Ubah preferensi untuk meninjau batas.`;
+        const unknowns = [...new Set(preview.districts.flatMap((item) => item.unknowns))];
+        return unknowns.length
+            ? `Belum ada hasil yang bisa dirangking. Belum dinilai: ${unknowns.slice(0, 2).join("; ")}.`
+            : "Belum ada kecamatan yang dapat dirangking dengan data tersedia.";
+    }
+    return null;
 }
 
 // Priorities suggested by steps 1-3. Neutral answers (the form defaults) give 40/30/20/10; a hard
@@ -103,5 +120,8 @@ export function parseFormSession(value: unknown): FormSession | null {
         priorityKeys.reduce((sum, key) => sum + a.weights[key], 0) !== 100) return null;
     if (session.status === "completed" && [1, 2, 3, 4].some((step) => Object.keys(validateFormStep(a, step as FormStep)).length)) return null;
     const answers = { ...initialFormAnswers, ...a, experience: a.experience ?? null, extras: [...extras], weights: { ...a.weights } };
-    return { version: 1, status: session.status, step: session.step, answers };
+    return {
+        version: 1, status: session.status, step: session.step, answers,
+        baseRevision: Number.isSafeInteger(session.baseRevision) && Number(session.baseRevision) > 0 ? Number(session.baseRevision) : null,
+    };
 }
