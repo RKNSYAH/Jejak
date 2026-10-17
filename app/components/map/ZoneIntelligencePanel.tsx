@@ -210,7 +210,6 @@ function PanelContent({ zoneName, cityName, details, category, recommendation, d
               return <div key={metric} className="card border border-rule p-4 shadow-sm">
                 <dt className="text-sm text-ink-muted">{metricLabels[metric] ?? metric}</dt>
                 <dd className="font-sans text-xl font-semibold tabular-nums text-ink">{fact ? formatFactValue(fact) : loading ? "Memuat…" : "Belum tersedia"}</dd>
-                {fact && <dd className="mt-1 text-xs text-ink-muted">{fact.is_sample ? "Data contoh · " : ""}{fact.period_end ?? "Periode belum tersedia"}</dd>}
                 {fact?.source_url && <dd className="mt-1 text-xs text-ink-muted">
                   <a className="link link-hover" href={fact.source_url} target="_blank" rel="noreferrer">{shortSourceLabel(fact)}</a>
                 </dd>}

@@ -12,7 +12,7 @@ export default async function Header({ activeHref = "/", overlay = false }: { ac
   ];
 
   return (
-    <header className={`navbar top-0 z-50 gap-x-4 px-4 font-body sm:gap-x-6 md:px-6 ${overlay ? "absolute inset-x-0 mx-auto max-w-[1200px] text-on-ink sm:px-8 lg:px-6" : "sticky border-b border-rule bg-base-100"}`}>
+    <header className={`navbar top-0 z-50 gap-x-4 px-4 font-body sm:gap-x-6 md:px-6 ${overlay ? "absolute inset-x-0 mx-auto max-w-[1440px] text-on-ink sm:px-8 lg:px-6" : "sticky border-b border-rule bg-base-100"}`}>
       <BrandLogo border={false} inverse={overlay} />
       <nav aria-label="Navigasi utama" className="hidden min-w-0 md:block">
         <ul className="flex items-center gap-6 text-sm">
