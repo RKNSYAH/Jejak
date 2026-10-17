@@ -27,7 +27,10 @@ test("info bar is a single compact pill across steps", async ({ page }, testInfo
     for (let step = 1; step <= 4; step++) {
         if (step > 1) await page.getByRole("button", { name: "Lanjut", exact: true }).click();
         await expect(page.locator(".onboarding-form-panel")).toContainText(`Langkah ${step} dari 4`);
-        if (step === 2) await expect(preview).toContainText(/\d+\/\d+ kecamatan dalam batas sewa/);
+        if (step === 2) {
+            await expect(preview).toContainText(/\d+\/\d+ kecamatan dalam batas sewa/);
+            await expect(page.getByText("Jika kecamatan melewati batas", { exact: true })).toHaveCount(0);
+        }
         const bounds = await preview.boundingBox();
         expect(bounds).not.toBeNull();
         expect(bounds!.height).toBeLessThanOrEqual(72);
@@ -192,27 +195,20 @@ test("form review edits return to the matching step and back without saving", as
     expect(profileSaves).toBe(0);
 });
 
-test("costs stay outside the collapsed list and removed optional questions are absent", async ({ page }) => {
+test("monthly cost estimate appears on the last step and optional questions stay absent", async ({ page }) => {
     await startForm(page);
     await expect(page.getByRole("group", { name: "Pengalaman kerja" })).toHaveCount(0);
     await expect(page.locator('[name="experience"]')).toHaveCount(0);
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
-    const costs = page.locator('[data-hci-region="onboarding-cost-estimate"]');
-    await expect(costs.getByRole("heading", { name: "Perkiraan biaya bulanan" })).toBeVisible();
-    await expect(costs).toContainText("sekitar Rp3.000.000");
+    const costs = page.locator('[data-hci-region="onboarding-monthly-cost-estimate"]');
+    await expect(costs).toHaveCount(0);
     await expect(page.locator('[data-hci-region="onboarding-accessible-results"]')).not.toHaveAttribute("open", "");
-    const district = costs.getByRole("combobox", { name: "Kecamatan untuk dibandingkan" });
-    await district.selectOption("jakarta-selatan-a");
-    await expect(costs).toContainText("sekitar Rp4.500.000");
-    await expect(costs).not.toContainText("Batas belum terverifikasi");
-    await expect(costs).not.toContainText("Sewa di atas batasmu");
-    await district.selectOption("jakarta-selatan-b");
-    await expect(costs).toContainText("sekitar Rp6.000.000");
-    await expect(costs).toContainText("Sewa rata-rata di atas batas");
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
-    await expect(district).toHaveValue("jakarta-selatan-b");
+    await expect(costs).toHaveCount(0);
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
-    await expect(costs).toContainText("sekitar Rp6.000.000");
+    await expect(costs.getByRole("heading", { name: "Perkiraan biaya bulanan di daerah rekomendasi" })).toBeVisible();
+    await expect(costs).toContainText("sekitar Rp5.250.000 / bulan");
+    await expect(costs).toContainText("Rata-rata total sewa kecamatan + biaya hidup kota");
     await expect(page.locator('[name="extras"]')).toHaveCount(0);
     await expect(page.getByText("Internet stabil", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Dekat layanan kesehatan", { exact: true })).toHaveCount(0);
@@ -349,7 +345,7 @@ test("city changes update live data and invalid budgets block navigation", async
     await expect(districtList).toContainText("Sewa rata-rata di atas batas");
 });
 
-test("mobile sheet reflows with usable fixed navigation and keyboard controls", async ({ page }, testInfo) => {
+test("mobile sheet reflows with usable fixed navigation", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "mobile");
     await startForm(page);
     await page.getByRole("button", { name: "Lanjut", exact: true }).click();
@@ -366,9 +362,6 @@ test("mobile sheet reflows with usable fixed navigation and keyboard controls", 
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: testInfo.outputPath("mobile-budget.png") });
-    await page.getByRole("radio", { name: /Sembunyikan/ }).focus();
-    await page.keyboard.press("ArrowLeft");
-    await expect(page.getByRole("radio", { name: /Tampilkan dengan tanda/ })).toBeChecked();
 });
 
 test("campus points are dots and pressing the chosen campus again clears it", async ({ page }) => {

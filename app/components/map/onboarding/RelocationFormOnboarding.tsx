@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { validateFormStep } from "@/app/engine/onboarding/preview";
 import type { FormAnswers, FormSession, FormStep, LiveOnboardingPreview } from "@/app/engine/onboarding/types";
 import DistrictListItem from "./DistrictListItem";
-import CostEstimate from "./CostEstimate";
+import MonthlyCostSummary from "./MonthlyCostSummary";
 import PurposeStep from "./steps/PurposeStep";
 import BudgetStep from "./steps/BudgetStep";
 import JourneyStep from "./steps/JourneyStep";
@@ -13,6 +13,7 @@ import PrioritiesStep from "./steps/PrioritiesStep";
 import CommuteSummary from "./CommuteSummary";
 import { useSheetDrag } from "./useSheetDrag";
 import { visiblePreviewDistricts } from "@/app/engine/onboarding/visibleDistricts";
+import { monthlyCostEstimate } from "@/app/engine/onboarding/livePreview";
 import { buildFormRelocationProfile } from "@/app/engine/lib/relocationProfile";
 import ProfileReviewFields from "./ProfileReviewFields";
 import ProfileConfirmDialog from "./ProfileConfirmDialog";
@@ -175,12 +176,11 @@ export default function RelocationFormOnboarding({ session, onChange, onStepChan
                     {session.step === 4 && <PrioritiesStep answers={session.answers} onChange={change} errors={errors} />}
                 </fieldset> : reviewedProfile && <div className="mt-6"><ProfileReviewFields profile={reviewedProfile} onEdit={editField} /></div>}
                 {session.step >= 3 && <CommuteSummary preview={preview} loading={commuteLoading} error={commuteError} onRetry={onRetryCommute} />}
-                {session.step >= 2 && preview.available && <CostEstimate preview={preview} selectedDistrictId={selectedDistrictId}
-                    onSelectDistrict={onSelectDistrict} disabled={isSaving} />}
+                {session.step === 4 && (preview.available || previewLoading) && <MonthlyCostSummary estimate={preview.available ? monthlyCostEstimate(preview) : null} loading={previewLoading} />}
                 {saveError && <p role="alert" className="alert alert-error mt-4 text-sm">{saveError}</p>}
                 {previewLoading && <p role="status" className="mt-4 text-sm text-ink-muted">Memuat data kecamatan…</p>}
                 {previewError && <p role="alert" className="mt-4 text-sm text-error">{previewError}<button type="button" onClick={onRetryPreview} className="btn btn-ghost min-h-11 px-2 text-xs text-primary underline">Coba lagi</button></p>}
-                {preview.available && session.step >= 2 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan yang memenuhi semua batas dari data dan estimasi tersedia.</p>}
+                {preview.available && session.step >= 4 && preview.eligibleCount === 0 && <p role="status" className="mt-4 text-sm leading-relaxed text-ink-muted">Belum ada kecamatan yang memenuhi semua batas dari data dan estimasi tersedia.</p>}
                 {preview.available && <details className="mt-5 border-t border-rule pt-1 text-xs" data-hci-region="onboarding-accessible-results">
                     <summary className="min-h-11 cursor-pointer py-3 font-semibold text-primary">Lihat daftar kecamatan dan batasnya</summary>
                     <p className="mb-2 text-ink-muted">Sumber dan status data dicantumkan per kecamatan. Batas kecamatan memakai geometri tersimpan atau BIG RBI.</p>

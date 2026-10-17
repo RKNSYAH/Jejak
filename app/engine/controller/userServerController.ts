@@ -2,15 +2,15 @@ import "server-only";
 import { createAdminClient } from "../lib/admin";
 import { createClient } from "../lib/server";
 
-export async function getAuthenticatedClaims() {
+export async function getAuthenticatedIdentity() {
     const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    return error ? null : data?.claims ?? null;
+    const { data, error } = await supabase.auth.getUser();
+    return error || !data.user ? null : { ...data.user, sub: data.user.id };
 }
 
 export async function getAuthenticatedUserId() {
-    const claims = await getAuthenticatedClaims();
-    const userId = claims?.sub;
+    const user = await getAuthenticatedIdentity();
+    const userId = user?.id;
     return typeof userId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)
         ? userId
         : null;
@@ -34,12 +34,12 @@ function displayName(value: unknown): string | null {
 
 export async function getAccountSummary(): Promise<AccountSummary | null> {
     const supabase = await createClient();
-    const { data, error } = await supabase.auth.getClaims();
-    const claims = error ? null : data?.claims;
-    if (!claims) return null;
+    const { data, error } = await supabase.auth.getUser();
+    const user = error ? null : data.user;
+    if (!user) return null;
 
-    const metadata = claims.user_metadata ?? {};
-    const email = typeof claims.email === "string" ? claims.email.split("@")[0] : null;
+    const metadata = user.user_metadata ?? {};
+    const email = typeof user.email === "string" ? user.email.split("@")[0] : null;
     const firstLast = [metadata.given_name, metadata.family_name]
         .filter((value): value is string => typeof value === "string" && !!value.trim()).join(" ");
     const name = [metadata.full_name, metadata.display_name, firstLast, metadata.name, email]

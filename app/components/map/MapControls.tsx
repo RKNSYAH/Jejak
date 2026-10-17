@@ -124,7 +124,7 @@ export default function MapControls(props: MapControlsProps) {
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setAreaOpen(false); }}>
                     <button type="button" onClick={() => setAreaOpen((open) => !open)} onKeyDown={(event) => { if (event.key === "Escape") setAreaOpen(false); }}
                         aria-label={`Wilayah: ${area?.name ?? "belum dipilih"}`} aria-expanded={areaOpen} aria-controls="map-area-options"
-                        className="btn btn-ghost h-9 min-h-9 gap-1 rounded-xl px-2 text-sm font-semibold text-ink focus-visible:-outline-offset-2 md:h-11 md:min-h-11">
+                         className="btn btn-ghost h-11 min-h-11 gap-1 rounded-xl px-2 text-sm font-semibold text-ink focus-visible:-outline-offset-2">
                         <MapPin aria-hidden="true" className="size-4 md:hidden" />
                         <span className="hidden md:inline">{area?.name ?? "Pilih wilayah"}</span>
                         <ChevronDown aria-hidden="true" className="size-4 text-ink-muted" />
@@ -141,7 +141,7 @@ export default function MapControls(props: MapControlsProps) {
                 <search data-hci-region="search" className={`dropdown min-w-0 flex-1 ${searchOpen ? "dropdown-open" : "dropdown-close"}`}
                     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
                     <form onSubmit={(event) => { event.preventDefault(); if (matches[0]) { closeSearch(); props.onSelect(matches[0]); } }}>
-                        <label className="input h-9 min-h-9 w-full rounded-xl border-0 px-2 shadow-none md:h-11 md:min-h-11 md:gap-3 md:border md:border-rule md:px-3">
+                        <label className="input h-11 min-h-11 w-full rounded-xl border-0 px-2 shadow-none md:gap-3 md:border md:border-rule md:px-3">
                             <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                             <span className="sr-only">Cari kecamatan</span>
                             <input type="search" placeholder="Cari kecamatan…" value={query}
@@ -149,7 +149,7 @@ export default function MapControls(props: MapControlsProps) {
                                 onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }}
                                 onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }}
                                 aria-controls={searchOpen ? "zone-search-results" : undefined}
-                                className="min-w-0 flex-1 text-base md:text-sm" />
+                                className="min-w-0 flex-1 text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:text-sm" />
                         </label>
                     </form>
                     <div id="zone-search-results" className="dropdown-content mt-2 max-h-[min(16rem,40dvh)] w-full min-w-64 overflow-y-auto overscroll-contain rounded-2xl border border-rule bg-base-100 p-2 font-body shadow-overlay">

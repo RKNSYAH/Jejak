@@ -265,7 +265,7 @@ test("saved priority weights reorder districts without a destination", () => {
     assert.equal(topFor({ career: 0.2, housing: 1 }), "jakarta-selatan-a");
 });
 
-test("rent median above limit stays ranked as unverified; total monthly budget remains strict", () => {
+test("rent median above limit stays unverified; over-budget monthly costs remain ranked", () => {
     const withRent = (value: number) => ({ ...areas[0], facts: [{ ...areas[0].facts[0], value }] }) satisfies OnboardingArea;
     const evaluate = (rent: number) => evaluateLiveOnboarding({
         goal: "work", cityId: cities[0].city_id, monthlyBudget: null, maximumRent: 2_000_000,
@@ -306,7 +306,23 @@ test("rent median above limit stays ranked as unverified; total monthly budget r
     }, 2, { cities, areas: [areas[0]], destinations: [] }).districts[0];
 
     assert.equal(monthlyCostPreview(4_800_000).eligible, true);
-    assert.equal(monthlyCostPreview(4_799_999).eligible, false);
+    const overBudget = monthlyCostPreview(4_799_999);
+    assert.equal(overBudget.eligible, false);
+    assert.equal(overBudget.financialEligible, false);
+    assert.ok(overBudget.warnings.includes("Perkiraan biaya bulanan di atas anggaran"));
+    assert.equal(overBudget.rank, 1);
+
+    const budgetComparison = evaluateLiveOnboarding({
+        goal: "work", cityId: cities[0].city_id, monthlyBudget: 5_000_000, maximumRent: null,
+        housing: ["kos"], destinationId: null, destinationName: null, destinationPoint: null,
+        transport: "transit", commuteMinutes: 45, overBudget: "mark",
+        weights: { opportunity: 0, affordability: 100, mobility: 0, environment: 0 },
+    }, 2, { cities, areas, destinations: [] });
+    const withinBudgetDistrict = budgetComparison.districts.find((item) => item.district.zone_id === "jakarta-selatan-a")!;
+    const overBudgetDistrict = budgetComparison.districts.find((item) => item.district.zone_id === "jakarta-selatan-b")!;
+    assert.equal(overBudgetDistrict.eligible, false);
+    assert.ok(overBudgetDistrict.score! < withinBudgetDistrict.score!);
+    assert.equal(overBudgetDistrict.rank, 2);
 });
 
 test("monthly cost average uses complete costs from top recommendations, including over-limit medians", () => {

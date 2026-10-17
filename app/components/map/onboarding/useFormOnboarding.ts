@@ -16,6 +16,8 @@ export function useFormOnboarding(account: AccountScope, profileLoaded = true, h
     const userId = account.userId;
     const [session, setSession] = useState<FormSession | null>(null);
     const [ready, setReady] = useState(false);
+    const [draftLoaded, setDraftLoaded] = useState(false);
+    const [savedDraft, setSavedDraft] = useState<unknown>(null);
     const [storyOpenRequest, setStoryOpenRequest] = useState(0);
     const [storageAvailable, setStorageAvailable] = useState(true);
     const [data, setData] = useState<OnboardingDataResponse>(emptyData);
@@ -27,8 +29,8 @@ export function useFormOnboarding(account: AccountScope, profileLoaded = true, h
     const [previewCityOverride, setPreviewCityOverride] = useState<string | null | undefined>(undefined);
 
     useEffect(() => {
-        if (ready || !profileLoaded) return;
-        const demoRequested = new URLSearchParams(window.location.search).get("onboarding") === "demo";
+        if (draftLoaded) return;
+        let cancelled = false;
         const timer = window.setTimeout(() => {
             void (async () => {
                 let local: ReturnType<typeof readOnboardingDraftRecord> = null;
@@ -37,20 +39,29 @@ export function useFormOnboarding(account: AccountScope, profileLoaded = true, h
                 let remote = null;
                 try { remote = await fetchOnboardingDraft(account, "form"); }
                 catch { /* Keep the browser copy when the account draft service is unavailable. */ }
-                const saved = remote && (!local?.updatedAt || Date.parse(remote.updatedAt) > Date.parse(local.updatedAt))
+                const draft = remote && (!local?.updatedAt || Date.parse(remote.updatedAt) > Date.parse(local.updatedAt))
                     ? remote.draft : local?.draft;
-                const parsed = parseFormSession(saved);
-                setSession(parsed ? {
-                    ...parsed,
-                    status: hasSavedProfile && !demoRequested && parsed.status === "active" ? "paused" : parsed.status,
-                    baseRevision: parsed.baseRevision ?? null,
-                    answers: { ...parsed.answers, experience: null, extras: [] },
-                } : null);
-                setReady(true);
+                if (!cancelled && !account.signal.aborted) {
+                    setSavedDraft(draft ?? null);
+                    setDraftLoaded(true);
+                }
             })();
         }, 0);
-        return () => window.clearTimeout(timer);
-    }, [account, hasSavedProfile, profileLoaded, ready, userId]);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [account, draftLoaded, userId]);
+
+    useEffect(() => {
+        if (ready || !profileLoaded || !draftLoaded) return;
+        const demoRequested = new URLSearchParams(window.location.search).get("onboarding") === "demo";
+        const parsed = parseFormSession(savedDraft);
+        setSession(parsed ? {
+            ...parsed,
+            status: hasSavedProfile && !demoRequested && parsed.status === "active" ? "paused" : parsed.status,
+            baseRevision: parsed.baseRevision ?? null,
+            answers: { ...parsed.answers, experience: null, extras: [] },
+        } : null);
+        setReady(true);
+    }, [draftLoaded, hasSavedProfile, profileLoaded, ready, savedDraft]);
 
     useEffect(() => {
         if (!ready || !session) return;

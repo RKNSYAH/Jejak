@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type RefObject } from "react";
-import { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
+import { useMemo } from "react";
+import { Layer, Marker, Source } from "react-map-gl/maplibre";
 import { Check } from "lucide-react";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import type { FilterSpecification } from "maplibre-gl";
 import { hasHousingStatistics, isLiveRecommendationSample, isTopRanked, labeledDistrictIds, onboardingCategoryValue, scoreRange } from "@/app/engine/onboarding/livePreview";
 import type { LiveOnboardingPreview, LivePreviewMapContext, OnboardingCampus } from "@/app/engine/onboarding/types";
 import type { MapCategory, ZoneGeometry } from "@/app/engine/types";
@@ -13,7 +12,6 @@ import { planningCoverageLabel } from "@/app/engine/onboarding/planningReach";
 import PlanningReachLayers from "../PlanningReachLayers";
 
 export const ONBOARDING_FILL_ID = "onboarding-district-fill";
-const HATCH_IMAGE = "onboarding-over-limit-hatch";
 
 // Ranked districts show their score; the top three, matching the ranking panel, also carry their rank.
 function DistrictLabel({ item, selected }: { item: LiveOnboardingPreview["districts"][number]; selected: boolean }) {
@@ -44,32 +42,15 @@ function DestinationMarker({ item, selected, onClick }: { item: OnboardingCampus
     </Marker>;
 }
 
-export default function OnboardingMapLayers({ context, preview, geometry, mapRef, mapLoaded, category, selectedDistrictId,
+export default function OnboardingMapLayers({ context, preview, geometry, category, selectedDistrictId,
     onDestination, onSelectDistrict }: {
-    context: LivePreviewMapContext; preview: LiveOnboardingPreview; geometry: ZoneGeometry | null; mapRef: RefObject<MapRef | null>;
-    mapLoaded: boolean; category: MapCategory | null; selectedDistrictId: string | null;
+    context: LivePreviewMapContext; preview: LiveOnboardingPreview; geometry: ZoneGeometry | null;
+    category: MapCategory | null; selectedDistrictId: string | null;
     // `null` clears the campus when the chosen one is pressed again.
     onDestination: (item: OnboardingCampus | null) => void; onSelectDistrict: (id: string) => void;
 }) {
-    const [patternReady, setPatternReady] = useState(false);
     const step = context.step;
     const completed = context.completed;
-
-    useEffect(() => {
-        const map = mapRef.current?.getMap();
-        if (!mapLoaded || !map) return;
-        if (!map.hasImage(HATCH_IMAGE)) {
-            const size = 12;
-            const data = new Uint8Array(size * size * 4);
-            for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-                const offset = (y * size + x) * 4;
-                data.set([33, 41, 124, (x + y) % size < 2 ? 100 : 0], offset);
-            }
-            map.addImage(HATCH_IMAGE, { width: size, height: size, data });
-        }
-        const timer = window.setTimeout(() => setPatternReady(true), 0);
-        return () => window.clearTimeout(timer);
-    }, [mapLoaded, mapRef]);
 
     const districtData = useMemo<FeatureCollection<Polygon | MultiPolygon, {
         zone_id: string; eligible: boolean | null; value: number | null; score: number | null; is_sample: boolean; reach_band: string; top: boolean;
@@ -102,8 +83,6 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
     const showPlanningFill = step >= 3 && !!preview.planningReach && !preview.commute && (category === null || category === "summary" || category === "mobility");
     // While setup is open, only the top-ranked districts stand out so a wide metro doesn't light up all at once.
     const emphasizeTop = showFilled && !completed && preview.ranked.length > 0;
-    const hideExcluded = showFilled && context.overBudget === "hide";
-    const eligibleFilter: FilterSpecification = hideExcluded ? ["!=", ["get", "eligible"], false] : ["all"];
     const selectedRoute = preview.districts.find((item) => item.district.zone_id === selectedDistrictId)?.commuteEstimate?.geometry;
     const routeSamples = useMemo(() => ({ type: "FeatureCollection" as const,
         features: visiblePreviewDistricts(preview, step >= 2).flatMap((item) => item.commuteEstimate?.samples.map((sample) => ({
@@ -122,7 +101,7 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
     if (!preview.available) return null;
     return <>
         <Source id="onboarding-districts" type="geojson" data={districtData}>
-            <Layer id={ONBOARDING_FILL_ID} type="fill" beforeId="building-3d" filter={eligibleFilter}
+            <Layer id={ONBOARDING_FILL_ID} type="fill" beforeId="building-3d"
                 paint={{
                     "fill-color": scoreFill ? ["case", ["==", ["get", "score"], null], "#DCE3EC", ["interpolate", ["linear"], ["get", "score"],
                         scoreFill.low, "#9ED9EB", Math.max(scoreFill.high, scoreFill.low + 1), "#006AD8"]]
@@ -137,15 +116,13 @@ export default function OnboardingMapLayers({ context, preview, geometry, mapRef
                         ? ["case", ["==", ["get", "top"], true], 0.36, ["==", ["get", "eligible"], true], 0.1, ["==", ["get", "eligible"], false], 0.06, 0.08]
                         : ["case", ["==", ["get", "eligible"], true], 0.22, ["==", ["get", "eligible"], false], 0.08, 0.14],
                 }} />
-            {showFilled && !hideExcluded && patternReady && <Layer id="onboarding-over-limit" type="fill" beforeId="building-3d"
-                filter={["==", ["get", "eligible"], false]} paint={{ "fill-pattern": HATCH_IMAGE, "fill-opacity": 0.45 }} />}
-            <Layer id="onboarding-district-outlines" type="line" beforeId="building-3d" filter={eligibleFilter}
+            <Layer id="onboarding-district-outlines" type="line" beforeId="building-3d"
                 paint={{ "line-color": preview.planningReach
                     ? ["case", ["==", ["get", "reach_band"], "near"], "#006AD8", ["==", ["get", "reach_band"], "edge"], "#5F84B1", "#8995A9"]
                     : ["case", ["==", ["get", "eligible"], true], "#006AD8", ["==", ["get", "eligible"], false], "#5F84B1", "#8995A9"],
                     "line-width": emphasizeTop ? ["case", ["==", ["get", "top"], true], 2.6, 1.3] : 1.3, "line-opacity": 0.9 }} />
             {selectedDistrictId && <Layer id="onboarding-selected-outline" type="line" beforeId="building-3d"
-                filter={hideExcluded ? ["all", ["==", ["get", "zone_id"], selectedDistrictId], ["!=", ["get", "eligible"], false]] : ["==", ["get", "zone_id"], selectedDistrictId]}
+                filter={["==", ["get", "zone_id"], selectedDistrictId]}
                 paint={{ "line-color": "#21297C", "line-width": 3, "line-opacity": 1 }} />}
         </Source>
         {step >= 3 && preview.planningReach && !preview.commute && <>

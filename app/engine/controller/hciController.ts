@@ -1,8 +1,11 @@
-import { createClient } from "@/app/engine/lib/server";
+import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
+import { createAdminClient } from "@/app/engine/lib/admin";
 import { isRecord } from "@/app/engine/lib/zoneGeometry";
 import type { HciClick, HciClickBatch } from "../types";
 
 export const MAX_HCI_BATCH = 50;
+export const MAX_HCI_BODY_BYTES = 16_384;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const participant = /^[A-Za-z0-9_-]{1,32}$/;
 const region = /^[a-z0-9-]{1,32}$/;
@@ -40,9 +43,25 @@ export function parseClickBatch(body: unknown): HciClickBatch {
     return { session_id: body.session_id, participant: body.participant, clicks: body.clicks.map(parseClick) };
 }
 
-export async function recordClicks({ session_id, participant, clicks }: HciClickBatch) {
-    const supabase = await createClient();
+export function hciClientHash(request: Request, secret = process.env.SUPABASE_SERVICE_ROLE_KEY): string | null {
+    const ip = request.headers.get("x-forwarded-for")?.trim();
+    if (!secret || !ip || isIP(ip) === 0) return null;
+    return createHmac("sha256", secret).update(ip).digest("hex");
+}
+
+export async function recordClicks({ session_id, participant, clicks }: HciClickBatch, clientHash: string): Promise<number> {
+    const supabase = createAdminClient();
+    const { data, error: limitError } = await supabase.rpc("consume_hci_click_budget", {
+        p_client_hash: clientHash,
+        p_click_count: clicks.length,
+    });
+    if (limitError) throw limitError;
+    const retryAfter = Number(data);
+    if (!Number.isSafeInteger(retryAfter) || retryAfter < 0) throw new Error("Invalid click budget response");
+    if (retryAfter > 0) return retryAfter;
+
     const { error } = await supabase.from("hci_click_events")
         .insert(clicks.map((click) => ({ ...click, session_id, participant })));
     if (error) throw error;
+    return 0;
 }

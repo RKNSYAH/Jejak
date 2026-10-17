@@ -122,10 +122,10 @@ export default function LoginForm({
         <Link href="/" aria-label="Beranda" className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
           <ChevronLeft aria-hidden="true" className="size-6" strokeWidth={1.75} />
         </Link>
-        <BrandLogo large border={false} />
+        <BrandLogo border={false} />
       </header>
       <div className="hidden lg:absolute lg:left-8 lg:top-8 lg:block" data-hci-region="auth-brand">
-        <BrandLogo large />
+        <BrandLogo />
       </div>
       <div className="flex w-full flex-1 flex-col bg-base-100 lg:max-w-xl lg:border-l lg:border-rule lg:shadow-overlay">
         <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 lg:min-h-dvh lg:pb-8">
@@ -220,7 +220,7 @@ export default function LoginForm({
               {(isLogin || isSignup) && (
                 <>
                   <div className="my-4 flex items-center gap-4 text-xs text-ink-muted"><span className="h-px flex-1 bg-rule" /><span>atau</span><span className="h-px flex-1 bg-rule" /></div>
-                  <button type="button" onClick={handleGoogle} disabled={pending} className="btn btn-outline min-h-12 w-full rounded-xl border-ink bg-transparent text-sm font-semibold text-ink shadow-none hover:bg-ink hover:text-on-ink">
+                  <button type="button" onClick={handleGoogle} disabled={true} className="btn btn-outline min-h-12 w-full rounded-xl border-ink bg-transparent text-sm font-semibold text-ink shadow-none hover:bg-ink hover:text-on-ink">
                     {isLogin ? "Masuk dengan Google" : "Daftar dengan Google"}
                   </button>
                   <p className="mt-4 text-sm text-ink-muted">

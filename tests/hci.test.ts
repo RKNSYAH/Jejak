@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_HCI_BATCH, parseClickBatch } from "../app/engine/controller/hciController";
+import { hciClientHash, MAX_HCI_BATCH, MAX_HCI_BODY_BYTES, parseClickBatch } from "../app/engine/controller/hciController";
 import { POST } from "../app/api/hci/route";
 
 const click = {
@@ -35,7 +35,32 @@ test("click batches reject values the database constraints would refuse", () => 
     ]) assert.throws(() => parseClickBatch(bad), /Invalid click/);
 });
 
+test("telemetry rate-limit keys require a valid proxy IP and are keyed hashes", () => {
+    const request = (ip: string) => new Request("http://localhost/api/hci", { headers: { "x-forwarded-for": ip } });
+    const hash = hciClientHash(request("203.0.113.8"), "test-secret");
+    assert.match(hash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(hash, hciClientHash(request("203.0.113.8"), "test-secret"));
+    assert.notEqual(hash, "203.0.113.8");
+    assert.equal(hciClientHash(request("not-an-ip"), "test-secret"), null);
+    assert.equal(hciClientHash(request("203.0.113.8"), ""), null);
+});
+
 test("the telemetry route answers malformed bodies with 400 before touching the database", async () => {
-    const res = await POST(new Request("http://localhost/api/hci", { method: "POST", body: "not json" }));
+    const res = await POST(new Request("http://localhost/api/hci", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "not json",
+    }));
     assert.equal(res.status, 400);
+});
+
+test("the telemetry route rejects oversized and untrusted requests before database access", async () => {
+    const oversized = await POST(new Request("http://localhost/api/hci", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ padding: "x".repeat(MAX_HCI_BODY_BYTES) }),
+    }));
+    assert.equal(oversized.status, 413);
+
+    const untrusted = await POST(new Request("http://localhost/api/hci", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch),
+    }));
+    assert.equal(untrusted.status, 503);
 });

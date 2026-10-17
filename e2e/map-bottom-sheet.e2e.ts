@@ -19,7 +19,7 @@ test("expanded exploration sheet wraps cards and scrolls vertically", async ({ p
     await openDemoMap(page);
 
     const sheet = page.locator('[data-hci-region="zone-list"]');
-    const handle = sheet.getByRole("separator", { name: "Ubah tinggi daftar kecamatan" });
+    const handle = sheet.getByRole("separator");
     const scroller = sheet.locator(".\\@container");
     const cards = sheet.locator("button.card");
     await expect(cards).toHaveCount(zones.length);
@@ -49,4 +49,18 @@ test("expanded exploration sheet wraps cards and scrolls vertically", async ({ p
     await expect(cards.last()).toBeInViewport();
     expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await scroller.evaluate((element) => element.scrollLeft)).toBe(0);
+});
+
+test("center discovery sheet keeps visible area cards selectable", async ({ page }) => {
+    await stubZones(page, zones);
+    await openDemoMap(page);
+
+    const sheet = page.locator('[data-hci-region="zone-list"]');
+    const handle = sheet.getByRole("separator");
+    for (let step = 0; step < 5; step++) await handle.press("ArrowUp");
+    await expect.poll(() => sheet.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(100);
+    const firstCard = sheet.locator("button.card").first();
+    await firstCard.focus();
+    await expect(firstCard).toBeFocused();
+    await firstCard.press("Enter");
 });

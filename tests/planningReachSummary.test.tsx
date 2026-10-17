@@ -23,7 +23,7 @@ test("cleared destination removes old area summary and asks for a new point", ()
     assert.doesNotMatch(html, /Perkiraan jangkauan|Estimasi rute belum tersedia/);
 });
 
-test("reach count follows the same hidden-budget districts as map and list", () => {
+test("reach count includes districts even when a legacy profile hides over-budget areas", () => {
     const center: [number, number] = [106.82, -6.24];
     const area: OnboardingArea = { zone_id: "a", zone_name: "A", city_id: "jakarta-selatan", city_name: "Jakarta Selatan",
         center, is_sample: false, campuses: [], transit_stop_count: 0,
@@ -35,5 +35,5 @@ test("reach count follows the same hidden-budget districts as map and list", () 
     const preview = evaluateLiveOnboarding(preferences, 3, { cities: [], areas: [area], destinations: [] });
     assert.equal(preview.districts[0].reachBand, "near");
     assert.equal(preview.districts[0].eligible, false);
-    assert.match(renderToStaticMarkup(<CommuteSummary preview={preview} />), /0 kecamatan/);
+    assert.match(renderToStaticMarkup(<CommuteSummary preview={preview} />), /1 kecamatan/);
 });

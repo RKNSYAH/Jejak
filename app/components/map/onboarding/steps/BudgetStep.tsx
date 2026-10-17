@@ -1,6 +1,6 @@
 import { housingLabels } from "@/app/engine/onboarding/demoData";
 import { toggleHousing } from "@/app/engine/onboarding/preview";
-import { CheckboxChoices, MoneyField, RadioChoices } from "../FormControls";
+import { CheckboxChoices, MoneyField } from "../FormControls";
 import type { StepProps } from "./PurposeStep";
 
 export default function BudgetStep({ answers, onChange, errors }: StepProps) {
@@ -12,8 +12,6 @@ export default function BudgetStep({ answers, onChange, errors }: StepProps) {
             <MoneyField name="maximumRent" label="Batas sewa per bulan" mobileLabel="Batas sewa" amount={answers.maximumRent} onChange={(maximumRent) => onChange({ maximumRent })}
                 hint={`${ratio === null ? "Isi anggaran hidup dulu." : `${ratio}% dari anggaran.`} Umumnya 30–50%.`} error={errors.maximumRent} />
         </div>
-        <RadioChoices name="overBudget" label="Jika kecamatan melewati batas" value={answers.overBudget} onChange={(overBudget) => onChange({ overBudget })} cards compactMobile
-            choices={[{ value: "mark", label: "Tampilkan dengan tanda", shortLabel: "Tampilkan, diarsir", description: "Diarsir di peta" }, { value: "hide", label: "Sembunyikan", description: "Hanya yang dalam batas" }]} />
         <CheckboxChoices name="housing" label={<>Jenis hunian <span className="font-normal text-ink-muted">· boleh lebih dari satu</span></>}
             values={answers.housing} onToggle={(choice) => onChange({ housing: toggleHousing(answers.housing, choice) })} error={errors.housing}
             choices={(["kos", "apartment", "unsure"] as const).map((value) => ({ value, label: housingLabels[value] }))} />

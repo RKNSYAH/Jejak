@@ -10,8 +10,9 @@ import {
     type KeyboardEvent,
     type Ref,
 } from "react";
-import type { ZoneSummary } from "@/app/engine/types";
+import type { MapCategory, ZoneSummary } from "@/app/engine/types";
 import type { LiveDistrictRecommendation, OnboardingCity } from "@/app/engine/onboarding/types";
+import { formatFactValue, getMapMetricConfig, type EducationMetric } from "./mapMetrics";
 import { planningCoverageLabel } from "@/app/engine/onboarding/planningReach";
 import { hasHousingStatistics } from "@/app/engine/onboarding/livePreview";
 import { formatRupiah } from "@/app/engine/onboarding/demoData";
@@ -65,6 +66,8 @@ export default function MapBottomSheet({
     cityShortlist,
     selectedCityId,
     onSelectCity,
+    category = null,
+    educationMetric = "schools",
 }: {
     zones: ZoneSummary[];
     onSelect: (zone: ZoneSummary) => void;
@@ -85,6 +88,8 @@ export default function MapBottomSheet({
     cityShortlist?: OnboardingCity[];
     selectedCityId?: string | null;
     onSelectCity?: (cityId: string) => void;
+    category?: MapCategory | null;
+    educationMetric?: EducationMetric;
 }) {
     const [height, setHeight] = useState(SHEET_MIN_HEIGHT);
     const [isDragging, setIsDragging] = useState(false);
@@ -199,7 +204,7 @@ export default function MapBottomSheet({
             >
                 <div className="h-1 w-10 rounded-full bg-ink/20" />
             </div>
-            <div inert={!isExpanded} className="shrink-0 px-4 pb-3">
+            <div inert={height <= getMinHeight()} className="shrink-0 px-4 pb-3">
                 <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                     <h2 className="min-w-0 font-sans text-lg font-bold leading-tight text-ink">{title ?? (recommendations ? "Kecamatan dalam pratinjau" : "Pilih kecamatan jejakmu selanjutnya")}</h2>
                     {!resultsMessage && (
@@ -240,7 +245,7 @@ export default function MapBottomSheet({
                     </fieldset>
                 )}
             </div>
-            <div inert={!isExpanded} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
+            <div inert={height <= getMinHeight()} className={`@container min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] scrollbar-gutter-stable ${isExpanded ? "overflow-y-auto overscroll-contain" : "overflow-x-auto overscroll-x-contain"}`}>
                 {!resultsMessage && recommendations && !recommendations.length && (
                     <p role="status" className="py-2 text-sm text-ink-muted">
                         {emptyMessage ?? (
@@ -260,6 +265,8 @@ export default function MapBottomSheet({
                             cityName={zone.city_name}
                             isSample={zone.is_sample}
                             compact={!isExpanded}
+                            category={category}
+                            educationMetric={educationMetric}
                             recommendation={recommendations?.find((item) => item.district.zone_id === zone.zone_id)}
                             restrictSelectionToHousingData={restrictSelectionToHousingData}
                             reachActive={reachActive}
@@ -272,7 +279,7 @@ export default function MapBottomSheet({
     )
 }
 
-function RegionCard({ name, cityName, isSample, compact, onClick, recommendation, restrictSelectionToHousingData, reachActive }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; recommendation?: LiveDistrictRecommendation; restrictSelectionToHousingData: boolean; reachActive: boolean }) {
+function RegionCard({ name, cityName, isSample, compact, onClick, category, educationMetric, recommendation, restrictSelectionToHousingData, reachActive }: { name: string; cityName: string; isSample: boolean; compact: boolean; onClick: () => void; category: MapCategory | null; educationMetric: EducationMetric; recommendation?: LiveDistrictRecommendation; restrictSelectionToHousingData: boolean; reachActive: boolean }) {
     const housingUnavailable = restrictSelectionToHousingData && (!recommendation || !hasHousingStatistics(recommendation));
     const reachStyle = reachActive && recommendation?.reachBand === "near" ? "border-primary bg-primary/10"
         : reachActive && recommendation?.reachBand === "edge" ? "border-secondary bg-accent/20" : "bg-base-100";
@@ -281,6 +288,8 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
         : recommendation?.reasons[0]);
     const missingEvidence = recommendation?.unknowns[0];
     const coverage = recommendation ? planningCoverageLabel(recommendation.reachCoverage) : null;
+    const metric = category && category !== "summary" ? getMapMetricConfig(category, educationMetric) : null;
+    const fact = metric?.metric ? recommendation?.district.facts.find((item) => item.metric.split(":")[0] === metric.metric && item.evidence_type !== "unavailable") : null;
     return (
         <button
             type="button"
@@ -296,6 +305,7 @@ function RegionCard({ name, cityName, isSample, compact, onClick, recommendation
                 {housingUnavailable && !recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">Sewa belum tersedia</span>}
                 {recommendation && <span className="font-body text-xs leading-relaxed text-ink-muted">{recommendation.rent !== null && hasHousingStatistics(recommendation) ? `Rata-rata sewa Rp${formatRupiah(recommendation.rent)}` : "Sewa belum tersedia"}{recommendation.eligible === false ? " · di luar batas" : recommendation.eligible === null ? " · belum terverifikasi" : ""}</span>}
                 {recommendation?.commuteEstimate?.minutes && <span className="font-body text-xs text-ink-muted">Estimasi {recommendation.commuteEstimate.minutes.low}–{recommendation.commuteEstimate.minutes.high} mnt · titik kecamatan</span>}
+                {metric && <span className="font-body text-xs text-ink-muted">{metric.popupLabel}: {fact ? formatFactValue(fact) : "Data belum tersedia"}</span>}
                 {recommendation && recommendation.reachBand !== "unknown" && <span className="font-body text-xs text-ink-muted">{recommendation.reachBand === "near" ? "Dalam perkiraan jangkauan" : recommendation.reachBand === "edge" ? "Tepi perkiraan jangkauan" : "Di luar perkiraan jangkauan"}{recommendation.reachBand === "edge" ? "" : " · titik kecamatan"}</span>}
                 {coverage && <span className="font-body text-xs leading-relaxed text-ink-muted">{coverage}</span>}
                 {explanation && (

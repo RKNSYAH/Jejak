@@ -106,11 +106,12 @@ export default function MapChatComposer({
                             id="map-chat-prompt"
                             name="question"
                             type="text"
+                            disabled={!onSubmit}
                             maxLength={500}
                             value={prompt}
                             onChange={(event) => setPrompt(event.target.value)}
-                            placeholder="Tanya atau ubah asumsi…"
-                            className="input input-ghost h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-1 text-base text-ink shadow-none focus:bg-transparent focus:outline-none md:text-sm"
+                            placeholder={onSubmit ? "Tanya atau ubah asumsi…" : "Tanya peta segera hadir"}
+                            className="input input-ghost h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-1 text-base text-ink shadow-none focus:bg-transparent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-100 md:text-sm"
                         />
                     </div>
                     <button

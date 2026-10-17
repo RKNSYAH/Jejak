@@ -627,17 +627,37 @@ test('migration chain and database contracts', async (t) => {
     assert.deepEqual(await rows('select * from public.subscriptions where user_id = $1', [userA]), []);
   });
 
-  await t.test('click telemetry is insert-only for browsers and constrained like the API', async () => {
+  await t.test('click telemetry is backend-ingested and rate-limited per client', async () => {
     const insert = (region, x) => db.query(`insert into public.hci_click_events
       (session_id, elapsed_ms, region, target, x, y, viewport_width, viewport_height, paint_ms, response_ms)
       values ('6f1c2d3e-4b5a-4c6d-8e7f-001122334455', 1000, $1, 'Pekerjaan', $2, $2, 1280, 720, 16, null)`, [region, x]);
+    const budget = (clientHash, count) => one(`select public.consume_hci_click_budget($1, $2) as retry_after`, [clientHash, count]);
     await asRole('anon', async () => {
-      await insert('categories', 0.5);
-      await assert.rejects(insert('Bad Region', 0.5), /check constraint/);
-      await assert.rejects(insert('map', 2), /check constraint/);
+      await assert.rejects(insert('categories', 0.5), /permission denied/);
+      await assert.rejects(budget('c'.repeat(64), 1), /permission denied/);
       await assert.rejects(rows('select * from public.hci_click_events'), /permission denied/);
       await assert.rejects(rows('select * from public.hci_region_summary'), /permission denied/);
     });
+
+    await asRole('authenticated', async () => {
+      await assert.rejects(insert('categories', 0.5), /permission denied/);
+      await assert.rejects(budget('c'.repeat(64), 1), /permission denied/);
+    });
+
+    await asRole('service_role', async () => {
+      await insert('categories', 0.5);
+      await assert.rejects(insert('Bad Region', 0.5), /check constraint/);
+      await assert.rejects(insert('map', 2), /check constraint/);
+      for (let i = 0; i < 10; i++) assert.equal((await budget('c'.repeat(64), 50)).retry_after, 0);
+      assert.ok((await budget('c'.repeat(64), 1)).retry_after > 0);
+    });
+
+    const access = await one(`select c.relrowsecurity as rls,
+      has_table_privilege('anon', 'private.hci_click_budget', 'select') as anon_can_read,
+      has_function_privilege('service_role', 'public.consume_hci_click_budget(text, integer)', 'execute') as backend_can_limit
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'private' and c.relname = 'hci_click_budget'`);
+    assert.deepEqual(access, { rls: true, anon_can_read: false, backend_can_limit: true });
     assert.deepEqual(await rows('select region, clicks, response_timeouts from public.hci_region_summary'),
       [{ region: 'categories', clicks: 1, response_timeouts: 1 }]);
   });

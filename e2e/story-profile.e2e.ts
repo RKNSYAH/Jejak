@@ -317,7 +317,7 @@ test("reported story preserves 45 minutes, budgets, unknown city destination and
     await expect(review.getByRole("slider")).toHaveCount(4);
     expect(await review.getByRole("slider").evaluateAll((sliders) => sliders.reduce((sum, slider) => sum + Number((slider as HTMLInputElement).value), 0))).toBe(100);
     // Only Kecamatan A (Rp4,5 jt) fits Rp5 jt / Rp2 jt; Kecamatan B's Rp3 jt rent must not stretch the range.
-    const cost = review.locator('[data-hci-region="story-cost-estimate"]');
+    const cost = review.locator('[data-hci-region="onboarding-monthly-cost-estimate"]');
     await expect(cost).toContainText("Perkiraan biaya bulanan di daerah rekomendasi");
     await expect(cost).toContainText("sekitar Rp4.500.000 / bulan");
     await expect(cost).not.toContainText("Data contoh");

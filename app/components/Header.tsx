@@ -1,18 +1,18 @@
 import Link from "next/link";
-import { getAuthenticatedClaims } from "../engine/controller/userServerController";
+import { getAuthenticatedIdentity } from "../engine/controller/userServerController";
 import BrandLogo from "./BrandLogo";
 import MobileMenu from "./MobileMenu";
 
 export default async function Header({ activeHref = "/", overlay = false }: { activeHref?: string; overlay?: boolean }) {
-  const claims = await getAuthenticatedClaims();
-  const startHref = claims ? "/map" : "/login";
+  const identity = await getAuthenticatedIdentity();
+  const startHref = identity ? "/map" : "/login";
   const links = [
     { href: "/", label: "Fitur" },
     { href: "/pricing", label: "Harga" },
   ];
 
   return (
-    <header className={`navbar top-0 z-50 gap-x-4 px-4 font-body sm:gap-x-6 md:px-6 ${overlay ? "absolute inset-x-0 mx-auto max-w-[1200px] text-on-ink sm:px-8 lg:px-6" : "sticky border-b border-rule bg-base-100"}`}>
+    <header className={`navbar top-0 z-50 gap-x-4 px-4 font-body sm:gap-x-6 md:px-6 ${overlay ? "absolute inset-x-0 mx-auto max-w-[1440px] text-on-ink sm:px-8 lg:px-6" : "sticky border-b border-rule bg-base-100"}`}>
       <BrandLogo border={false} inverse={overlay} />
       <nav aria-label="Navigasi utama" className="hidden min-w-0 md:block">
         <ul className="flex items-center gap-6 text-sm">
@@ -34,12 +34,12 @@ export default async function Header({ activeHref = "/", overlay = false }: { ac
         Mulai Jejakmu
       </Link>
       <div className={`ml-auto flex items-center gap-1 md:hidden ${overlay ? "[&>.btn]:text-on-ink" : ""}`}>
-        {!claims && (
+        {!identity && (
           <Link href="/login" className={`inline-flex min-h-11 items-center px-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${overlay ? "text-on-ink" : "text-ink"}`}>
             Masuk
           </Link>
         )}
-        <MobileMenu links={links} activeHref={activeHref} startHref={startHref} signedIn={!!claims} />
+        <MobileMenu links={links} activeHref={activeHref} startHref={startHref} signedIn={!!identity} />
       </div>
     </header>
   );
