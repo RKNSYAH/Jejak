@@ -21,9 +21,9 @@ test("map APIs reject missing, invalid and failed sessions before data access", 
     let authError: Error | null = null;
     let throws = false;
     const client = {
-        auth: { getUser: async () => {
+        auth: { getClaims: async () => {
             if (throws) throw new Error("Auth unavailable");
-            return { data: { user: claims ? { id: claims.sub } : null }, error: authError };
+            return { data: { claims }, error: authError };
         } },
         rpc: async () => { queries += 1; throw new Error("Data must not be queried"); },
     };
@@ -59,7 +59,7 @@ test("map APIs reject missing, invalid and failed sessions before data access", 
 test("authenticated map requests retain successful responses and genuine 404s", async () => {
     const calls: string[] = [];
     const client = {
-        auth: { getUser: async () => ({ data: { user: { id: userId } }, error: null }) },
+        auth: { getClaims: async () => ({ data: { claims: { sub: userId } }, error: null }) },
         rpc: async (name: string) => { calls.push(name); return { data: [], error: null }; },
     };
     const session = spyOn(server, "createClient").mockResolvedValue(client as unknown as Awaited<ReturnType<typeof server.createClient>>);
