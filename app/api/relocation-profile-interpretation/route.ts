@@ -1,5 +1,5 @@
 import { interpretOnboardingStory, refineRelocationProfile } from "@/app/engine/controller/preferenceController";
-import { getAuthenticatedIdentity } from "@/app/engine/controller/userServerController";
+import { getAuthenticatedClaims } from "@/app/engine/controller/userServerController";
 import { getSavedRelocationProfile } from "@/app/engine/controller/relocationProfileController";
 import { readJsonBody } from "@/app/engine/lib/http";
 import { flowErrorResponse, isLangflowConfigured, type FlowErrorMessages } from "@/app/engine/lib/langflow";
@@ -42,11 +42,11 @@ export async function POST(request: Request) {
     }
 
     // Profile interpretation spends model credits, so only signed-in users can run it.
-    const identity = await getAuthenticatedIdentity().catch(() => null);
-    if (!identity) {
+    const claims = await getAuthenticatedClaims().catch(() => null);
+    if (!claims || typeof claims.sub !== "string") {
         return Response.json({ error: "Masuk terlebih dahulu untuk menganalisis rencana." }, { status: 401 });
     }
-    const changed = accountChangedResponse(request, identity.sub);
+    const changed = accountChangedResponse(request, claims.sub);
     if (changed) return changed;
 
     if (!isLangflowConfigured()) {
@@ -80,15 +80,16 @@ async function handleRefinement(request: Request, body: Record<string, unknown>)
         return Response.json({ error: sensitive ? "Hapus data pribadi sensitif sebelum melanjutkan." : "Draf profil tidak valid." }, { status: 400 });
     }
 
-    const identity = await getAuthenticatedIdentity().catch(() => null);
-    if (!identity) return Response.json({ error: "Masuk terlebih dahulu untuk menyunting profil." }, { status: 401 });
+    const claims = await getAuthenticatedClaims().catch(() => null);
+    if (!claims) return Response.json({ error: "Masuk terlebih dahulu untuk menyunting profil." }, { status: 401 });
 
-    const changed = accountChangedResponse(request, identity.sub);
+    if (typeof claims.sub !== "string") return Response.json({ error: "Masuk terlebih dahulu untuk menyunting profil." }, { status: 401 });
+    const changed = accountChangedResponse(request, claims.sub);
     if (changed) return changed;
 
     let saved;
     try {
-        saved = await getSavedRelocationProfile(identity.sub);
+        saved = await getSavedRelocationProfile(claims.sub);
     } catch (error) {
         console.error("Unable to load relocation profile for refinement", error);
         return Response.json({ error: "Profil tersimpan belum dapat dimuat." }, { status: 503 });
